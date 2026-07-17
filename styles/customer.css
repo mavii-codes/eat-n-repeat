@@ -1,0 +1,151 @@
+/* Customer portal design system */
+:root {
+  --cafe-bg: hsl(30, 30%, 95%);
+  --cafe-primary: hsl(25, 60%, 55%); /* warm terracotta */
+  --cafe-accent: hsl(140, 40%, 55%); /* soft green */
+  --cafe-text: hsl(30, 20%, 20%);
+}
+
+body.customer-portal {
+  background: var(--cafe-bg);
+  color: var(--cafe-text);
+  font-family: 'Inter', sans-serif;
+}
+
+/* Glassmorphism card */
+.card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.1);
+  transition: transform 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+}
+
+/* Responsive grid for menu items */
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+/* Toast styling – react-hot-toast overrides */
+.toast-success {
+  background: #16a34a !important;
+  color: white !important;
+  border-radius: 8px !important;
+  padding: 16px !important;
+  font-weight: 500 !important;
+}
+
+.toast-error {
+  background: #dc2626 !important;
+  color: white !important;
+  border-radius: 8px !important;
+  padding: 16px !important;
+  font-weight: 500 !important;
+}
+
+/* Smooth animations */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #b45309, #92400e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Button animations */
+button {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* Input focus states */
+input:focus,
+textarea:focus,
+select:focus {
+  transform: translateY(-2px);
+}
+
+/* Scroll smooth */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(120, 113, 108, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(194, 140, 61, 0.3);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(194, 140, 61, 0.5);
+}
+
+/* Loading skeleton */
+@keyframes loading {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.skeleton {
+  animation: loading 1.5s ease-in-out infinite;
+  background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+/* Image blur load effect */
+img[data-loaded="false"] {
+  filter: blur(10px);
+  transition: filter 0.3s ease-out;
+}
+
+img[data-loaded="true"] {
+  filter: blur(0);
+}
