@@ -10,7 +10,10 @@ import {
   StatCard,
   TrendIcon,
 } from "@/components/admin/StatCard";
-import { dashboardStats, notifications } from "@/lib/admin/mock-data";
+import { useMemo } from "react";
+import { dashboardStats } from "@/lib/admin/mock-data";
+import { useAdminData } from "@/context/AdminDataContext";
+import type { AdminNotification } from "@/lib/admin/types";
 
 function formatChange(value: number) {
   const prefix = value >= 0 ? "+" : "";
@@ -27,8 +30,42 @@ const quickLinks = [
   { href: "/admin/settings", label: "Settings", desc: "System config" },
 ];
 
+function timeAgo(dateString: string) {
+  const timestamp = new Date(dateString).getTime();
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 export default function AdminDashboardPage() {
   const stats = dashboardStats;
+  const { stockItems, deliveryOrders } = useAdminData();
+  const notifications = useMemo<AdminNotification[]>(() => {
+    const lowStock = stockItems
+      .filter((item) => item.quantity <= item.lowStockThreshold)
+      .map((item) => ({
+        id: `low-stock-${item.id}`,
+        type: "low_stock" as const,
+        title: `Low stock: ${item.name} (${item.quantity} ${item.unit} left)`,
+        timestamp: "Needs attention",
+      }));
+
+    const newOrders = deliveryOrders
+      .filter((order) => !order.archived && ["pending", "confirmed"].includes(order.status))
+      .sort((a, b) => new Date(b.orderedAt).getTime() - new Date(a.orderedAt).getTime())
+      .map((order) => ({
+        id: `delivery-${order.id}`,
+        type: "new_order" as const,
+        title: `Delivery order ${order.orderNumber}: ${order.status.replace("_", " ")}`,
+        timestamp: timeAgo(order.orderedAt),
+      }));
+
+    return [...lowStock, ...newOrders].slice(0, 5);
+  }, [stockItems, deliveryOrders]);
 
   return (
     <>

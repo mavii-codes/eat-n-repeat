@@ -11,8 +11,6 @@ import {
 import { initialAdminData } from "@/lib/admin/mock-data";
 import type {
   AdminDataState,
-  AttendanceRecord,
-  AttendanceStatus,
   DeliveryOrder,
   DeliveryOrderInput,
   DeliverySettings,
@@ -92,7 +90,7 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
       ...order,
       orderId: order.orderId ?? order.id,
     })),
-    attendanceRecords: data.attendanceRecords ?? initialAdminData.attendanceRecords ?? [],
+
   };
 }
 
@@ -132,6 +130,7 @@ type AdminDataContextValue = AdminDataState & {
   restoreStoreOrder: (id: string) => void;
   updateStoreOrderStatus: (id: string, status: "pending" | "completed" | "cancelled") => void;
   confirmStoreOrderPayment: (id: string) => void;
+  addStoreOrder: (input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => void;
   addServiceArea: (input: ServiceAreaInput) => void;
   updateServiceArea: (id: string, input: ServiceAreaInput) => void;
   deleteServiceArea: (id: string) => boolean;
@@ -143,11 +142,7 @@ type AdminDataContextValue = AdminDataState & {
   getActiveMenuCategories: () => MenuCategory[];
   getActiveStaffAccounts: () => StaffAccount[];
   getActiveStoreOrders: () => RecentOrder[];
-  clockIn: (staffId: string, staffName: string) => void;
-  clockOut: (staffId: string) => void;
-  addAttendanceRecord: (input: Omit<AttendanceRecord, "id">) => void;
-  updateAttendanceRecord: (id: string, input: Partial<AttendanceRecord>) => void;
-  deleteAttendanceRecord: (id: string) => void;
+
 };
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
@@ -537,6 +532,16 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
+    setData((prev) => ({
+      ...prev,
+      storeOrders: [
+        ...prev.storeOrders,
+        { ...input, id: createId("ord"), archived: false },
+      ],
+    }));
+  }, []);
+
   const addServiceArea = useCallback((input: ServiceAreaInput) => {
     setData((prev) => ({
       ...prev,
@@ -625,107 +630,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     [data.storeOrders],
   );
 
-  const clockIn = useCallback((staffId: string, staffName: string) => {
-    const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
-    const nowTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-    const parseTimeVal = (timeStr: string) => {
-      const [t, modifier] = timeStr.split(" ");
-      let [hours, minutes] = t.split(":").map(Number);
-      if (modifier === "PM" && hours < 12) hours += 12;
-      if (modifier === "AM" && hours === 12) hours = 0;
-      return hours * 60 + minutes;
-    };
-    const nowMins = parseTimeVal(nowTime);
-    const thresholdMins = 8 * 60 + 30; // 08:30 AM
-    const status: AttendanceStatus = nowMins > thresholdMins ? "Late" : "Present";
-
-    setData((prev) => {
-      const exists = prev.attendanceRecords.some((r) => r.staffId === staffId && r.date === todayStr);
-      if (exists) return prev;
-
-      const newRecord: AttendanceRecord = {
-        id: createId("att"),
-        staffId,
-        staffName,
-        date: todayStr,
-        timeIn: nowTime,
-        status,
-      };
-      return {
-        ...prev,
-        attendanceRecords: [...prev.attendanceRecords, newRecord],
-      };
-    });
-  }, []);
-
-  const clockOut = useCallback((staffId: string) => {
-    const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
-    const nowTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-
-    setData((prev) => {
-      return {
-        ...prev,
-        attendanceRecords: prev.attendanceRecords.map((r) => {
-          if (r.staffId === staffId && r.date === todayStr && !r.timeOut && (r.status === "Present" || r.status === "Late")) {
-            let totalHours = undefined;
-            try {
-              const parseTime = (timeStr: string, dateStr: string) => {
-                const [time, modifier] = timeStr.split(" ");
-                let [hours, minutes] = time.split(":").map(Number);
-                if (modifier === "PM" && hours < 12) hours += 12;
-                if (modifier === "AM" && hours === 12) hours = 0;
-                return new Date(`${dateStr}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`);
-              };
-              if (r.timeIn) {
-                const inDate = parseTime(r.timeIn, r.date);
-                const outDate = parseTime(nowTime, r.date);
-                const diffMs = outDate.getTime() - inDate.getTime();
-                if (diffMs > 0) {
-                  totalHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
-                }
-              }
-            } catch (e) {
-              console.error("Error parsing hours:", e);
-            }
-            return {
-              ...r,
-              timeOut: nowTime,
-              status: r.status,
-              totalHours,
-            };
-          }
-          return r;
-        }),
-      };
-    });
-  }, []);
-
-  const addAttendanceRecord = useCallback((input: Omit<AttendanceRecord, "id">) => {
-    setData((prev) => ({
-      ...prev,
-      attendanceRecords: [
-        ...prev.attendanceRecords,
-        { ...input, id: createId("att") },
-      ],
-    }));
-  }, []);
-
-  const updateAttendanceRecord = useCallback((id: string, input: Partial<AttendanceRecord>) => {
-    setData((prev) => ({
-      ...prev,
-      attendanceRecords: prev.attendanceRecords.map((r) =>
-        r.id === id ? { ...r, ...input, id } : r
-      ),
-    }));
-  }, []);
-
-  const deleteAttendanceRecord = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      attendanceRecords: prev.attendanceRecords.filter((r) => r.id !== id),
-    }));
-  }, []);
 
   const value = useMemo<AdminDataContextValue>(
     () => ({
@@ -765,6 +670,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       restoreStoreOrder,
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
+      addStoreOrder,
       addServiceArea,
       updateServiceArea,
       deleteServiceArea,
@@ -776,11 +682,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getActiveMenuCategories,
       getActiveStaffAccounts,
       getActiveStoreOrders,
-      clockIn,
-      clockOut,
-      addAttendanceRecord,
-      updateAttendanceRecord,
-      deleteAttendanceRecord,
+
     }),
     [
       data,
@@ -819,6 +721,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       restoreStoreOrder,
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
+      addStoreOrder,
       addServiceArea,
       updateServiceArea,
       deleteServiceArea,
@@ -830,11 +733,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getActiveMenuCategories,
       getActiveStaffAccounts,
       getActiveStoreOrders,
-      clockIn,
-      clockOut,
-      addAttendanceRecord,
-      updateAttendanceRecord,
-      deleteAttendanceRecord,
+
     ],
   );
 

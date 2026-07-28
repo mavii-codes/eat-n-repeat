@@ -1,180 +1,206 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
-import { MenuCard } from '@/components/customer/MenuCard';
-
-// Mock menu items
-const menuItems = [
-  {
-    id: '1',
-    name: 'Espresso',
-    description: 'Rich and bold single shot of premium espresso',
-    price: 3.50,
-    image: 'https://images.unsplash.com/photo-1510707577900-59ff2b60b381?w=400&h=300&fit=crop',
-    category: 'Coffee',
-    rating: 4.8,
-    reviews: 45,
-    badge: 'Popular',
-  },
-  {
-    id: '2',
-    name: 'Cappuccino',
-    description: 'Creamy cappuccino with perfect foam',
-    price: 4.50,
-    image: 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=400&h=300&fit=crop',
-    category: 'Coffee',
-    rating: 4.7,
-    reviews: 38,
-  },
-  {
-    id: '3',
-    name: 'Croissant',
-    description: 'Buttery French croissant, fresh baked daily',
-    price: 3.99,
-    image: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=400&h=300&fit=crop',
-    category: 'Pastry',
-    rating: 4.9,
-    reviews: 52,
-    badge: 'New',
-  },
-  {
-    id: '4',
-    name: 'Chocolate Cake',
-    description: 'Rich and moist chocolate cake slice',
-    price: 5.99,
-    image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400&h=300&fit=crop',
-    category: 'Dessert',
-    rating: 4.8,
-    reviews: 67,
-    badge: 'Bestseller',
-  },
-  {
-    id: '5',
-    name: 'Avocado Toast',
-    description: 'Toasted bread with fresh avocado and egg',
-    price: 6.50,
-    image: 'https://images.unsplash.com/photo-1587016731348-f3246612efb3?w=400&h=300&fit=crop',
-    category: 'Food',
-    rating: 4.6,
-    reviews: 34,
-  },
-  {
-    id: '6',
-    name: 'Iced Latte',
-    description: 'Cold and refreshing iced latte with smooth milk',
-    price: 4.99,
-    image: 'https://images.unsplash.com/photo-1517668808822-9ebb02ae2a0e?w=400&h=300&fit=crop',
-    category: 'Coffee',
-    rating: 4.7,
-    reviews: 41,
-  },
-  {
-    id: '7',
-    name: 'Berry Muffin',
-    description: 'Blueberry muffin with a crispy top',
-    price: 3.99,
-    image: 'https://images.unsplash.com/photo-1607920591413-264ec466e81f?w=400&h=300&fit=crop',
-    category: 'Pastry',
-    rating: 4.5,
-    reviews: 28,
-  },
-  {
-    id: '8',
-    name: 'Caesar Salad',
-    description: 'Fresh greens with homemade Caesar dressing',
-    price: 7.99,
-    image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop',
-    category: 'Food',
-    rating: 4.4,
-    reviews: 22,
-  },
-];
-
-const categories = ['All', 'Coffee', 'Pastry', 'Dessert', 'Food'];
+import { MenuCard, type CustomerMenuItem } from '@/components/customer/MenuCard';
+import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
+import { useAdminData } from '@/context/AdminDataContext';
 
 export default function MenuPage() {
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [searchQuery, setSearchQuery] = useState('');
+  const { menuItems, menuCategories } = useAdminData();
 
-  const filteredItems = menuItems.filter(item => {
-    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         item.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  const [favorites, setFavorites] = useState<string[]>([]);
 
-  const handleAddToCart = (item: typeof menuItems[0]) => {
-    console.log('Added to cart:', item);
-    // Toast notification would go here
+  const activeCategories = useMemo(() => {
+    const categoryList = menuCategories.filter((c) => !c.archived).map((c) => c.name);
+    return ['All', ...categoryList];
+  }, [menuCategories]);
+
+  const formattedMenuItems = useMemo<CustomerMenuItem[]>(() => {
+    const activeItems = menuItems.filter((item) => !item.archived);
+    if (activeItems.length === 0) return [];
+
+    return activeItems.map((item, index) => {
+      const categoryObj = menuCategories.find((c) => c.id === item.categoryId);
+      const categoryName = categoryObj?.name || 'General';
+
+      // Designate specific popular items across different categories as Bestsellers by ID
+      const isBestseller = ['mi-1', 'mi-4', 'mi-5', 'mi-7'].includes(item.id);
+      const isStaffPick = ['mi-2'].includes(item.id);
+      const isPopular = ['mi-8'].includes(item.id);
+
+      const badge = isBestseller
+        ? '⭐ Bestseller'
+        : isStaffPick
+        ? '🔥 Staff Pick'
+        : isPopular
+        ? '🍟 Popular'
+        : undefined;
+
+      return {
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        image: item.image,
+        category: categoryName,
+        rating: 4.7 + (index % 3) * 0.1,
+        reviews: 24 + index * 5,
+        badge,
+        available: item.available,
+      };
+    });
+  }, [menuItems, menuCategories]);
+
+  const filteredItems = useMemo(() => {
+    return formattedMenuItems.filter((item) => {
+      const matchesCategory =
+        selectedCategory === 'All' ||
+        item.category?.toLowerCase() === selectedCategory.toLowerCase();
+      const matchesSearch =
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesCategory && matchesSearch;
+    });
+  }, [formattedMenuItems, selectedCategory, searchQuery]);
+
+  const handleAddToCart = (item: CustomerMenuItem) => {
+    setCartItems((prev) => {
+      const existing = prev.find((ci) => ci.menuItem.id === item.id);
+      if (existing) {
+        return prev.map((ci) =>
+          ci.menuItem.id === item.id ? { ...ci, quantity: ci.quantity + 1 } : ci
+        );
+      }
+      return [...prev, { menuItem: item, quantity: 1 }];
+    });
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50 via-white to-amber-50">
-      <CustomerHeader title="Our Menu" subtitle="Browse our carefully curated selection of fresh items" />
+  const handleUpdateQuantity = (id: string, delta: number) => {
+    setCartItems((prev) =>
+      prev
+        .map((ci) => {
+          if (ci.menuItem.id === id) {
+            const newQty = ci.quantity + delta;
+            return newQty > 0 ? { ...ci, quantity: newQty } : null;
+          }
+          return ci;
+        })
+        .filter(Boolean) as CartItem[]
+    );
+  };
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Search & Filter Section */}
-        <div className="mb-12 space-y-6">
-          {/* Search Bar */}
-          <div className="relative">
-            <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-amber-900/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              placeholder="Search for your favorite item..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 rounded-full border border-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-700 focus:border-transparent bg-white shadow-sm"
-            />
+  const handleRemoveItem = (id: string) => {
+    setCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== id));
+  };
+
+  const handleClearCart = () => setCartItems([]);
+
+  const handleToggleFavorite = (id: string) => {
+    setFavorites((prev) =>
+      prev.includes(id) ? prev.filter((favId) => favId !== id) : [...prev, id]
+    );
+  };
+
+  const totalCartCount = cartItems.reduce((acc, ci) => acc + ci.quantity, 0);
+  const totalCartSubtotal = cartItems.reduce((acc, ci) => acc + ci.menuItem.price * ci.quantity, 0);
+
+  return (
+    <div className="min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col justify-between">
+      <CustomerHeader
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        fulfillmentType={fulfillmentType}
+        setFulfillmentType={setFulfillmentType}
+        cartCount={totalCartCount}
+        cartSubtotal={totalCartSubtotal}
+        onOpenCart={() => setIsCartOpen(true)}
+        favoritesCount={favorites.length}
+      />
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
+        {/* Title */}
+        <div className="border-b border-amber-200/60 pb-4 flex flex-col sm:flex-row justify-between sm:items-end gap-4">
+          <div>
+            <h1 className="text-3xl font-black text-[#451a03]">Explore Our Full Menu</h1>
+            <p className="text-sm text-stone-600 mt-1">
+              Select items below and add to cart for instant delivery or pick-up.
+            </p>
           </div>
 
-          {/* Category Filter */}
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {categories.map(category => (
+          <div className="text-xs font-extrabold text-stone-600 bg-white px-4 py-2 rounded-full border border-amber-200/80 shadow-2xs">
+            Showing <span className="font-extrabold text-[#B91C1C]">{filteredItems.length}</span> items
+          </div>
+        </div>
+
+        {/* Category Tabs Strip */}
+        <div className="flex items-center gap-2.5 overflow-x-auto pb-2 no-scrollbar">
+          {activeCategories.map((category) => {
+            const isActive = selectedCategory.toLowerCase() === category.toLowerCase();
+            return (
               <button
                 key={category}
                 onClick={() => setSelectedCategory(category)}
-                className={`px-6 py-2 rounded-full font-semibold whitespace-nowrap transition ${
-                  selectedCategory === category
-                    ? 'bg-amber-700 text-white shadow-lg'
-                    : 'bg-white border-2 border-amber-200 text-amber-900 hover:border-amber-300'
+                className={`px-5 py-2.5 rounded-full font-extrabold text-xs sm:text-sm whitespace-nowrap transition-all duration-200 shadow-2xs border ${
+                  isActive
+                    ? 'bg-[#B91C1C] text-white border-[#B91C1C] shadow-red-500/20 scale-105'
+                    : 'bg-white text-stone-700 border-amber-200/80 hover:border-amber-400 hover:bg-amber-50/50'
                 }`}
               >
                 {category}
               </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
 
-        {/* Results Info */}
-        <div className="mb-8">
-          <p className="text-sm text-amber-900/70">
-            Showing <span className="font-semibold">{filteredItems.length}</span> item{filteredItems.length !== 1 ? 's' : ''}
-            {selectedCategory !== 'All' && ` in ${selectedCategory}`}
-          </p>
-        </div>
-
-        {/* Menu Grid */}
+        {/* Food Grid */}
         {filteredItems.length > 0 ? (
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            {filteredItems.map(item => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredItems.map((item) => (
               <MenuCard
                 key={item.id}
                 {...item}
+                isFavorite={favorites.includes(item.id)}
                 onAddToCart={handleAddToCart}
+                onToggleFavorite={handleToggleFavorite}
               />
             ))}
           </div>
         ) : (
-          <div className="text-center py-16">
-            <div className="text-6xl mb-4">🔍</div>
-            <h3 className="text-2xl font-bold text-amber-950 mb-2">No items found</h3>
-            <p className="text-amber-900/70">Try adjusting your search or filter criteria</p>
+          <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-amber-300 p-8 shadow-2xs">
+            <div className="text-5xl mb-4">🔍</div>
+            <h3 className="text-xl font-extrabold text-[#451a03] mb-1">No matching menu items</h3>
+            <p className="text-sm text-stone-600 mb-6">
+              Try adjusting your search query or selecting a different category.
+            </p>
+            <button
+              onClick={() => {
+                setSelectedCategory('All');
+                setSearchQuery('');
+              }}
+              className="px-6 py-2.5 bg-[#B91C1C] text-white rounded-xl text-xs font-extrabold hover:bg-[#991B1B] transition shadow-md"
+            >
+              Show All Menu Items
+            </button>
           </div>
         )}
       </main>
+
+      <CartDrawer
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        cartItems={cartItems}
+        onUpdateQuantity={handleUpdateQuantity}
+        onRemoveItem={handleRemoveItem}
+        onClearCart={handleClearCart}
+        fulfillmentType={fulfillmentType}
+        setFulfillmentType={setFulfillmentType}
+      />
     </div>
   );
 }

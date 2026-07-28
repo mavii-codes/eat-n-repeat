@@ -35,6 +35,7 @@ export const metadata: Metadata = {
 
 import { AdminDataProvider } from "@/context/AdminDataContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { OnlineIndicator } from "@/components/shared/OnlineIndicator";
 
 export default function RootLayout({
   children,
@@ -47,6 +48,7 @@ export default function RootLayout({
       className={`${dmSans.variable} ${geistMono.variable} ${playfair.variable} ${pacifico.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        <OnlineIndicator />
         <AdminDataProvider>
           <AuthProvider>{children}</AuthProvider>
         </AdminDataProvider>

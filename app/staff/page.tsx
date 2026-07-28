@@ -17,21 +17,37 @@ import {
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
-import type { MenuItem, MenuItemInput, StockItem, StaffRole, DeliveryStatus, AttendanceRecord, AttendanceStatus } from "@/lib/admin/types";
+import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
 
-type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "profile" | "attendance";
+type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "profile" | "pos";
 
-type PeriodSummary = {
-  staffId: string;
-  staffName: string;
-  position: string;
-  period: string; // e.g. "2026-07-13 to 2026-07-19" or "July 2026"
-  presentCount: number;
-  lateCount: number;
-  excusedCount: number;
-  absentCount: number;
-  totalHours: number;
-};
+type POSCartItem = { item: MenuItem; qty: number };
+
+const PHP_DENOMINATIONS = [
+  { value: 1000, label: "₱1,000 bill" },
+  { value: 500, label: "₱500 bill" },
+  { value: 200, label: "₱200 bill" },
+  { value: 100, label: "₱100 bill" },
+  { value: 50, label: "₱50 bill" },
+  { value: 20, label: "₱20 bill" },
+  { value: 10, label: "₱10 coin" },
+  { value: 5, label: "₱5 coin" },
+  { value: 1, label: "₱1 coin" },
+  { value: 0.25, label: "₱0.25 coin" },
+];
+
+function breakdownChange(change: number): { label: string; count: number }[] {
+  let remaining = Math.round(change * 100) / 100;
+  const result: { label: string; count: number }[] = [];
+  for (const denom of PHP_DENOMINATIONS) {
+    if (remaining >= denom.value) {
+      const count = Math.floor(remaining / denom.value);
+      remaining = Math.round((remaining - count * denom.value) * 100) / 100;
+      result.push({ label: denom.label, count });
+    }
+  }
+  return result;
+}
 
 function getWeekRange(dateStr: string): { start: string; end: string; label: string } {
   const [year, month, day] = dateStr.split("-").map(Number);
@@ -69,19 +85,13 @@ export default function StaffPortalPage() {
     stockCategories,
     updateStoreOrderStatus,
     confirmStoreOrderPayment,
+    addStoreOrder,
     addMenuItem,
     updateMenuItem,
-    updateStockItem,
     updateDeliveryStatus,
     getMenuCategoryName,
     getStockCategoryName,
-    attendanceRecords,
     staffAccounts,
-    addAttendanceRecord,
-    updateAttendanceRecord,
-    deleteAttendanceRecord,
-    clockIn,
-    clockOut,
   } = useAdminData();
 
   const router = useRouter();
@@ -96,6 +106,7 @@ export default function StaffPortalPage() {
     price: 0,
     categoryId: menuCategories[0]?.id || "",
     available: true,
+    image: "",
   });
 
   // Profile Form States
@@ -112,22 +123,27 @@ export default function StaffPortalPage() {
   const [pwdError, setPwdError] = useState<string | null>(null);
   const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
 
-  // Attendance Filter States
-  const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
-  const [attendanceForm, setAttendanceForm] = useState({
-    staffId: "",
-    date: new Date().toLocaleDateString("en-CA"),
-    timeIn: "08:00 AM",
-    timeOut: "05:00 PM",
-    status: "Present" as AttendanceStatus,
-    reason: "",
-    totalHours: undefined as number | undefined,
-  });
-  const [searchStaff, setSearchStaff] = useState("");
-  const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString("en-CA"));
-  const [viewTab, setViewTab] = useState<"daily" | "weekly" | "monthly">("daily");
-  const [attendanceSubTab, setAttendanceSubTab] = useState<"timecard" | "monitor">("timecard");
+
+  // POS Cashier States
+  const [posCart, setPosCart] = useState<POSCartItem[]>([]);
+  const [posTendered, setPosTendered] = useState("");
+  const [posReceiptOpen, setPosReceiptOpen] = useState(false);
+  const [posSearchTerm, setPosSearchTerm] = useState("");
+  const [posCategoryFilter, setPosCategoryFilter] = useState("all");
+  const [posReceiptData, setPosReceiptData] = useState<{
+    cart: POSCartItem[];
+    subtotal: number;
+    tax: number;
+    total: number;
+    tendered: number;
+    change: number;
+    breakdown: { label: string; count: number }[];
+    receiptNo: string;
+    date: string;
+    time: string;
+    cashier: string;
+  } | null>(null);
+
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
 
@@ -157,211 +173,7 @@ export default function StaffPortalPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const myFullHistory = useMemo(() => {
-    if (!user) return [];
-    return attendanceRecords
-      .filter((r) => r.staffId === user.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [attendanceRecords, user]);
 
-  const todayStr = useMemo(() => {
-    return new Date().toLocaleDateString("en-CA");
-  }, []);
-
-  const todayRecord = useMemo(() => {
-    if (!user) return null;
-    return attendanceRecords.find((r) => r.staffId === user.id && r.date === todayStr);
-  }, [attendanceRecords, user, todayStr]);
-
-  const myHistory = useMemo(() => {
-    if (!user) return [];
-    return attendanceRecords
-      .filter((r) => r.staffId === user.id)
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, 5);
-  }, [attendanceRecords, user]);
-
-  const activeStaff = useMemo(() => {
-    return staffAccounts.filter((acc) => !acc.archived && acc.role !== "admin");
-  }, [staffAccounts]);
-
-  const weeklySummaries = useMemo(() => {
-    const groups: { [key: string]: PeriodSummary } = {};
-
-    attendanceRecords.forEach((record) => {
-      const staffAccount = staffAccounts.find((s) => s.id === record.staffId);
-      const position = staffAccount ? (staffAccount.role === "head_staff" ? "Head Staff" : "Staff") : "Staff";
-      
-      let weekLabel = "Unknown Period";
-      try {
-        weekLabel = getWeekRange(record.date).label;
-      } catch (e) {
-        console.error(e);
-      }
-
-      const key = `${record.staffId}_${weekLabel}`;
-
-      if (!groups[key]) {
-        groups[key] = {
-          staffId: record.staffId,
-          staffName: record.staffName,
-          position,
-          period: weekLabel,
-          presentCount: 0,
-          lateCount: 0,
-          excusedCount: 0,
-          absentCount: 0,
-          totalHours: 0,
-        };
-      }
-
-      if (record.status === "Present") groups[key].presentCount++;
-      else if (record.status === "Late") groups[key].lateCount++;
-      else if (record.status === "Excused") groups[key].excusedCount++;
-      else if (record.status === "Absent") groups[key].absentCount++;
-
-      if (record.totalHours) {
-        groups[key].totalHours = Number((groups[key].totalHours + record.totalHours).toFixed(2));
-      }
-    });
-
-    return Object.values(groups).sort((a, b) => b.period.localeCompare(a.period) || a.staffName.localeCompare(b.staffName));
-  }, [attendanceRecords, staffAccounts]);
-
-  const filteredWeeklySummaries = useMemo(() => {
-    return weeklySummaries.filter((s) => s.staffName.toLowerCase().includes(searchStaff.toLowerCase()));
-  }, [weeklySummaries, searchStaff]);
-
-  const monthlySummaries = useMemo(() => {
-    const groups: { [key: string]: PeriodSummary } = {};
-
-    attendanceRecords.forEach((record) => {
-      const staffAccount = staffAccounts.find((s) => s.id === record.staffId);
-      const position = staffAccount ? (staffAccount.role === "head_staff" ? "Head Staff" : "Staff") : "Staff";
-
-      let monthLabel = "Unknown Month";
-      try {
-        monthLabel = getMonthLabel(record.date);
-      } catch (e) {
-        console.error(e);
-      }
-
-      const key = `${record.staffId}_${monthLabel}`;
-
-      if (!groups[key]) {
-        groups[key] = {
-          staffId: record.staffId,
-          staffName: record.staffName,
-          position,
-          period: monthLabel,
-          presentCount: 0,
-          lateCount: 0,
-          excusedCount: 0,
-          absentCount: 0,
-          totalHours: 0,
-        };
-      }
-
-      if (record.status === "Present") groups[key].presentCount++;
-      else if (record.status === "Late") groups[key].lateCount++;
-      else if (record.status === "Excused") groups[key].excusedCount++;
-      else if (record.status === "Absent") groups[key].absentCount++;
-
-      if (record.totalHours) {
-        groups[key].totalHours = Number((groups[key].totalHours + record.totalHours).toFixed(2));
-      }
-    });
-
-    return Object.values(groups).sort((a, b) => b.period.localeCompare(a.period) || a.staffName.localeCompare(b.staffName));
-  }, [attendanceRecords, staffAccounts]);
-
-  const filteredMonthlySummaries = useMemo(() => {
-    return monthlySummaries.filter((s) => s.staffName.toLowerCase().includes(searchStaff.toLowerCase()));
-  }, [monthlySummaries, searchStaff]);
-
-  // Submit manual record Form
-  function handleAttendanceSubmit() {
-    if (!attendanceForm.staffId || !attendanceForm.date) {
-      alert("Staff Member and Date are required fields.");
-      return;
-    }
-
-    const selectedStaff = staffAccounts.find((s) => s.id === attendanceForm.staffId);
-    if (!selectedStaff) return;
-
-    let computedHours: number | undefined = undefined;
-    if (attendanceForm.timeIn && attendanceForm.timeOut && (attendanceForm.status === "Present" || attendanceForm.status === "Late")) {
-      try {
-        const parseTime = (timeStr: string, dateStr: string) => {
-          const [t, modifier] = timeStr.split(" ");
-          let [hoursVal, minutesVal] = t.split(":").map(Number);
-          if (modifier === "PM" && hoursVal < 12) hoursVal += 12;
-          if (modifier === "AM" && hoursVal === 12) hoursVal = 0;
-          return new Date(`${dateStr}T${String(hoursVal).padStart(2, "0")}:${String(minutesVal).padStart(2, "0")}:00`);
-        };
-        const inD = parseTime(attendanceForm.timeIn, attendanceForm.date);
-        const outD = parseTime(attendanceForm.timeOut, attendanceForm.date);
-        const diff = outD.getTime() - inD.getTime();
-        if (diff > 0) {
-          computedHours = Number((diff / (1000 * 60 * 60)).toFixed(2));
-        }
-      } catch (e) {
-        console.error("Hours calculation error:", e);
-      }
-    }
-
-    const payload = {
-      staffId: attendanceForm.staffId,
-      staffName: selectedStaff.name,
-      date: attendanceForm.date,
-      timeIn: (attendanceForm.status === "Present" || attendanceForm.status === "Late") ? attendanceForm.timeIn : undefined,
-      timeOut: (attendanceForm.status === "Present" || attendanceForm.status === "Late") ? attendanceForm.timeOut : undefined,
-      status: attendanceForm.status,
-      reason: attendanceForm.status === "Excused" ? attendanceForm.reason : undefined,
-      totalHours: computedHours !== undefined ? computedHours : attendanceForm.totalHours,
-    };
-
-    if (editingRecord) {
-      updateAttendanceRecord(editingRecord.id, payload);
-    } else {
-      addAttendanceRecord(payload);
-    }
-    setAttendanceModalOpen(false);
-  }
-
-  function openCreateAttendance() {
-    setEditingRecord(null);
-    setAttendanceForm({
-      staffId: activeStaff[0]?.id || "",
-      date: new Date().toLocaleDateString("en-CA"),
-      timeIn: "08:00 AM",
-      timeOut: "05:00 PM",
-      status: "Present",
-      reason: "",
-      totalHours: undefined,
-    });
-    setAttendanceModalOpen(true);
-  }
-
-  function openEditAttendance(record: AttendanceRecord) {
-    setEditingRecord(record);
-    setAttendanceForm({
-      staffId: record.staffId,
-      date: record.date,
-      timeIn: record.timeIn || "",
-      timeOut: record.timeOut || "",
-      status: record.status,
-      reason: record.reason || "",
-      totalHours: record.totalHours,
-    });
-    setAttendanceModalOpen(true);
-  }
-
-  function handleDeleteAttendance(record: AttendanceRecord) {
-    if (confirm(`Are you sure you want to delete this attendance log for ${record.staffName}?`)) {
-      deleteAttendanceRecord(record.id);
-    }
-  }
 
   // Load profile values on mount/user load
   useEffect(() => {
@@ -433,20 +245,18 @@ export default function StaffPortalPage() {
       },
     ];
 
-    if (user?.role === "head_staff" || user?.role === "staff") {
-      list.push({
-        id: "attendance",
-        label: "Staff Attendance",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-          </svg>
-        ),
-      });
-    }
+    list.push({
+      id: "pos" as StaffTab,
+      label: "POS Cashier",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="M2 10h20" />
+          <path d="M6 15h2M10 15h2M14 15h2" />
+          <path d="M12 4V2" />
+        </svg>
+      ),
+    });
 
     list.push({
       id: "profile",
@@ -495,18 +305,6 @@ export default function StaffPortalPage() {
       }));
   }, [stockItems]);
 
-  // Handle stock adjustment (+/- buttons)
-  function handleAdjustStock(item: StockItem, amount: number) {
-    const updatedQty = Math.max(0, item.quantity + amount);
-    updateStockItem(item.id, {
-      name: item.name,
-      categoryId: item.categoryId,
-      quantity: updatedQty,
-      unit: item.unit,
-      lowStockThreshold: item.lowStockThreshold,
-    });
-  }
-
   // Toggle availability of menu items
   function handleToggleAvailability(item: MenuItem) {
     updateMenuItem(item.id, {
@@ -527,6 +325,7 @@ export default function StaffPortalPage() {
       price: 0,
       categoryId: menuCategories[0]?.id || "",
       available: true,
+      image: "",
     });
     setMenuModalOpen(true);
   }
@@ -540,6 +339,7 @@ export default function StaffPortalPage() {
       price: item.price,
       categoryId: item.categoryId,
       available: item.available,
+      image: item.image || "",
     });
     setMenuModalOpen(true);
   }
@@ -601,6 +401,81 @@ export default function StaffPortalPage() {
     setConfirmNewPwd("");
   }
 
+  // POS Cashier Functions
+  const posSubtotal = posCart.reduce((sum, ci) => sum + ci.item.price * ci.qty, 0);
+  const posTaxRate = 0; // No tax for simplicity, set to e.g. 0.12 for 12% VAT
+  const posTax = Math.round(posSubtotal * posTaxRate * 100) / 100;
+  const posTotal = posSubtotal + posTax;
+  const posTenderedNum = parseFloat(posTendered) || 0;
+  const posChange = posTenderedNum - posTotal;
+
+  function posAddToCart(item: MenuItem) {
+    setPosCart((prev) => {
+      const existing = prev.find((ci) => ci.item.id === item.id);
+      if (existing) return prev.map((ci) => ci.item.id === item.id ? { ...ci, qty: ci.qty + 1 } : ci);
+      return [...prev, { item, qty: 1 }];
+    });
+  }
+
+  function posRemoveFromCart(itemId: string) {
+    setPosCart((prev) => prev.filter((ci) => ci.item.id !== itemId));
+  }
+
+  function posUpdateQty(itemId: string, qty: number) {
+    if (qty <= 0) { posRemoveFromCart(itemId); return; }
+    setPosCart((prev) => prev.map((ci) => ci.item.id === itemId ? { ...ci, qty } : ci));
+  }
+
+  function posClearCart() {
+    setPosCart([]);
+    setPosTendered("");
+  }
+
+  function posCompleteTransaction() {
+    if (posCart.length === 0 || posTenderedNum < posTotal) return;
+    const now = new Date();
+    const receiptNo = `ENR-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    
+    // Save to global context storeOrders list
+    addStoreOrder({
+      orderId: receiptNo.slice(-8), // use short ID for dashboard visibility
+      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      items: posCart.map((ci) => `${ci.item.name} (${ci.qty}x)`).join(", "),
+      total: posTotal,
+      status: "completed",
+      paid: true,
+    });
+
+    setPosReceiptData({
+      cart: [...posCart],
+      subtotal: posSubtotal,
+      tax: posTax,
+      total: posTotal,
+      tendered: posTenderedNum,
+      change: posChange,
+      breakdown: breakdownChange(posChange),
+      receiptNo,
+      date: now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }),
+      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      cashier: user?.name || "Cashier",
+    });
+    setPosReceiptOpen(true);
+  }
+
+  function posNewTransaction() {
+    setPosCart([]);
+    setPosTendered("");
+    setPosReceiptOpen(false);
+    setPosReceiptData(null);
+  }
+
+  const posFilteredItems = menuItems.filter((item) => {
+    if (item.archived || !item.available) return false;
+    if (posCategoryFilter !== "all" && item.categoryId !== posCategoryFilter) return false;
+    if (posSearchTerm && !item.name.toLowerCase().includes(posSearchTerm.toLowerCase())) return false;
+    return true;
+  });
+
   if (!user) return null;
 
   return (
@@ -661,127 +536,43 @@ export default function StaffPortalPage() {
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === "dashboard" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Overview</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Café Summary</h1>
-              <p className="text-sm text-muted">Monitor sales overview and alert notifications.</p>
-            </div>
+          <>
+          <div className="space-y-5">
+            <header className="flex flex-col gap-4 rounded-3xl border border-white/80 bg-white/85 px-5 py-5 shadow-[0_20px_60px_-42px_rgba(74,20,28,0.5)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-7">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.28em] text-accent">Staff workspace</p>
+                <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-[#63131d] sm:text-4xl">Good day, {user.name.split(" ")[0]}!</h1>
+                <p className="mt-2 text-sm text-muted">Here&apos;s your café pulse for today.</p>
+              </div>
+              <div className="flex items-center gap-3 rounded-2xl border border-accent/10 bg-[#fffaf7] px-3 py-2.5">
+                <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-[#7b1726] to-[#c53a50] font-serif text-lg font-bold text-white shadow-lg">{user.name.slice(0, 1).toUpperCase()}{stockNotifications.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-sans font-bold">{stockNotifications.length}</span>}</div>
+                <div className="pr-2"><p className="text-sm font-bold text-[#63131d]">{user.name}</p><p className="text-xs capitalize text-muted">{user.role.replace("_", " ")}</p></div>
+              </div>
+            </header>
 
-            {/* Sales Stats Summary */}
-            <section className="grid gap-5 sm:grid-cols-3">
-              <StatCard
-                title="Today's Sales Revenue"
-                value={`₱${salesSummary.totalSales.toLocaleString()}`}
-                subtitle="In-store & completed deliveries"
-                icon={<DollarIcon />}
-                tone="wine"
-              />
-              <StatCard
-                title="Completed Orders"
-                value={salesSummary.completedOrders.toLocaleString()}
-                subtitle="Fulfilled customer requests"
-                icon={<TrendIcon />}
-                tone="rose"
-              />
-              <StatCard
-                title="Pending Workload"
-                value={salesSummary.pendingOrders.toLocaleString()}
-                subtitle="Orders awaiting prep/delivery"
-                icon={<ClipboardIcon />}
-                tone="red"
-              />
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                { label: "Today's Orders", value: salesSummary.totalOrders, note: "All order channels", color: "bg-[#fff0ea] text-[#8b3b25]", icon: "▣" },
+                { label: "Pending Orders", value: salesSummary.pendingOrders, note: "Needs attention", color: "bg-[#fff5dc] text-[#9a6100]", icon: "◷" },
+                { label: "Completed", value: salesSummary.completedOrders, note: "Served or delivered", color: "bg-[#eaf8ed] text-[#24753c]", icon: "✓" },
+                { label: "Low Stock", value: stockNotifications.length, note: "Ingredients to watch", color: "bg-[#fff0f0] text-[#bd2525]", icon: "!" },
+              ].map((stat) => <div key={stat.label} className="rounded-2xl border border-[#eaded8] bg-white/80 p-4 shadow-[0_14px_34px_-30px_rgba(55,20,20,0.55)]"><div className="flex items-start justify-between gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl text-xl font-bold ${stat.color}`}>{stat.icon}</span><span className="text-[11px] font-semibold text-muted">Live</span></div><p className="mt-4 text-sm font-medium text-ink">{stat.label}</p><p className="mt-1 font-serif text-3xl font-bold text-[#63131d]">{stat.value}</p><p className="mt-1 text-xs text-muted">{stat.note}</p></div>)}
             </section>
 
-            {/* My Attendance History */}
-            <div className="grid gap-5">
-              <div className="w-full">
-                <AdminPanel title="My Attendance History" subtitle="Your 5 most recent attendance entries">
-                  <div className="overflow-x-auto px-6 py-4">
-                    <table className="w-full text-left text-xs min-w-[650px]">
-                      <thead>
-                        <tr className="admin-table-head text-muted border-b border-accent/10 pb-2">
-                          <th className="py-2 font-medium">Date</th>
-                          <th className="py-2 font-medium">Time In</th>
-                          <th className="py-2 font-medium">Time Out</th>
-                          <th className="py-2 font-medium">Status</th>
-                          <th className="py-2 font-medium">Reason</th>
-                          <th className="py-2 font-medium text-right">Total Hours</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-accent/5">
-                        {myHistory.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="text-center py-8 text-muted">No attendance logs found.</td>
-                          </tr>
-                        ) : (
-                          myHistory.map((h) => (
-                            <tr key={h.id} className="hover:bg-accent-light/5 text-ink">
-                              <td className="py-3 font-semibold text-[#800000]">{h.date}</td>
-                              <td className="py-3 text-muted font-mono">{h.timeIn || "—"}</td>
-                              <td className="py-3 text-muted font-mono">{h.timeOut || "—"}</td>
-                              <td className="py-3">
-                                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold border ${
-                                  !h.timeOut && (h.status === "Present" || h.status === "Late")
-                                    ? "bg-amber-50 text-amber-800 border-amber-200"
-                                    : h.status === "Late"
-                                    ? "bg-amber-50 text-amber-800 border-amber-200"
-                                    : h.status === "Absent"
-                                    ? "bg-red-50 text-red-800 border-red-200"
-                                    : h.status === "Excused"
-                                    ? "bg-blue-50 text-blue-800 border-blue-200"
-                                    : "bg-green-50 text-green-800 border-green-200"
-                                }`}>
-                                  {!h.timeOut && (h.status === "Present" || h.status === "Late") ? "On Shift" : h.status}
-                                </span>
-                              </td>
-                              <td className="py-3 text-muted italic max-w-[200px] truncate" title={h.reason || ""}>
-                                {h.reason || "—"}
-                              </td>
-                              <td className="py-3 text-right font-semibold">{h.totalHours ? `${h.totalHours} hrs` : "—"}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.85fr)]">
+              <AdminPanel title="Today’s Orders" subtitle="Latest in-store tickets" action={<button onClick={() => setActiveTab("orders")} className="text-xs font-bold text-accent hover:underline">View all</button>}>
+                <div className="divide-y divide-accent/10 px-5">{storeOrders.filter((order) => !order.archived).slice(0, 5).map((order) => <div key={order.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3.5 text-sm"><span className="font-bold text-[#63131d]">{order.orderId}</span><span className="min-w-[110px] flex-1 text-xs text-muted">{order.items}</span><span className="font-semibold">₱{order.total}</span><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold capitalize ${order.status === "completed" ? "bg-green-100 text-green-700" : order.status === "cancelled" ? "bg-stone-100 text-stone-600" : "bg-amber-100 text-amber-800"}`}>{order.status}</span></div>)}{storeOrders.filter((order) => !order.archived).length === 0 && <p className="py-9 text-center text-sm text-muted">No orders have arrived yet.</p>}</div>
+              </AdminPanel>
+              <div className="space-y-5">
+                <AdminPanel title="Inventory alerts" subtitle="Ingredients needing attention" action={<button onClick={() => setActiveTab("inventory")} className="text-xs font-bold text-accent hover:underline">Open stock</button>}>
+                  <div className="divide-y divide-accent/10 px-5">{stockNotifications.slice(0, 3).map((alert) => <div key={alert.id} className="flex gap-3 py-3.5"><span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-sm font-bold text-red-600">!</span><div className="min-w-0"><p className="truncate text-sm font-bold text-[#63131d]">{alert.title.replace("Low stock: ", "")}</p><p className="mt-0.5 text-xs text-muted">{alert.details}</p></div></div>)}{stockNotifications.length === 0 && <p className="py-7 text-center text-sm text-muted">All ingredients are within their stock levels.</p>}</div>
                 </AdminPanel>
+                <AdminPanel title="Quick actions" subtitle="Jump into your shift"><div className="grid grid-cols-3 gap-2 px-4 py-4 text-center text-[11px] font-semibold text-[#63131d]">{[{ label: "Orders", icon: "▣", action: () => setActiveTab("orders") }, { label: "Stock", icon: "□", action: () => setActiveTab("inventory") }, { label: "Menu", icon: "☷", action: () => setActiveTab("menu") }].map((action, index) => <button key={action.label} onClick={action.action} className="group flex flex-col items-center gap-2 rounded-xl py-1.5 hover:bg-accent-light"><span className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg ${["bg-rose-50 text-accent", "bg-emerald-50 text-emerald-700", "bg-amber-50 text-amber-700"][index]}`}>{action.icon}</span>{action.label}</button>)}</div></AdminPanel>
               </div>
-            </div>
+            </section>
 
-            {/* Notification alert panels */}
-            <div className="grid gap-5 md:grid-cols-2">
-              <AdminPanel title="System Alerts & Warnings" subtitle="Low inventory notices">
-                <div className="divide-y divide-accent/10 px-6 py-2 max-h-[300px] overflow-y-auto">
-                  {stockNotifications.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted">All stock levels are optimal. No alerts.</p>
-                  ) : (
-                    stockNotifications.map((notif) => (
-                      <div key={notif.id} className="py-4 flex gap-3">
-                        <span className="h-2.5 w-2.5 rounded-full bg-amber-500 mt-1.5 shrink-0" />
-                        <div>
-                          <p className="text-sm font-semibold text-amber-900">{notif.title}</p>
-                          <p className="text-xs text-muted mt-0.5">{notif.details}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </AdminPanel>
-
-              <AdminPanel title="Staff Quick Reference" subtitle="Operating guidelines">
-                <div className="p-6 text-sm text-muted leading-relaxed space-y-3">
-                  <p>Welcome to your staff shifts! To maintain restaurant efficiency, make sure to:</p>
-                  <ul className="list-disc pl-5 space-y-1.5 text-xs">
-                    <li>Confirm in-store payments as customers pay.</li>
-                    <li>Update inventory stock counts as raw ingredients arrive.</li>
-                    <li>Keep menu availability checked (toggle off items if ingredients run out).</li>
-                    <li>Update delivery status promptly so customers can track deliveries.</li>
-                  </ul>
-                </div>
-              </AdminPanel>
-            </div>
           </div>
+          </>
         )}
 
         {/* TAB 2: CUSTOMER ORDERS */}
@@ -939,8 +730,19 @@ export default function StaffPortalPage() {
                     {menuItems.filter(m => !m.archived).map((item) => (
                       <tr key={item.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
                         <td className="px-4 py-3 font-medium text-[#800000]">
-                          <p>{item.name}</p>
-                          <p className="text-[10px] text-muted font-normal mt-0.5">{item.description}</p>
+                          <div className="flex items-center gap-3">
+                            {item.image ? (
+                              <img src={item.image} alt={item.name} className="h-10 w-10 shrink-0 rounded-lg object-cover border border-accent/10 shadow-sm" />
+                            ) : (
+                              <div className="h-10 w-10 shrink-0 rounded-lg bg-accent/5 text-accent flex items-center justify-center font-bold text-sm">
+                                {item.name.charAt(0)}
+                              </div>
+                            )}
+                            <div>
+                              <p>{item.name}</p>
+                              <p className="text-[10px] text-muted font-normal mt-0.5">{item.description}</p>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-xs text-muted">{getMenuCategoryName(item.categoryId)}</td>
                         <td className="px-4 py-3 font-semibold">₱{item.price}</td>
@@ -979,10 +781,10 @@ export default function StaffPortalPage() {
             <div>
               <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Inventory</span>
               <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Stock Levels</h1>
-              <p className="text-sm text-muted">Monitor and adjust ingredient counts inline.</p>
+              <p className="text-sm text-muted">View ingredient levels. Staff cannot manually reduce stock.</p>
             </div>
 
-            <AdminPanel title="Raw Ingredients & Stock Items" subtitle="Quantities directly editable">
+            <AdminPanel title="Raw Ingredients & Stock Items" subtitle="Read-only stock levels for staff">
               <div className="overflow-x-auto p-2">
                 <table className="w-full text-left text-sm min-w-[640px]">
                   <thead>
@@ -990,8 +792,7 @@ export default function StaffPortalPage() {
                       <th className="px-4 py-3 font-medium rounded-l-lg">Ingredient</th>
                       <th className="px-4 py-3 font-medium">Category</th>
                       <th className="px-4 py-3 font-medium">Alert Level</th>
-                      <th className="px-4 py-3 font-medium text-center">Remaining Quantity</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg text-center">Stock Adjustment</th>
+                      <th className="px-4 py-3 font-medium rounded-r-lg text-center">Remaining Quantity</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1010,23 +811,6 @@ export default function StaffPortalPage() {
                           </td>
                           <td className="px-4 py-3 text-center font-bold text-sm">
                             {item.quantity} <span className="text-xs font-normal text-muted">{item.unit}</span>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="inline-flex gap-1.5 justify-center items-center">
-                              <button
-                                onClick={() => handleAdjustStock(item, -1)}
-                                className="h-7 w-7 rounded-lg border border-accent/15 hover:bg-accent-light font-bold text-[#800000] text-sm flex items-center justify-center transition-colors cursor-pointer"
-                              >
-                                -
-                              </button>
-                              <span className="text-xs font-mono font-semibold w-6 text-center">{item.quantity}</span>
-                              <button
-                                onClick={() => handleAdjustStock(item, 1)}
-                                className="h-7 w-7 rounded-lg border border-accent/15 hover:bg-accent-light font-bold text-[#800000] text-sm flex items-center justify-center transition-colors cursor-pointer"
-                              >
-                                +
-                              </button>
-                            </div>
                           </td>
                         </tr>
                       );
@@ -1246,577 +1030,299 @@ export default function StaffPortalPage() {
           </div>
         )}
 
-        {/* TAB 7: STAFF ATTENDANCE MONITORING (HEAD STAFF & STAFF) */}
-        {activeTab === "attendance" && (user.role === "head_staff" || user.role === "staff") && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Attendance</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Staff Attendance</h1>
-              <p className="text-sm text-muted">
-                {user.role === "head_staff"
-                  ? "Manage your personal shift clock and monitor employee attendance records."
-                  : "Clock in, clock out, and monitor your personal attendance history."}
-              </p>
-            </div>
+        {/* TAB: POS CASHIER */}
+        {activeTab === "pos" && (
+          <div className="space-y-5">
+            <header>
+              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Point of Sale</span>
+              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">POS Cashier</h1>
+              <p className="text-sm text-muted">Process walk-in transactions, calculate change, and generate receipts.</p>
+            </header>
 
-            {/* Sub-tabs for Head Staff only */}
-            {user.role === "head_staff" && (
-              <div className="flex gap-2 border-b border-accent/10 pb-4 mb-2">
-                <button
-                  onClick={() => setAttendanceSubTab("timecard")}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                    attendanceSubTab === "timecard"
-                      ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                      : "text-muted hover:bg-accent-light/10"
-                  }`}
-                >
-                  My Timecard
-                </button>
-                <button
-                  onClick={() => setAttendanceSubTab("monitor")}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                    attendanceSubTab === "monitor"
-                      ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                      : "text-muted hover:bg-accent-light/10"
-                  }`}
-                >
-                  Monitor Team
-                </button>
-              </div>
-            )}
+            <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+              {/* LEFT: Menu Item Picker */}
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-3">
+                  <div className="flex-1 min-w-[180px]">
+                    <AdminInput
+                      type="text"
+                      value={posSearchTerm}
+                      onChange={(e) => setPosSearchTerm(e.target.value)}
+                      placeholder="Search menu items..."
+                    />
+                  </div>
+                  <div className="min-w-[140px]">
+                    <AdminSelect value={posCategoryFilter} onChange={(e) => setPosCategoryFilter(e.target.value)}>
+                      <option value="all">All Categories</option>
+                      {menuCategories.filter((c) => !c.archived).map((cat) => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </AdminSelect>
+                  </div>
+                </div>
 
-            {/* Standard Staff View OR Head Staff personal Timecard view */}
-            {(user.role === "staff" || (user.role === "head_staff" && attendanceSubTab === "timecard")) && (
-              <div className="space-y-6">
-                {/* Personal Shift Clock Card */}
-                <div className="bg-white rounded-2xl border border-accent/10 p-6 shadow-sm max-w-md">
-                  <div className="text-center space-y-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">Shift Clock</p>
-                    <h2 className="text-4xl font-mono font-bold text-[#800000] tracking-tight">{currentTime || "00:00:00 AM"}</h2>
-                    <p className="text-xs text-muted font-medium">
-                      {new Date().toLocaleDateString("en-US", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                    </p>
-
-                    <div className="border-t border-accent/10 pt-4 flex flex-col items-center gap-3">
-                      {todayRecord ? (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted">Status today:</span>
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                              todayRecord.status === "Present"
-                                ? "bg-green-50 text-green-800 border-green-200"
-                                : todayRecord.status === "Late"
-                                ? "bg-amber-50 text-amber-800 border-amber-200"
-                                : todayRecord.status === "Absent"
-                                ? "bg-red-50 text-red-800 border-red-200"
-                                : "bg-blue-50 text-blue-800 border-blue-200"
-                            }`}>
-                              {todayRecord.status}
-                            </span>
-                          </div>
-
-                          {todayRecord.timeOut ? (
-                            <div className="space-y-1 text-center">
-                              <p className="text-sm text-ink">
-                                Shift Completed: <span className="font-mono font-semibold">{todayRecord.timeIn}</span> to <span className="font-mono font-semibold">{todayRecord.timeOut}</span>
-                              </p>
-                              {todayRecord.totalHours && (
-                                <p className="text-xs font-bold text-[#800000]">
-                                  Total Hours Worked: {todayRecord.totalHours} hrs
-                                </p>
-                              )}
-                            </div>
-                          ) : todayRecord.status === "Absent" || todayRecord.status === "Excused" ? (
-                            <p className="text-sm text-muted italic">
-                              {todayRecord.status === "Absent" ? "Marked as Absent for today." : `Excused Absence: ${todayRecord.reason || ""}`}
-                            </p>
+                <div className="grid gap-2 sm:grid-cols-2 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+                  {posFilteredItems.length === 0 ? (
+                    <p className="col-span-full text-center py-12 text-sm text-muted">No menu items found.</p>
+                  ) : (
+                    posFilteredItems.map((item) => {
+                      const inCart = posCart.find((ci) => ci.item.id === item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => posAddToCart(item)}
+                          className="group relative flex items-center gap-3 rounded-xl border border-accent/10 bg-white p-3 text-left shadow-sm transition-all hover:shadow-md hover:border-[#800000]/30 active:scale-[0.98] cursor-pointer"
+                        >
+                          {item.image ? (
+                            <img src={item.image} alt={item.name} className="h-11 w-11 shrink-0 rounded-lg object-cover border border-accent/5 shadow-sm" />
                           ) : (
-                            <div className="space-y-4 w-full">
-                              <p className="text-sm text-muted">
-                                Clocked In at: <span className="font-mono font-semibold text-ink">{todayRecord.timeIn}</span>
-                              </p>
-                              <button
-                                onClick={() => {
-                                  if (confirm("Are you sure you want to Clock Out?")) {
-                                    clockOut(user.id);
-                                  }
-                                }}
-                                className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-sm transition-all duration-200 hover:shadow cursor-pointer text-sm"
-                              >
-                                Clock Out of Shift
-                              </button>
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#800000]/10 to-[#800000]/5 text-[#800000] font-serif font-bold text-lg">
+                              {item.name.charAt(0)}
                             </div>
                           )}
-                        </>
-                      ) : (
-                        <div className="space-y-4 w-full">
-                          <p className="text-sm text-muted">You are currently off duty.</p>
-                          <button
-                            onClick={() => {
-                              if (confirm("Are you sure you want to Clock In now?")) {
-                                clockIn(user.id, user.name);
-                              }
-                            }}
-                            className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl shadow-sm transition-all duration-200 hover:shadow cursor-pointer text-sm"
-                          >
-                            Clock In for Shift
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Personal History Logs */}
-                <AdminPanel
-                  title="My Attendance History"
-                  subtitle="Your personal clock-in and clock-out database logs"
-                >
-                  <div className="overflow-x-auto p-2">
-                    <table className="w-full text-left text-sm min-w-[700px]">
-                      <thead>
-                        <tr className="admin-table-head text-muted border-b border-accent/10">
-                          <th className="px-4 py-3 font-medium rounded-l-lg">Date</th>
-                          <th className="px-4 py-3 font-medium">Time In</th>
-                          <th className="px-4 py-3 font-medium">Time Out</th>
-                          <th className="px-4 py-3 font-medium">Total Hours</th>
-                          <th className="px-4 py-3 font-medium">Status</th>
-                          <th className="rounded-r-lg px-4 py-3 font-medium">Excuse / Remarks</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {myFullHistory.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="text-center py-8 text-muted">
-                              No attendance records logged yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          myFullHistory.map((record) => (
-                            <tr key={record.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                              <td className="px-4 py-3 text-muted text-xs font-semibold">{record.date}</td>
-                              <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeIn || "—"}</td>
-                              <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeOut || "—"}</td>
-                              <td className="px-4 py-3 font-semibold text-xs text-ink">{record.totalHours ? `${record.totalHours} hrs` : "—"}</td>
-                              <td className="px-4 py-3">
-                                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                                  record.status === "Present"
-                                    ? "bg-green-50 text-green-800 border-green-200"
-                                    : record.status === "Late"
-                                    ? "bg-amber-50 text-amber-800 border-amber-200"
-                                    : record.status === "Absent"
-                                    ? "bg-red-50 text-red-800 border-red-200"
-                                    : "bg-blue-50 text-blue-800 border-blue-200"
-                                }`}>
-                                  {record.status}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-xs text-muted italic max-w-[200px] truncate" title={record.reason || ""}>
-                                {record.reason || "—"}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </AdminPanel>
-              </div>
-            )}
-
-            {/* Head Staff Team Monitoring View */}
-            {user.role === "head_staff" && attendanceSubTab === "monitor" && (
-              <div className="space-y-6">
-                {/* Attendance Quick Stats */}
-                <section className="grid gap-5 sm:grid-cols-4">
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Present Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-green-600">
-                      {attendanceRecords.filter(r => r.date === todayStr && r.status === "Present").length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Clocked in on time today</p>
-                  </div>
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Late Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-amber-600">
-                      {attendanceRecords.filter(r => r.date === todayStr && r.status === "Late").length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Clocked in past 08:30 AM</p>
-                  </div>
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Excused Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-blue-600">
-                      {attendanceRecords.filter(r => r.date === todayStr && r.status === "Excused").length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Approved absences with reasons</p>
-                  </div>
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Absent Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-red-500">
-                      {activeStaff.filter(s => !attendanceRecords.some(r => r.staffId === s.id && r.date === todayStr)).length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Absent/awaiting clock-in</p>
-                  </div>
-                </section>
-
-                {/* Search and Filters */}
-                <div className="bg-white rounded-2xl border border-accent/10 p-5 shadow-sm space-y-4">
-                  <div className="flex flex-wrap items-end gap-4 justify-between">
-                    <div className="flex flex-wrap gap-4 items-center">
-                      <div className="min-w-[200px]">
-                        <AdminField label="Search Staff Member">
-                          <AdminInput
-                            type="text"
-                            value={searchStaff}
-                            onChange={(e) => setSearchStaff(e.target.value)}
-                            placeholder="Search by name..."
-                          />
-                        </AdminField>
-                      </div>
-                      {viewTab === "daily" && (
-                        <div className="min-w-[150px]">
-                          <AdminField label="Filter Date">
-                            <AdminInput
-                              type="date"
-                              value={filterDate}
-                              onChange={(e) => setFilterDate(e.target.value)}
-                            />
-                          </AdminField>
-                        </div>
-                      )}
-                      {(searchStaff || (viewTab === "daily" && filterDate)) && (
-                        <button
-                          onClick={() => {
-                            setSearchStaff("");
-                            setFilterDate("");
-                          }}
-                          className="mt-6 text-xs text-accent font-semibold hover:underline cursor-pointer"
-                        >
-                          Clear Filters
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-ink truncate">{item.name}</p>
+                            <p className="text-xs text-muted">{getMenuCategoryName(item.categoryId)}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-bold text-[#800000] text-sm">₱{item.price.toFixed(2)}</p>
+                            {inCart && (
+                              <span className="inline-flex items-center justify-center rounded-full bg-[#800000] text-white text-[10px] font-bold h-5 min-w-5 px-1">
+                                {inCart.qty}
+                              </span>
+                            )}
+                          </div>
+                          <span className="absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-[#800000]/20 pointer-events-none transition-all" />
                         </button>
-                      )}
-                    </div>
-                    <AdminButton onClick={openCreateAttendance}>
-                      + Record Absence or Presence
-                    </AdminButton>
-                  </div>
+                      );
+                    })
+                  )}
                 </div>
+              </div>
 
-                {/* Attendance Logs Table */}
-                <AdminPanel
-                  title="Attendance Records Sheet"
-                  subtitle="Daily shift history database logs & aggregated periods"
-                >
-                  {/* Segmented View Tabs */}
-                  <div className="flex gap-2 border-b border-accent/10 pb-4 mb-4 px-2">
-                    <button
-                      onClick={() => setViewTab("daily")}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                        viewTab === "daily"
-                          ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                          : "text-muted hover:bg-accent-light/10"
-                      }`}
-                    >
-                      Daily Logs
-                    </button>
-                    <button
-                      onClick={() => setViewTab("weekly")}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                        viewTab === "weekly"
-                          ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                          : "text-muted hover:bg-accent-light/10"
-                      }`}
-                    >
-                      Weekly Summary
-                    </button>
-                    <button
-                      onClick={() => setViewTab("monthly")}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                        viewTab === "monthly"
-                          ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                          : "text-muted hover:bg-accent-light/10"
-                      }`}
-                    >
-                      Monthly Summary
-                    </button>
-                  </div>
-
-                  <div className="overflow-x-auto p-2">
-                    {viewTab === "daily" && (
-                      <table className="w-full text-left text-sm min-w-[800px]">
-                        <thead>
-                          <tr className="admin-table-head text-muted border-b border-accent/10">
-                            <th className="px-4 py-3 font-medium rounded-l-lg">Staff Member</th>
-                            <th className="px-4 py-3 font-medium">Position</th>
-                            <th className="px-4 py-3 font-medium">Date</th>
-                            <th className="px-4 py-3 font-medium">Time In</th>
-                            <th className="px-4 py-3 font-medium">Time Out</th>
-                            <th className="px-4 py-3 font-medium">Total Hours</th>
-                            <th className="px-4 py-3 font-medium">Status</th>
-                            <th className="px-4 py-3 font-medium">Reason</th>
-                            <th className="rounded-r-lg px-4 py-3 font-medium text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const filtered = attendanceRecords
-                              .filter(r => {
-                                const matchesSearch = r.staffName.toLowerCase().includes(searchStaff.toLowerCase());
-                                const matchesDate = filterDate ? r.date === filterDate : true;
-                                return matchesSearch && matchesDate;
-                              })
-                              .sort((a, b) => b.date.localeCompare(a.date) || a.staffName.localeCompare(b.staffName));
-
-                            if (filtered.length === 0) {
-                              return (
-                                <tr>
-                                  <td colSpan={9} className="text-center py-8 text-muted">
-                                    No attendance logs match the active filters.
+              {/* RIGHT: Cart & Transaction */}
+              <div className="space-y-4">
+                <AdminPanel title="Current Transaction" subtitle={posCart.length > 0 ? `${posCart.reduce((s, c) => s + c.qty, 0)} item(s)` : "No items yet"}>
+                  <div className="px-4 py-3">
+                    {posCart.length === 0 ? (
+                      <div className="text-center py-10">
+                        <p className="text-4xl mb-3">🛒</p>
+                        <p className="text-sm text-muted">Tap menu items on the left to add them to the cart.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="max-h-[280px] overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-xs text-muted border-b border-accent/10">
+                                <th className="text-left py-2 font-medium">Item</th>
+                                <th className="text-center py-2 font-medium w-24">Qty</th>
+                                <th className="text-right py-2 font-medium">Total</th>
+                                <th className="w-8"></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-accent/5">
+                              {posCart.map((ci) => (
+                                <tr key={ci.item.id} className="text-ink">
+                                  <td className="py-2.5">
+                                    <p className="font-semibold text-xs">{ci.item.name}</p>
+                                    <p className="text-[10px] text-muted">₱{ci.item.price.toFixed(2)} each</p>
                                   </td>
-                                </tr>
-                              );
-                            }
-
-                            return filtered.map((record) => {
-                              const staffAccount = staffAccounts.find(s => s.id === record.staffId);
-                              const position = staffAccount ? (staffAccount.role === "head_staff" ? "Head Staff" : "Staff") : "Staff";
-                              return (
-                                <tr key={record.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                                  <td className="px-4 py-3 font-semibold text-[#800000]">
-                                    {record.staffName}
-                                  </td>
-                                  <td className="px-4 py-3 text-muted text-xs capitalize">{position}</td>
-                                  <td className="px-4 py-3 text-muted text-xs font-medium">{record.date}</td>
-                                  <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeIn || "—"}</td>
-                                  <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeOut || "—"}</td>
-                                  <td className="px-4 py-3 font-semibold text-xs text-ink">
-                                    {record.totalHours ? `${record.totalHours} hrs` : "—"}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                                      record.status === "Present"
-                                        ? "bg-green-50 text-green-800 border-green-200"
-                                        : record.status === "Late"
-                                        ? "bg-amber-50 text-amber-800 border-amber-200"
-                                        : record.status === "Absent"
-                                        ? "bg-red-50 text-red-800 border-red-200"
-                                        : "bg-blue-50 text-blue-800 border-blue-200"
-                                    }`}>
-                                      {record.status}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-xs text-muted italic max-w-[200px] truncate" title={record.reason || ""}>
-                                    {record.reason || "—"}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <div className="flex gap-2 justify-end">
-                                      <button
-                                        onClick={() => openEditAttendance(record)}
-                                        className="rounded-lg px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent-light transition-colors cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteAttendance(record)}
-                                        className="rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                                      >
-                                        Delete
-                                      </button>
+                                  <td className="py-2.5">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty - 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">−</button>
+                                      <span className="w-6 text-center font-bold text-xs">{ci.qty}</span>
+                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty + 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">+</button>
                                     </div>
                                   </td>
+                                  <td className="py-2.5 text-right font-bold text-xs text-[#800000]">₱{(ci.item.price * ci.qty).toFixed(2)}</td>
+                                  <td className="py-2.5">
+                                    <button onClick={() => posRemoveFromCart(ci.item.id)} className="text-red-400 hover:text-red-600 transition-colors cursor-pointer" title="Remove">
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                                    </button>
+                                  </td>
                                 </tr>
-                              );
-                            });
-                          })()}
-                        </tbody>
-                      </table>
-                    )}
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
 
-                    {viewTab === "weekly" && (
-                      <table className="w-full text-left text-sm min-w-[800px]">
-                        <thead>
-                          <tr className="admin-table-head text-muted border-b border-accent/10">
-                            <th className="px-4 py-3 font-medium rounded-l-lg">Staff Member</th>
-                            <th className="px-4 py-3 font-medium">Position</th>
-                            <th className="px-4 py-3 font-medium">Week Period</th>
-                            <th className="px-4 py-3 font-medium text-center">Present</th>
-                            <th className="px-4 py-3 font-medium text-center">Late</th>
-                            <th className="px-4 py-3 font-medium text-center">Excused</th>
-                            <th className="px-4 py-3 font-medium text-center">Absent</th>
-                            <th className="rounded-r-lg px-4 py-3 font-medium text-right">Total Hours</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredWeeklySummaries.length === 0 ? (
-                            <tr>
-                              <td colSpan={8} className="text-center py-8 text-muted">
-                                No weekly summaries found.
-                              </td>
-                            </tr>
-                          ) : (
-                            filteredWeeklySummaries.map((summary) => (
-                              <tr key={`${summary.staffId}_${summary.period}`} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                                <td className="px-4 py-3 font-semibold text-[#800000]">
-                                  {summary.staffName}
-                                </td>
-                                <td className="px-4 py-3 text-muted text-xs capitalize">{summary.position}</td>
-                                <td className="px-4 py-3 text-muted text-xs font-mono">{summary.period}</td>
-                                <td className="px-4 py-3 text-center font-bold text-green-700">{summary.presentCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-amber-600">{summary.lateCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-blue-600">{summary.excusedCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-red-500">{summary.absentCount}</td>
-                                <td className="px-4 py-3 text-right font-bold font-mono text-[#800000]">{summary.totalHours} hrs</td>
-                              </tr>
-                            ))
+                        {/* Totals */}
+                        <div className="border-t border-accent/10 pt-3 mt-3 space-y-1.5">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted">Subtotal</span>
+                            <span className="font-semibold">₱{posSubtotal.toFixed(2)}</span>
+                          </div>
+                          {posTax > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted">Tax ({(posTaxRate * 100).toFixed(0)}%)</span>
+                              <span className="font-semibold">₱{posTax.toFixed(2)}</span>
+                            </div>
                           )}
-                        </tbody>
-                      </table>
-                    )}
+                          <div className="flex justify-between text-lg font-bold border-t border-dashed border-accent/20 pt-2">
+                            <span className="text-[#800000]">TOTAL</span>
+                            <span className="text-[#800000]">₱{posTotal.toFixed(2)}</span>
+                          </div>
+                        </div>
 
-                    {viewTab === "monthly" && (
-                      <table className="w-full text-left text-sm min-w-[800px]">
-                        <thead>
-                          <tr className="admin-table-head text-muted border-b border-accent/10">
-                            <th className="px-4 py-3 font-medium rounded-l-lg">Staff Member</th>
-                            <th className="px-4 py-3 font-medium">Position</th>
-                            <th className="px-4 py-3 font-medium">Month</th>
-                            <th className="px-4 py-3 font-medium text-center">Present</th>
-                            <th className="px-4 py-3 font-medium text-center">Late</th>
-                            <th className="px-4 py-3 font-medium text-center">Excused</th>
-                            <th className="px-4 py-3 font-medium text-center">Absent</th>
-                            <th className="rounded-r-lg px-4 py-3 font-medium text-right">Total Hours</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredMonthlySummaries.length === 0 ? (
-                            <tr>
-                              <td colSpan={8} className="text-center py-8 text-muted">
-                                No monthly summaries found.
-                              </td>
-                            </tr>
-                          ) : (
-                            filteredMonthlySummaries.map((summary) => (
-                              <tr key={`${summary.staffId}_${summary.period}`} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                                <td className="px-4 py-3 font-semibold text-[#800000]">
-                                  {summary.staffName}
-                                </td>
-                                <td className="px-4 py-3 text-muted text-xs capitalize">{summary.position}</td>
-                                <td className="px-4 py-3 text-muted text-xs font-mono">{summary.period}</td>
-                                <td className="px-4 py-3 text-center font-bold text-green-700">{summary.presentCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-amber-600">{summary.lateCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-blue-600">{summary.excusedCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-red-500">{summary.absentCount}</td>
-                                <td className="px-4 py-3 text-right font-bold font-mono text-[#800000]">{summary.totalHours} hrs</td>
-                              </tr>
-                            ))
+                        {/* Tendered */}
+                        <div className="mt-4 space-y-3">
+                          <AdminField label="Amount Tendered (₱)">
+                            <AdminInput
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={posTendered}
+                              onChange={(e) => setPosTendered(e.target.value)}
+                              placeholder="Enter amount given by customer..."
+                            />
+                          </AdminField>
+
+                          {posTendered && (
+                            <div className={`rounded-xl p-3 text-center font-bold text-sm ${
+                              posChange >= 0
+                                ? "bg-green-50 text-green-700 border border-green-200"
+                                : "bg-red-50 text-red-600 border border-red-200"
+                            }`}>
+                              {posChange >= 0
+                                ? `Change: ₱${posChange.toFixed(2)}`
+                                : `Insufficient: ₱${Math.abs(posChange).toFixed(2)} short`
+                              }
+                            </div>
                           )}
-                        </tbody>
-                      </table>
+
+                          {/* Change Denomination Preview */}
+                          {posTendered && posChange > 0 && (
+                            <div className="rounded-xl border border-accent/10 bg-[#fffaf7] p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-2">Change Breakdown</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {breakdownChange(posChange).map((d) => (
+                                  <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-white border border-accent/15 px-2 py-0.5 text-[11px] font-semibold text-ink shadow-sm">
+                                    <span className="text-[#800000] font-bold">{d.count}×</span> {d.label}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            onClick={posClearCart}
+                            className="flex-1 py-2.5 rounded-xl border border-accent/20 text-sm font-semibold text-muted hover:bg-accent/5 transition-colors cursor-pointer"
+                          >
+                            Clear Cart
+                          </button>
+                          <button
+                            onClick={posCompleteTransaction}
+                            disabled={posCart.length === 0 || posTenderedNum < posTotal || !posTendered}
+                            className="flex-[2] py-2.5 rounded-xl bg-[#800000] text-white text-sm font-bold shadow-md hover:bg-[#6b0000] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            Complete Transaction
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
                 </AdminPanel>
               </div>
-            )}
+            </div>
           </div>
         )}
+
       </main>
 
-      {/* MANUAL LOG / EDIT ATTENDANCE MODAL */}
+      {/* POS RECEIPT MODAL */}
       <AdminModal
-        open={attendanceModalOpen}
-        title={editingRecord ? "Edit Attendance Record" : "Log Manual Attendance"}
-        onClose={() => setAttendanceModalOpen(false)}
+        open={posReceiptOpen}
+        title="Transaction Receipt"
+        onClose={() => setPosReceiptOpen(false)}
         footer={
           <>
-            <AdminButton variant="secondary" onClick={() => setAttendanceModalOpen(false)}>
-              Cancel
-            </AdminButton>
-            <AdminButton onClick={handleAttendanceSubmit}>
-              {editingRecord ? "Save Changes" : "Create Record"}
-            </AdminButton>
+            <AdminButton variant="secondary" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print Receipt</AdminButton>
+            <AdminButton onClick={posNewTransaction}>New Transaction</AdminButton>
           </>
         }
       >
-        <div className="space-y-4">
-          <AdminField label="Staff Member">
-            <AdminSelect
-              value={attendanceForm.staffId}
-              onChange={(e) => setAttendanceForm({ ...attendanceForm, staffId: e.target.value })}
-              disabled={!!editingRecord}
-            >
-              {activeStaff.map((staff) => (
-                <option key={staff.id} value={staff.id}>
-                  {staff.name} (@{staff.username})
-                </option>
-              ))}
-            </AdminSelect>
-          </AdminField>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <AdminField label="Date">
-              <AdminInput
-                type="date"
-                value={attendanceForm.date}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, date: e.target.value })}
-              />
-            </AdminField>
-            <AdminField label="Attendance Status">
-              <AdminSelect
-                value={attendanceForm.status}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, status: e.target.value as AttendanceStatus })}
-              >
-                <option value="Present">Present</option>
-                <option value="Late">Late</option>
-                <option value="Absent">Absent</option>
-                <option value="Excused">Excused Absence</option>
-              </AdminSelect>
-            </AdminField>
-          </div>
-
-          {(attendanceForm.status === "Present" || attendanceForm.status === "Late") && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <AdminField label="Time In">
-                <AdminInput
-                  type="text"
-                  value={attendanceForm.timeIn}
-                  onChange={(e) => setAttendanceForm({ ...attendanceForm, timeIn: e.target.value })}
-                  placeholder="e.g. 08:30 AM"
-                />
-              </AdminField>
-              <AdminField label="Time Out (optional if currently on shift)">
-                <AdminInput
-                  type="text"
-                  value={attendanceForm.timeOut}
-                  onChange={(e) => setAttendanceForm({ ...attendanceForm, timeOut: e.target.value })}
-                  placeholder="e.g. 05:30 PM"
-                />
-              </AdminField>
+        {posReceiptData && (
+          <div className="font-mono text-xs text-ink bg-white rounded-xl border border-accent/10 p-5 max-w-[320px] mx-auto shadow-inner">
+            {/* Header */}
+            <div className="text-center border-b border-dashed border-gray-300 pb-3 mb-3">
+              <p className="font-serif text-lg font-bold text-[#800000] not-italic">Eat n&apos; Repeat Café</p>
+              <p className="text-[10px] text-muted mt-0.5">Cordova Branch</p>
+              <p className="text-[10px] text-muted">Tel: (032) 555-1234</p>
+              <p className="text-[10px] text-muted mt-1">{posReceiptData.date}</p>
+              <p className="text-[10px] text-muted">{posReceiptData.time}</p>
+              <p className="text-[10px] text-muted mt-1">Receipt #: {posReceiptData.receiptNo}</p>
+              <p className="text-[10px] text-muted">Cashier: {posReceiptData.cashier}</p>
             </div>
-          )}
 
-          {attendanceForm.status === "Excused" && (
-            <AdminField label="Absence Excuse Reason / Remarks">
-              <AdminTextarea
-                value={attendanceForm.reason}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, reason: e.target.value })}
-                placeholder="e.g. Medical appointment, family leave approval"
-                required
-              />
-            </AdminField>
-          )}
+            {/* Items */}
+            <div className="border-b border-dashed border-gray-300 pb-3 mb-3 space-y-1">
+              <div className="flex justify-between font-bold text-[10px] text-muted uppercase">
+                <span>Item</span>
+                <span>Amount</span>
+              </div>
+              {posReceiptData.cart.map((ci) => (
+                <div key={ci.item.id}>
+                  <div className="flex justify-between">
+                    <span className="truncate mr-2">{ci.item.name}</span>
+                    <span className="shrink-0 font-semibold">₱{(ci.item.price * ci.qty).toFixed(2)}</span>
+                  </div>
+                  <p className="text-[10px] text-muted pl-2">{ci.qty} × ₱{ci.item.price.toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
 
-          {editingRecord && (attendanceForm.status === "Present" || attendanceForm.status === "Late") && (
-            <AdminField label="Total Hours Worked (override - optional)">
-              <AdminInput
-                type="number"
-                step="0.01"
-                value={attendanceForm.totalHours || ""}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, totalHours: e.target.value ? Number(e.target.value) : undefined })}
-                placeholder="Leave blank for auto-calculation"
-              />
-            </AdminField>
-          )}
-        </div>
+            {/* Totals */}
+            <div className="space-y-1 border-b border-dashed border-gray-300 pb-3 mb-3">
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>₱{posReceiptData.subtotal.toFixed(2)}</span>
+              </div>
+              {posReceiptData.tax > 0 && (
+                <div className="flex justify-between">
+                  <span>Tax</span>
+                  <span>₱{posReceiptData.tax.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-sm border-t border-gray-300 pt-1">
+                <span>TOTAL</span>
+                <span>₱{posReceiptData.total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between mt-1">
+                <span>Amount Paid</span>
+                <span>₱{posReceiptData.tendered.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-green-700">
+                <span>Change</span>
+                <span>₱{posReceiptData.change.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Denomination Breakdown */}
+            {posReceiptData.breakdown.length > 0 && (
+              <div className="border-b border-dashed border-gray-300 pb-3 mb-3">
+                <p className="text-[10px] font-bold text-muted uppercase mb-1">Change Breakdown:</p>
+                {posReceiptData.breakdown.map((d) => (
+                  <div key={d.label} className="flex justify-between text-[10px]">
+                    <span>{d.label}</span>
+                    <span>× {d.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="text-center pt-1">
+              <p className="font-serif text-xs font-semibold text-[#800000] not-italic">Thank you for dining at</p>
+              <p className="font-serif text-sm font-bold text-[#800000] not-italic">Eat n&apos; Repeat!</p>
+              <p className="text-[10px] text-muted mt-2">Please come again ♥</p>
+              <p className="text-[10px] text-muted mt-1">━━━━━━━━━━━━━━━━━━━━━━</p>
+            </div>
+          </div>
+        )}
       </AdminModal>
 
       {/* ADD/EDIT MENU ITEM MODAL */}
@@ -1874,6 +1380,44 @@ export default function StaffPortalPage() {
               />
             </AdminField>
           </div>
+          <AdminField label="Item Picture">
+            <div className="mt-1 flex items-center gap-4">
+              {menuForm.image ? (
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-accent/15">
+                  <img src={menuForm.image} alt="Preview" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setMenuForm({ ...menuForm, image: "" })}
+                    className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 hover:opacity-100 transition-opacity text-xs font-semibold cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-accent/25 bg-accent-light/10 text-accent text-xl">
+                  📷
+                </div>
+              )}
+              <div className="flex-1">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setMenuForm(prev => ({ ...prev, image: reader.result as string }));
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-accent hover:file:bg-accent/20 cursor-pointer"
+                />
+                <p className="mt-1 text-[10px] text-muted">PNG, JPG, or GIF. Max size 2MB.</p>
+              </div>
+            </div>
+          </AdminField>
         </div>
       </AdminModal>
 

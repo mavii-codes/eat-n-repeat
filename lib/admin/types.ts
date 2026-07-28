@@ -50,6 +50,7 @@ export type MenuItem = {
   price: number;
   categoryId: string;
   available: boolean;
+  image?: string;
   archived: boolean;
   archivedAt?: string;
 };
@@ -82,19 +83,7 @@ export type StaffAccount = {
   archivedAt?: string;
 };
 
-export type AttendanceStatus = "Present" | "Late" | "Absent" | "Excused";
 
-export type AttendanceRecord = {
-  id: string;
-  staffId: string;
-  staffName: string;
-  date: string; // YYYY-MM-DD
-  timeIn?: string; // e.g. "08:30 AM"
-  timeOut?: string; // e.g. "05:30 PM"
-  status: AttendanceStatus;
-  totalHours?: number;
-  reason?: string; // Reason for excused absences
-};
 
 export type SystemSettings = {
   cafeName: string;
@@ -121,7 +110,7 @@ export type AdminDataState = {
   serviceAreas: ServiceArea[];
   deliverySettings: DeliverySettings;
   storeOrders: RecentOrder[];
-  attendanceRecords: AttendanceRecord[];
+
 };
 
 export type MenuItemInput = Omit<MenuItem, "id" | "archived" | "archivedAt">;
