@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Search,
   Plus,
@@ -17,14 +17,16 @@ import {
   ChevronDown,
   MessageSquare,
   MoreVertical,
+  Clock,
 } from "lucide-react";
 import type { StockItem, StockItemInput, StockCategory } from "@/lib/admin/types";
+import { useAdminData } from "@/context/AdminDataContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   AdminButton,
   AdminField,
   AdminInput,
   AdminSelect,
-  AdminTextarea,
 } from "@/components/admin/AdminForm";
 import { AdminModal } from "@/components/admin/AdminModal";
 
@@ -38,6 +40,13 @@ type StockHistoryEntry = {
   reason: string;
   staffName: string;
   timestamp: string;
+};
+
+type Toast = {
+  id: string;
+  title: string;
+  message: string;
+  type: "success" | "error" | "info";
 };
 
 /* ── Props ──────────────────────────────────────── */
@@ -75,9 +84,15 @@ export function StaffInventoryTab({
   deleteStockItem,
   staffName,
 }: StaffInventoryTabProps) {
+  const { user } = useAuth();
+  const { stockRequests, addStockRequest } = useAdminData();
+
   // Search & Filter
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+
+  // Toast Notifications
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
   // Add/Edit Modal
   const [stockModalOpen, setStockModalOpen] = useState(false);
@@ -107,8 +122,40 @@ export function StaffInventoryTab({
   // Action Menu state for items
   const [activeActionItemId, setActiveActionItemId] = useState<string | null>(null);
 
-  // Detail view modal
-  const [detailItem, setDetailItem] = useState<StockItem | null>(null);
+  /* ── Toast Helper ────────────────── */
+  function showToast(title: string, message: string, type: "success" | "error" | "info" = "success") {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((prev) => [...prev, { id, title, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  }
+
+  /* ── Monitor Admin Request Status Changes ── */
+  const prevRequestsRef = useRef<typeof stockRequests>([]);
+  useEffect(() => {
+    if (prevRequestsRef.current.length > 0 && stockRequests) {
+      stockRequests.forEach((req) => {
+        const prev = prevRequestsRef.current.find((p) => p.id === req.id);
+        if (prev && prev.status === "Pending" && req.status !== "Pending") {
+          if (req.status === "Approved") {
+            showToast(
+              "Restock request approved",
+              `Admin approved restock for ${req.ingredientName}.`,
+              "success"
+            );
+          } else if (req.status === "Rejected") {
+            showToast(
+              "Restock request rejected",
+              `Admin rejected request for ${req.ingredientName}${req.adminNote ? `: ${req.adminNote}` : ""}.`,
+              "error"
+            );
+          }
+        }
+      });
+    }
+    prevRequestsRef.current = stockRequests || [];
+  }, [stockRequests]);
 
   /* ── Computed ────────────────── */
   const getItemStatus = (item: StockItem) => {
@@ -120,7 +167,6 @@ export function StaffInventoryTab({
   const filteredItems = useMemo(() => {
     let items = [...stockItems];
 
-    // Search
     if (search) {
       const q = search.toLowerCase();
       items = items.filter(
@@ -130,7 +176,6 @@ export function StaffInventoryTab({
       );
     }
 
-    // Category filter by categoryId or name
     if (selectedCategory !== "all") {
       items = items.filter(
         (i) =>
@@ -142,7 +187,39 @@ export function StaffInventoryTab({
     return items;
   }, [stockItems, search, selectedCategory, getStockCategoryName]);
 
-  /* ── Handlers ────────────────── */
+  /* ── Contact Admin / Restock Request Handler ── */
+  function handleContactAdmin(item: StockItem) {
+    const existingPending = (stockRequests || []).find(
+      (r) => r.ingredientId === item.id && r.status === "Pending"
+    );
+
+    if (existingPending) {
+      showToast(
+        "Request Pending",
+        `A restock request for ${item.name} is already pending Admin review.`,
+        "info"
+      );
+      return;
+    }
+
+    addStockRequest({
+      staffId: user?.id || "sf-1",
+      staffName: staffName || user?.name || "Staff",
+      ingredientId: item.id,
+      ingredientName: item.name,
+      currentQuantity: item.quantity,
+      threshold: item.lowStockThreshold,
+      message: `Restock request for ${item.name}`,
+    });
+
+    showToast(
+      "Restock request sent",
+      `The Admin has been notified about ${item.name}.`,
+      "success"
+    );
+  }
+
+  /* ── CRUD Handlers ────────────────── */
   function openAddModal() {
     setEditingItem(null);
     setStockForm({
@@ -238,7 +315,7 @@ export function StaffInventoryTab({
         action,
         quantity,
         reason,
-        staffName,
+        staffName: staffName || user?.name || "Staff",
         timestamp: new Date().toISOString(),
       },
       ...prev,
@@ -359,6 +436,9 @@ export function StaffInventoryTab({
                   const isLow = status === "low-stock" || status === "out-of-stock";
                   const categoryName = getStockCategoryName(item.categoryId);
 
+                  // Check for restock request status
+                  const request = (stockRequests || []).find((r) => r.ingredientId === item.id);
+
                   // Calculate quantity progress bar percentage
                   let progressPercent = 100;
                   if (item.lowStockThreshold > 0) {
@@ -429,12 +509,19 @@ export function StaffInventoryTab({
                       {/* ACTION */}
                       <td className="py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {isLow ? (
+                          {/* Request / Contact Admin Status Button */}
+                          {request?.status === "Pending" ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 font-bold text-xs shadow-2xs">
+                              <Clock className="w-3.5 h-3.5 text-amber-600" /> Request Pending
+                            </span>
+                          ) : request?.status === "Approved" ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold text-xs shadow-2xs">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Approved
+                            </span>
+                          ) : isLow ? (
                             <button
-                              onClick={() => {
-                                alert(`Admin notified regarding low stock for ${item.name}`);
-                              }}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 bg-white text-stone-700 font-bold text-xs hover:bg-stone-50 transition-colors shadow-2xs cursor-pointer"
+                              onClick={() => handleContactAdmin(item)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 bg-white text-stone-700 font-bold text-xs hover:bg-stone-50 hover:border-[#63131d]/30 transition-colors shadow-2xs cursor-pointer"
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-stone-400" /> Contact Admin
                             </button>
@@ -500,6 +587,8 @@ export function StaffInventoryTab({
               const isLow = status === "low-stock" || status === "out-of-stock";
               const categoryName = getStockCategoryName(item.categoryId);
 
+              const request = (stockRequests || []).find((r) => r.ingredientId === item.id);
+
               let progressPercent = 100;
               if (item.lowStockThreshold > 0) {
                 const ratio = item.quantity / item.lowStockThreshold;
@@ -555,6 +644,28 @@ export function StaffInventoryTab({
                     <p className="text-[10px] text-stone-400 text-right">Threshold: {item.lowStockThreshold} {item.unit}</p>
                   </div>
 
+                  {/* Restock Request status on Mobile */}
+                  {isLow && (
+                    <div className="pt-1">
+                      {request?.status === "Pending" ? (
+                        <div className="w-full text-center py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 font-bold text-xs">
+                          Request Pending
+                        </div>
+                      ) : request?.status === "Approved" ? (
+                        <div className="w-full text-center py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold text-xs">
+                          Restock Approved
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleContactAdmin(item)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl border border-stone-200 bg-white text-stone-700 font-bold text-xs shadow-2xs hover:bg-stone-50"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-stone-400" /> Contact Admin
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   {/* Mobile Actions */}
                   <div className="flex items-center gap-2 pt-2 border-t border-stone-100">
                     <button
@@ -581,6 +692,40 @@ export function StaffInventoryTab({
             })
           )}
         </div>
+      </div>
+
+      {/* ── TOAST NOTIFICATIONS CONTAINER ── */}
+      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className="pointer-events-auto rounded-2xl border border-stone-200 bg-white/95 p-4 shadow-xl backdrop-blur-md flex items-start gap-3 transition-all transform animate-in slide-in-from-bottom-4 duration-300"
+          >
+            <div
+              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                toast.type === "success"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : toast.type === "error"
+                  ? "bg-red-100 text-red-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {toast.type === "success" && <CheckCircle2 className="w-5 h-5" />}
+              {toast.type === "error" && <XCircle className="w-5 h-5" />}
+              {toast.type === "info" && <Clock className="w-5 h-5" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-stone-900 text-sm">{toast.title}</p>
+              <p className="text-xs text-stone-600 mt-0.5 leading-snug">{toast.message}</p>
+            </div>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+              className="text-stone-400 hover:text-stone-600 p-1 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* ── ADD/EDIT STOCK ITEM MODAL ── */}
