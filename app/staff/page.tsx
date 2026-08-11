@@ -91,7 +91,8 @@ export default function StaffPortalPage() {
     updateDeliveryStatus,
     getMenuCategoryName,
     getStockCategoryName,
-    staffAccounts,\n    archiveMenuItem,
+    staffAccounts,
+    archiveMenuItem,
   } = useAdminData();
 
   const router = useRouter();
