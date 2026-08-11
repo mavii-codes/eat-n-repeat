@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import {
   AdminButton,
@@ -1276,7 +1277,7 @@ export default function StaffPortalPage() {
                 <div>
                   <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Menu</span>
                   <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Menu Items</h1>
-                  <p className="text-sm text-muted">Manage your café menu, availability, pricing, and item details.</p>
+                  <p className="text-sm text-muted">Manage your cafeé menu, availability, pricing, and item details.</p>
                 </div>
                 <button 
                   onClick={openAddMenu}
@@ -1626,7 +1627,7 @@ export default function StaffPortalPage() {
               <p className="text-sm text-muted">View delivery addresses, item manifests, and update progress status.</p>
             </div>
 
-            <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring café home-deliveries">
+            <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
               <div className="overflow-x-auto p-2">
                 <table className="w-full text-left text-sm min-w-[640px]">
                   <thead>
