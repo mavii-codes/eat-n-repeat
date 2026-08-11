@@ -3,45 +3,19 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Search,
-  Plus,
-  Edit3,
   Filter,
   BarChart2,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  History,
   X,
-  ChevronDown,
   MessageSquare,
-  MoreVertical,
   Clock,
 } from "lucide-react";
-import type { StockItem, StockItemInput, StockCategory } from "@/lib/admin/types";
+import type { StockItem } from "@/lib/admin/types";
 import { useAdminData } from "@/context/AdminDataContext";
 import { useAuth } from "@/context/AuthContext";
-import {
-  AdminButton,
-  AdminField,
-  AdminInput,
-  AdminSelect,
-} from "@/components/admin/AdminForm";
-import { AdminModal } from "@/components/admin/AdminModal";
 
 /* ── Types ──────────────────────────────────────── */
-type StockHistoryEntry = {
-  id: string;
-  itemId: string;
-  itemName: string;
-  action: "add" | "deduct" | "create" | "edit";
-  quantity: number;
-  reason: string;
-  staffName: string;
-  timestamp: string;
-};
-
 type Toast = {
   id: string;
   title: string;
@@ -52,36 +26,19 @@ type Toast = {
 /* ── Props ──────────────────────────────────────── */
 type StaffInventoryTabProps = {
   stockItems: StockItem[];
-  stockCategories: StockCategory[];
+  stockCategories: { id: string; name: string }[];
   getStockCategoryName: (id: string) => string;
-  addStockItem: (input: StockItemInput) => void;
-  updateStockItem: (id: string, input: StockItemInput) => void;
-  deleteStockItem: (id: string) => void;
+  addStockItem?: any;
+  updateStockItem?: any;
+  deleteStockItem?: any;
   staffName: string;
 };
-
-/* ── UNITS ──────────────────────────────────────── */
-const UNIT_OPTIONS = ["kg", "g", "L", "mL", "pcs", "packs", "bottles", "cans", "boxes"];
-
-const ADJUSTMENT_REASONS = [
-  "New delivery",
-  "Supplier restock",
-  "Damaged item",
-  "Expired item",
-  "Manual adjustment",
-  "Used for preparation",
-  "Inventory count correction",
-  "Returned to supplier",
-];
 
 /* ── Component ──────────────────────────────────── */
 export function StaffInventoryTab({
   stockItems,
   stockCategories,
   getStockCategoryName,
-  addStockItem,
-  updateStockItem,
-  deleteStockItem,
   staffName,
 }: StaffInventoryTabProps) {
   const { user } = useAuth();
@@ -93,34 +50,6 @@ export function StaffInventoryTab({
 
   // Toast Notifications
   const [toasts, setToasts] = useState<Toast[]>([]);
-
-  // Add/Edit Modal
-  const [stockModalOpen, setStockModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<StockItem | null>(null);
-  const [stockForm, setStockForm] = useState({
-    name: "",
-    categoryId: stockCategories[0]?.id || "",
-    quantity: 0,
-    unit: "kg",
-    lowStockThreshold: 5,
-    supplier: "",
-    notes: "",
-  });
-
-  // Stock Adjustment Modal
-  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
-  const [adjustType, setAdjustType] = useState<"add" | "deduct">("add");
-  const [adjustItem, setAdjustItem] = useState<StockItem | null>(null);
-  const [adjustQty, setAdjustQty] = useState(0);
-  const [adjustReason, setAdjustReason] = useState(ADJUSTMENT_REASONS[0]);
-
-  // Stock History
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyItemFilter, setHistoryItemFilter] = useState("all");
-  const [stockHistory, setStockHistory] = useState<StockHistoryEntry[]>([]);
-
-  // Action Menu state for items
-  const [activeActionItemId, setActiveActionItemId] = useState<string | null>(null);
 
   /* ── Toast Helper ────────────────── */
   function showToast(title: string, message: string, type: "success" | "error" | "info" = "success") {
@@ -219,149 +148,17 @@ export function StaffInventoryTab({
     );
   }
 
-  /* ── CRUD Handlers ────────────────── */
-  function openAddModal() {
-    setEditingItem(null);
-    setStockForm({
-      name: "",
-      categoryId: stockCategories[0]?.id || "",
-      quantity: 0,
-      unit: "kg",
-      lowStockThreshold: 5,
-      supplier: "",
-      notes: "",
-    });
-    setStockModalOpen(true);
-  }
-
-  function openEditModal(item: StockItem) {
-    setEditingItem(item);
-    setStockForm({
-      name: item.name,
-      categoryId: item.categoryId,
-      quantity: item.quantity,
-      unit: item.unit,
-      lowStockThreshold: item.lowStockThreshold,
-      supplier: "",
-      notes: "",
-    });
-    setStockModalOpen(true);
-    setActiveActionItemId(null);
-  }
-
-  function handleSaveItem() {
-    if (!stockForm.name.trim()) return;
-    const input: StockItemInput = {
-      name: stockForm.name.trim(),
-      categoryId: stockForm.categoryId,
-      quantity: stockForm.quantity,
-      unit: stockForm.unit,
-      lowStockThreshold: stockForm.lowStockThreshold,
-    };
-    if (editingItem) {
-      updateStockItem(editingItem.id, input);
-      addHistoryEntry(editingItem.id, editingItem.name, "edit", 0, "Item details updated");
-    } else {
-      addStockItem(input);
-      addHistoryEntry("new", stockForm.name, "create", stockForm.quantity, "Initial stock entry");
-    }
-    setStockModalOpen(false);
-  }
-
-  function openAdjustModal(item: StockItem, type: "add" | "deduct") {
-    setAdjustItem(item);
-    setAdjustType(type);
-    setAdjustQty(0);
-    setAdjustReason(ADJUSTMENT_REASONS[0]);
-    setAdjustModalOpen(true);
-    setActiveActionItemId(null);
-  }
-
-  function handleAdjust() {
-    if (!adjustItem || adjustQty <= 0) return;
-    const newQty =
-      adjustType === "add"
-        ? adjustItem.quantity + adjustQty
-        : Math.max(0, adjustItem.quantity - adjustQty);
-    updateStockItem(adjustItem.id, {
-      name: adjustItem.name,
-      categoryId: adjustItem.categoryId,
-      quantity: newQty,
-      unit: adjustItem.unit,
-      lowStockThreshold: adjustItem.lowStockThreshold,
-    });
-    addHistoryEntry(
-      adjustItem.id,
-      adjustItem.name,
-      adjustType,
-      adjustQty,
-      adjustReason
-    );
-    setAdjustModalOpen(false);
-  }
-
-  function addHistoryEntry(
-    itemId: string,
-    itemName: string,
-    action: StockHistoryEntry["action"],
-    quantity: number,
-    reason: string
-  ) {
-    setStockHistory((prev) => [
-      {
-        id: `sh-${Date.now()}`,
-        itemId,
-        itemName,
-        action,
-        quantity,
-        reason,
-        staffName: staffName || user?.name || "Staff",
-        timestamp: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
-  }
-
-  function formatTimestamp(ts: string) {
-    const d = new Date(ts);
-    return d.toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-  }
-
   /* ── RENDER ──────────────────── */
   return (
     <div className="space-y-6">
       {/* TITLE & HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="font-serif text-3xl font-bold tracking-tight text-[#63131d]">
-            Inventory Ledger
-          </h1>
-          <p className="text-sm text-stone-500 mt-1">
-            Real-time stock quantities linked to order processing
-          </p>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setHistoryOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white/80 px-3.5 py-2 text-xs font-bold text-stone-700 shadow-2xs hover:bg-white hover:border-[#63131d]/30 transition-all cursor-pointer"
-          >
-            <History className="h-4 w-4 text-[#63131d]" /> History
-          </button>
-          <button
-            onClick={openAddModal}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#63131d] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#4d0e16] transition-colors cursor-pointer"
-          >
-            <Plus className="h-4 w-4" /> Add Item
-          </button>
-        </div>
+      <div>
+        <h1 className="font-serif text-3xl font-bold tracking-tight text-[#63131d]">
+          Inventory Ledger
+        </h1>
+        <p className="text-sm text-stone-500 mt-1">
+          Real-time stock quantities linked to order processing
+        </p>
       </div>
 
       {/* MAIN CONTAINER CARD */}
@@ -508,8 +305,7 @@ export function StaffInventoryTab({
 
                       {/* ACTION */}
                       <td className="py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {/* Request / Contact Admin Status Button */}
+                        <div className="flex items-center justify-end">
                           {request?.status === "Pending" ? (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 font-bold text-xs shadow-2xs">
                               <Clock className="w-3.5 h-3.5 text-amber-600" /> Request Pending
@@ -521,49 +317,13 @@ export function StaffInventoryTab({
                           ) : isLow ? (
                             <button
                               onClick={() => handleContactAdmin(item)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 bg-white text-stone-700 font-bold text-xs hover:bg-stone-50 hover:border-[#63131d]/30 transition-colors shadow-2xs cursor-pointer"
+                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-stone-200 bg-white text-stone-700 font-bold text-xs hover:bg-stone-50 hover:border-[#63131d]/30 transition-colors shadow-2xs cursor-pointer"
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-stone-400" /> Contact Admin
                             </button>
                           ) : (
-                            <span className="text-stone-300 font-bold px-2">—</span>
+                            <span className="text-stone-300 font-bold px-3">—</span>
                           )}
-
-                          {/* Options dropdown menu for full editing capabilities */}
-                          <div className="relative">
-                            <button
-                              onClick={() =>
-                                setActiveActionItemId(
-                                  activeActionItemId === item.id ? null : item.id
-                                )
-                              }
-                              className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer"
-                            >
-                              <MoreVertical className="w-4 h-4" />
-                            </button>
-                            {activeActionItemId === item.id && (
-                              <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-stone-200 bg-white p-1.5 shadow-lg space-y-1 text-left">
-                                <button
-                                  onClick={() => openEditModal(item)}
-                                  className="w-full text-left px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 rounded-lg flex items-center gap-2 cursor-pointer"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5 text-stone-500" /> Edit Item
-                                </button>
-                                <button
-                                  onClick={() => openAdjustModal(item, "add")}
-                                  className="w-full text-left px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg flex items-center gap-2 cursor-pointer"
-                                >
-                                  <ArrowUpCircle className="w-3.5 h-3.5 text-emerald-600" /> Add Stock
-                                </button>
-                                <button
-                                  onClick={() => openAdjustModal(item, "deduct")}
-                                  className="w-full text-left px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2 cursor-pointer"
-                                >
-                                  <ArrowDownCircle className="w-3.5 h-3.5 text-red-500" /> Deduct Stock
-                                </button>
-                              </div>
-                            )}
-                          </div>
                         </div>
                       </td>
                     </tr>
@@ -648,11 +408,11 @@ export function StaffInventoryTab({
                   {isLow && (
                     <div className="pt-1">
                       {request?.status === "Pending" ? (
-                        <div className="w-full text-center py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 font-bold text-xs">
+                        <div className="w-full text-center py-2 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 font-bold text-xs">
                           Request Pending
                         </div>
                       ) : request?.status === "Approved" ? (
-                        <div className="w-full text-center py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold text-xs">
+                        <div className="w-full text-center py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold text-xs">
                           Restock Approved
                         </div>
                       ) : (
@@ -665,28 +425,6 @@ export function StaffInventoryTab({
                       )}
                     </div>
                   )}
-
-                  {/* Mobile Actions */}
-                  <div className="flex items-center gap-2 pt-2 border-t border-stone-100">
-                    <button
-                      onClick={() => openEditModal(item)}
-                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl py-1.5 text-xs font-bold text-stone-700 bg-stone-50 border border-stone-200"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" /> Edit
-                    </button>
-                    <button
-                      onClick={() => openAdjustModal(item, "add")}
-                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200"
-                    >
-                      <ArrowUpCircle className="w-3.5 h-3.5" /> + Stock
-                    </button>
-                    <button
-                      onClick={() => openAdjustModal(item, "deduct")}
-                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl py-1.5 text-xs font-bold text-red-600 bg-red-50 border border-red-200"
-                    >
-                      <ArrowDownCircle className="w-3.5 h-3.5" /> - Stock
-                    </button>
-                  </div>
                 </div>
               );
             })
@@ -727,185 +465,6 @@ export function StaffInventoryTab({
           </div>
         ))}
       </div>
-
-      {/* ── ADD/EDIT STOCK ITEM MODAL ── */}
-      <AdminModal
-        isOpen={stockModalOpen}
-        onClose={() => setStockModalOpen(false)}
-        title={editingItem ? "Edit Stock Item" : "Add Stock Item"}
-        footer={
-          <div className="flex gap-3 justify-end">
-            <AdminButton variant="secondary" onClick={() => setStockModalOpen(false)}>
-              Cancel
-            </AdminButton>
-            <AdminButton onClick={handleSaveItem}>
-              {editingItem ? "Save Changes" : "Add Item"}
-            </AdminButton>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <AdminField label="Item Name" required>
-            <AdminInput
-              value={stockForm.name}
-              onChange={(e) => setStockForm({ ...stockForm, name: e.target.value })}
-              placeholder="e.g. Matcha Powder"
-            />
-          </AdminField>
-          <div className="grid grid-cols-2 gap-3">
-            <AdminField label="Category" required>
-              <AdminSelect
-                value={stockForm.categoryId}
-                onChange={(e) => setStockForm({ ...stockForm, categoryId: e.target.value })}
-              >
-                {stockCategories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
-                ))}
-              </AdminSelect>
-            </AdminField>
-            <AdminField label="Unit" required>
-              <AdminSelect
-                value={stockForm.unit}
-                onChange={(e) => setStockForm({ ...stockForm, unit: e.target.value })}
-              >
-                {UNIT_OPTIONS.map((u) => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </AdminSelect>
-            </AdminField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <AdminField label="Quantity" required>
-              <AdminInput
-                type="number"
-                min={0}
-                value={stockForm.quantity}
-                onChange={(e) => setStockForm({ ...stockForm, quantity: Number(e.target.value) })}
-              />
-            </AdminField>
-            <AdminField label="Low Stock Threshold" required>
-              <AdminInput
-                type="number"
-                min={0}
-                value={stockForm.lowStockThreshold}
-                onChange={(e) =>
-                  setStockForm({ ...stockForm, lowStockThreshold: Number(e.target.value) })
-                }
-              />
-            </AdminField>
-          </div>
-        </div>
-      </AdminModal>
-
-      {/* ── STOCK ADJUSTMENT MODAL ── */}
-      <AdminModal
-        isOpen={adjustModalOpen}
-        onClose={() => setAdjustModalOpen(false)}
-        title={adjustType === "add" ? "Add Stock" : "Deduct Stock"}
-        footer={
-          <div className="flex gap-3 justify-end">
-            <AdminButton variant="secondary" onClick={() => setAdjustModalOpen(false)}>
-              Cancel
-            </AdminButton>
-            <AdminButton onClick={handleAdjust}>
-              {adjustType === "add" ? "Add Stock" : "Deduct Stock"}
-            </AdminButton>
-          </div>
-        }
-      >
-        {adjustItem && (
-          <div className="space-y-4">
-            <div className="rounded-xl bg-stone-50 border border-stone-200 p-3">
-              <p className="text-xs text-stone-500 font-semibold uppercase tracking-wider">Item</p>
-              <p className="font-bold text-[#5c141d] mt-0.5">{adjustItem.name}</p>
-              <p className="text-xs text-stone-600 mt-1">
-                Current stock:{" "}
-                <span className="font-bold">
-                  {adjustItem.quantity} {adjustItem.unit}
-                </span>
-              </p>
-            </div>
-            <AdminField
-              label={adjustType === "add" ? "Quantity to Add" : "Quantity to Deduct"}
-              required
-            >
-              <AdminInput
-                type="number"
-                min={1}
-                max={adjustType === "deduct" ? adjustItem.quantity : undefined}
-                value={adjustQty}
-                onChange={(e) => setAdjustQty(Number(e.target.value))}
-                placeholder="0"
-              />
-            </AdminField>
-            <AdminField label="Reason" required>
-              <AdminSelect
-                value={adjustReason}
-                onChange={(e) => setAdjustReason(e.target.value)}
-              >
-                {ADJUSTMENT_REASONS.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </AdminSelect>
-            </AdminField>
-          </div>
-        )}
-      </AdminModal>
-
-      {/* ── STOCK HISTORY MODAL ── */}
-      <AdminModal
-        isOpen={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        title="Stock Movement History"
-        footer={
-          <AdminButton variant="secondary" onClick={() => setHistoryOpen(false)}>
-            Close
-          </AdminButton>
-        }
-      >
-        <div className="space-y-4">
-          <div className="relative">
-            <select
-              value={historyItemFilter}
-              onChange={(e) => setHistoryItemFilter(e.target.value)}
-              className="appearance-none w-full rounded-xl border border-stone-200 bg-white py-2 pl-3 pr-8 text-sm focus:outline-none"
-            >
-              <option value="all">All Items</option>
-              {stockItems.map((i) => (
-                <option key={i.id} value={i.id}>{i.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-stone-400 pointer-events-none" />
-          </div>
-
-          {stockHistory.filter((h) => historyItemFilter === "all" || h.itemId === historyItemFilter).length === 0 ? (
-            <div className="text-center py-8 text-stone-400">
-              <History className="h-8 w-8 mx-auto mb-2 text-stone-300" />
-              <p className="text-sm font-semibold">No stock movements recorded yet</p>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-[350px] overflow-y-auto">
-              {stockHistory
-                .filter((h) => historyItemFilter === "all" || h.itemId === historyItemFilter)
-                .map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="rounded-xl border border-stone-200 bg-stone-50/50 p-3 flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div>
-                      <p className="font-bold text-stone-800">{entry.itemName}</p>
-                      <p className="text-stone-500">{entry.reason}</p>
-                      <p className="text-[10px] text-stone-400 mt-0.5">{entry.staffName} &middot; {formatTimestamp(entry.timestamp)}</p>
-                    </div>
-                    <span className={`font-bold ${entry.action === "add" ? "text-emerald-600" : "text-red-600"}`}>
-                      {entry.action === "add" ? "+" : "-"}{entry.quantity}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-      </AdminModal>
     </div>
   );
 }
