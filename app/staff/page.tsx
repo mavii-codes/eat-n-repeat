@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
 import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import {
   AdminButton,
   AdminField,
@@ -94,6 +95,9 @@ export default function StaffPortalPage() {
     getStockCategoryName,
     staffAccounts,
     archiveMenuItem,
+    addStockItem,
+    updateStockItem,
+    deleteStockItem,
   } = useAdminData();
 
   const router = useRouter();
@@ -1573,49 +1577,15 @@ export default function StaffPortalPage() {
 
         {/* TAB 4: INVENTORY */}
         {activeTab === "inventory" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Inventory</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Stock Levels</h1>
-              <p className="text-sm text-muted">View ingredient levels. Staff cannot manually reduce stock.</p>
-            </div>
-
-            <AdminPanel title="Raw Ingredients & Stock Items" subtitle="Read-only stock levels for staff">
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">Ingredient</th>
-                      <th className="px-4 py-3 font-medium">Category</th>
-                      <th className="px-4 py-3 font-medium">Alert Level</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg text-center">Remaining Quantity</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stockItems.map((item) => {
-                      const isLow = item.quantity <= item.lowStockThreshold;
-                      return (
-                        <tr key={item.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
-                          <td className="px-4 py-3 font-medium text-ink">{item.name}</td>
-                          <td className="px-4 py-3 text-xs text-muted">{getStockCategoryName(item.categoryId)}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
-                              isLow ? "bg-amber-50 text-amber-800 border-amber-200" : "bg-green-50 text-green-800 border-green-200"
-                            }`}>
-                              {isLow ? `Low stock (<=${item.lowStockThreshold})` : "Optimal"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-center font-bold text-sm">
-                            {item.quantity} <span className="text-xs font-normal text-muted">{item.unit}</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </AdminPanel>
-          </div>
+          <StaffInventoryTab
+            stockItems={stockItems}
+            stockCategories={stockCategories}
+            getStockCategoryName={getStockCategoryName}
+            addStockItem={addStockItem}
+            updateStockItem={updateStockItem}
+            deleteStockItem={deleteStockItem}
+            staffName={user?.name || "Staff"}
+          />
         )}
 
         {/* TAB 5: DELIVERY ORDERS */}
