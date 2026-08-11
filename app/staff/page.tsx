@@ -7,6 +7,7 @@ import { useAdminData } from "@/context/AdminDataContext";
 import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
+import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
   AdminField,
@@ -21,7 +22,7 @@ import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
 
-type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "profile" | "pos";
+type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
 
 type POSCartItem = { item: MenuItem; qty: number };
 
@@ -263,6 +264,17 @@ export default function StaffPortalPage() {
             <path d="M16 8h4l3 4v5h-7V8z" />
             <circle cx="5.5" cy="18.5" r="2.5" />
             <circle cx="18.5" cy="18.5" r="2.5" />
+          </svg>
+        ),
+      },
+      {
+        id: "archive",
+        label: "Archived Items",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+            <polyline points="21 8 21 21 3 21 3 8" />
+            <rect x="1" y="3" width="22" height="5" />
+            <line x1="10" y1="12" x2="14" y2="12" />
           </svg>
         ),
       },
@@ -1588,7 +1600,12 @@ export default function StaffPortalPage() {
           />
         )}
 
-        {/* TAB 5: DELIVERY ORDERS */}
+                {/* TAB: ARCHIVE */}
+        {activeTab === "archive" && (
+          <ArchiveTab />
+        )}
+
+{/* TAB 5: DELIVERY ORDERS */}
         {activeTab === "delivery" && (
           <div className="space-y-6">
             <div>
