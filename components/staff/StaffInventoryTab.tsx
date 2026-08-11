@@ -1,21 +1,34 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Search, Plus, Edit3, Filter, Package, AlertTriangle, CheckCircle2, XCircle, ArrowUpCircle, ArrowDownCircle, History, X, ChevronDown } from "lucide-react";
+import {
+  Search,
+  Plus,
+  Edit3,
+  Filter,
+  BarChart2,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  History,
+  X,
+  ChevronDown,
+  MessageSquare,
+  MoreVertical,
+} from "lucide-react";
 import type { StockItem, StockItemInput, StockCategory } from "@/lib/admin/types";
 import {
   AdminButton,
   AdminField,
   AdminInput,
-  AdminPanel,
   AdminSelect,
   AdminTextarea,
 } from "@/components/admin/AdminForm";
 import { AdminModal } from "@/components/admin/AdminModal";
 
 /* ── Types ──────────────────────────────────────── */
-type StockStatus = "all" | "in-stock" | "low-stock" | "out-of-stock";
-
 type StockHistoryEntry = {
   id: string;
   itemId: string;
@@ -64,8 +77,7 @@ export function StaffInventoryTab({
 }: StaffInventoryTabProps) {
   // Search & Filter
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StockStatus>("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState("all");
 
   // Add/Edit Modal
   const [stockModalOpen, setStockModalOpen] = useState(false);
@@ -92,6 +104,9 @@ export function StaffInventoryTab({
   const [historyItemFilter, setHistoryItemFilter] = useState("all");
   const [stockHistory, setStockHistory] = useState<StockHistoryEntry[]>([]);
 
+  // Action Menu state for items
+  const [activeActionItemId, setActiveActionItemId] = useState<string | null>(null);
+
   // Detail view modal
   const [detailItem, setDetailItem] = useState<StockItem | null>(null);
 
@@ -99,16 +114,8 @@ export function StaffInventoryTab({
   const getItemStatus = (item: StockItem) => {
     if (item.quantity === 0) return "out-of-stock";
     if (item.quantity <= item.lowStockThreshold) return "low-stock";
-    return "in-stock";
+    return "optimal";
   };
-
-  const summary = useMemo(() => {
-    const total = stockItems.length;
-    const inStock = stockItems.filter((i) => i.quantity > i.lowStockThreshold).length;
-    const lowStock = stockItems.filter((i) => i.quantity > 0 && i.quantity <= i.lowStockThreshold).length;
-    const outOfStock = stockItems.filter((i) => i.quantity === 0).length;
-    return { total, inStock, lowStock, outOfStock };
-  }, [stockItems]);
 
   const filteredItems = useMemo(() => {
     let items = [...stockItems];
@@ -123,18 +130,17 @@ export function StaffInventoryTab({
       );
     }
 
-    // Status filter
-    if (statusFilter !== "all") {
-      items = items.filter((i) => getItemStatus(i) === statusFilter);
-    }
-
-    // Category filter
-    if (categoryFilter !== "all") {
-      items = items.filter((i) => i.categoryId === categoryFilter);
+    // Category filter by categoryId or name
+    if (selectedCategory !== "all") {
+      items = items.filter(
+        (i) =>
+          i.categoryId === selectedCategory ||
+          getStockCategoryName(i.categoryId).toLowerCase() === selectedCategory.toLowerCase()
+      );
     }
 
     return items;
-  }, [stockItems, search, statusFilter, categoryFilter, getStockCategoryName]);
+  }, [stockItems, search, selectedCategory, getStockCategoryName]);
 
   /* ── Handlers ────────────────── */
   function openAddModal() {
@@ -163,6 +169,7 @@ export function StaffInventoryTab({
       notes: "",
     });
     setStockModalOpen(true);
+    setActiveActionItemId(null);
   }
 
   function handleSaveItem() {
@@ -190,6 +197,7 @@ export function StaffInventoryTab({
     setAdjustQty(0);
     setAdjustReason(ADJUSTMENT_REASONS[0]);
     setAdjustModalOpen(true);
+    setActiveActionItemId(null);
   }
 
   function handleAdjust() {
@@ -248,252 +256,227 @@ export function StaffInventoryTab({
     });
   }
 
-  /* ── Status Badge ────────────── */
-  function StatusBadge({ status }: { status: string }) {
-    const config: Record<string, { bg: string; text: string; border: string; label: string; icon: React.ReactNode }> = {
-      "in-stock": {
-        bg: "bg-emerald-50",
-        text: "text-emerald-700",
-        border: "border-emerald-200",
-        label: "In Stock",
-        icon: <CheckCircle2 className="h-3 w-3" />,
-      },
-      "low-stock": {
-        bg: "bg-amber-50",
-        text: "text-amber-700",
-        border: "border-amber-200",
-        label: "Low Stock",
-        icon: <AlertTriangle className="h-3 w-3" />,
-      },
-      "out-of-stock": {
-        bg: "bg-red-50",
-        text: "text-red-700",
-        border: "border-red-200",
-        label: "Out of Stock",
-        icon: <XCircle className="h-3 w-3" />,
-      },
-    };
-    const c = config[status] || config["in-stock"];
-    return (
-      <span
-        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${c.bg} ${c.text} ${c.border}`}
-      >
-        {c.icon} {c.label}
-      </span>
-    );
-  }
-
-  /* ── History action badge ────── */
-  function ActionBadge({ action, qty, unit }: { action: string; qty: number; unit?: string }) {
-    if (action === "add")
-      return (
-        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-          <ArrowUpCircle className="h-3.5 w-3.5" /> +{qty} {unit || ""}
-        </span>
-      );
-    if (action === "deduct")
-      return (
-        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600">
-          <ArrowDownCircle className="h-3.5 w-3.5" /> -{qty} {unit || ""}
-        </span>
-      );
-    if (action === "create")
-      return (
-        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600">
-          <Plus className="h-3.5 w-3.5" /> Created ({qty} {unit || ""})
-        </span>
-      );
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-semibold text-stone-600">
-        <Edit3 className="h-3.5 w-3.5" /> Edited
-      </span>
-    );
-  }
-
   /* ── RENDER ──────────────────── */
   return (
     <div className="space-y-6">
-      {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+      {/* TITLE & HEADER */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">
-            Inventory
-          </span>
-          <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">
-            Inventory &amp; Stock
+          <h1 className="font-serif text-3xl font-bold tracking-tight text-[#63131d]">
+            Inventory Ledger
           </h1>
-          <p className="text-sm text-muted">
-            Monitor ingredients, stock levels, and inventory activity.
+          <p className="text-sm text-stone-500 mt-1">
+            Real-time stock quantities linked to order processing
           </p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#800000] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#6b0000] transition-colors"
-        >
-          <Plus className="h-4 w-4" /> Add Stock Item
-        </button>
-      </div>
 
-      {/* SUMMARY CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: "Total Items", value: summary.total, color: "text-[#800000]", bg: "bg-[#800000]/5", borderColor: "border-[#800000]/10", icon: <Package className="h-5 w-5 text-[#800000]/60" /> },
-          { label: "In Stock", value: summary.inStock, color: "text-emerald-700", bg: "bg-emerald-50", borderColor: "border-emerald-200", icon: <CheckCircle2 className="h-5 w-5 text-emerald-500" /> },
-          { label: "Low Stock", value: summary.lowStock, color: "text-amber-700", bg: "bg-amber-50", borderColor: "border-amber-200", icon: <AlertTriangle className="h-5 w-5 text-amber-500" /> },
-          { label: "Out of Stock", value: summary.outOfStock, color: "text-red-700", bg: "bg-red-50", borderColor: "border-red-200", icon: <XCircle className="h-5 w-5 text-red-500" /> },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className={`rounded-2xl border ${card.borderColor} ${card.bg} p-4 backdrop-blur-sm`}
+        {/* Action Controls */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white/80 px-3.5 py-2 text-xs font-bold text-stone-700 shadow-2xs hover:bg-white hover:border-[#63131d]/30 transition-all cursor-pointer"
           >
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted">{card.label}</p>
-              {card.icon}
-            </div>
-            <p className={`text-2xl font-bold mt-1 ${card.color}`}>{card.value}</p>
-          </div>
-        ))}
+            <History className="h-4 w-4 text-[#63131d]" /> History
+          </button>
+          <button
+            onClick={openAddModal}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#63131d] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#4d0e16] transition-colors cursor-pointer"
+          >
+            <Plus className="h-4 w-4" /> Add Item
+          </button>
+        </div>
       </div>
 
-      {/* SEARCH & FILTERS */}
-      <div className="flex flex-col md:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+      {/* MAIN CONTAINER CARD */}
+      <div className="rounded-3xl border border-stone-200/80 bg-white/95 p-6 sm:p-8 shadow-sm backdrop-blur-md space-y-6">
+        {/* SEARCH BAR */}
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
           <input
             type="text"
-            placeholder="Search inventory..."
+            placeholder="Search ingredients..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-stone-200 bg-white/80 py-2.5 pl-10 pr-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#800000]/20 focus:border-[#800000]/30"
+            className="w-full rounded-2xl border border-stone-200 bg-white py-3 pl-11 pr-4 text-sm text-stone-800 placeholder-stone-400 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#63131d]/20 focus:border-[#63131d]/30 transition-all"
           />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {/* Status filter pills */}
-          {([
-            { key: "all", label: "All" },
-            { key: "in-stock", label: "In Stock" },
-            { key: "low-stock", label: "Low Stock" },
-            { key: "out-of-stock", label: "Out of Stock" },
-          ] as { key: StockStatus; label: string }[]).map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors ${
-                statusFilter === f.key
-                  ? "bg-[#800000] text-white border-[#800000]"
-                  : "bg-white/80 text-stone-600 border-stone-200 hover:border-[#800000]/30"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-          {/* Category dropdown */}
-          <div className="relative">
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="appearance-none rounded-full border border-stone-200 bg-white/80 pl-3 pr-8 py-1.5 text-xs font-semibold text-stone-600 focus:outline-none focus:ring-2 focus:ring-[#800000]/20 cursor-pointer"
-            >
-              <option value="all">All Categories</option>
-              {stockCategories.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted pointer-events-none" />
-          </div>
+
+        {/* CATEGORY FILTER PILLS */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setSelectedCategory("all")}
+            className={`rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${
+              selectedCategory === "all"
+                ? "bg-[#5c141d] text-white shadow-sm"
+                : "bg-white border border-stone-200 text-stone-600 hover:border-[#63131d]/30 hover:bg-stone-50"
+            }`}
+          >
+            All Items
+          </button>
+          {stockCategories.map((cat) => {
+            const isSelected = selectedCategory === cat.id || selectedCategory === cat.name;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                  isSelected
+                    ? "bg-[#5c141d] text-white shadow-sm"
+                    : "bg-white border border-stone-200 text-stone-600 hover:border-[#63131d]/30 hover:bg-stone-50"
+                }`}
+              >
+                {cat.name}
+              </button>
+            );
+          })}
         </div>
-      </div>
 
-      {/* HISTORY BUTTON */}
-      <div className="flex justify-end">
-        <button
-          onClick={() => setHistoryOpen(true)}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#800000] hover:text-[#600000] transition-colors"
-        >
-          <History className="h-3.5 w-3.5" /> View Stock History
-        </button>
-      </div>
-
-      {/* INVENTORY TABLE — Desktop */}
-      <AdminPanel title="Inventory Items" subtitle={`${filteredItems.length} item${filteredItems.length !== 1 ? "s" : ""} found`}>
-        {/* Desktop table */}
+        {/* INVENTORY TABLE — Desktop View */}
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="admin-table-head text-muted">
-                <th className="px-4 py-3 font-medium rounded-l-lg">Item</th>
-                <th className="px-4 py-3 font-medium">Category</th>
-                <th className="px-4 py-3 font-medium">Current Stock</th>
-                <th className="px-4 py-3 font-medium">Threshold</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium rounded-r-lg text-center">Actions</th>
+              <tr className="border-b border-stone-100 text-[11px] font-bold tracking-wider text-stone-400 uppercase py-3">
+                <th className="pb-4 font-bold">INGREDIENT</th>
+                <th className="pb-4 font-bold">CATEGORY</th>
+                <th className="pb-4 font-bold">REMAINING QUANTITY</th>
+                <th className="pb-4 font-bold">STATUS</th>
+                <th className="pb-4 font-bold">ALERT THRESHOLD</th>
+                <th className="pb-4 font-bold text-right">ACTION</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-stone-100">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
-                    <Filter className="h-8 w-8 text-muted/30 mx-auto mb-3" />
-                    <p className="text-sm font-semibold text-muted">No inventory items found</p>
-                    <p className="text-xs text-muted/60 mt-1">Try adjusting your search or filters.</p>
+                  <td colSpan={6} className="py-12 text-center text-stone-400">
+                    <Filter className="h-8 w-8 mx-auto mb-2 text-stone-300" />
+                    <p className="font-semibold text-sm">No inventory items found</p>
+                    <p className="text-xs text-stone-400 mt-1">Try adjusting your search or category filter.</p>
                   </td>
                 </tr>
               ) : (
                 filteredItems.map((item) => {
                   const status = getItemStatus(item);
+                  const isLow = status === "low-stock" || status === "out-of-stock";
+                  const categoryName = getStockCategoryName(item.categoryId);
+
+                  // Calculate quantity progress bar percentage
+                  let progressPercent = 100;
+                  if (item.lowStockThreshold > 0) {
+                    const ratio = item.quantity / item.lowStockThreshold;
+                    if (isLow) {
+                      progressPercent = Math.min(100, Math.max(12, ratio * 50));
+                    } else {
+                      progressPercent = Math.min(100, Math.max(30, (item.quantity / (item.lowStockThreshold * 2.5)) * 100));
+                    }
+                  }
+
                   return (
-                    <tr
-                      key={item.id}
-                      className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-ink">{item.name}</p>
+                    <tr key={item.id} className="hover:bg-stone-50/50 transition-colors">
+                      {/* INGREDIENT */}
+                      <td className="py-4 pr-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-stone-100 border border-stone-200/60 flex items-center justify-center text-stone-400 shrink-0">
+                            <BarChart2 className="w-4 h-4 text-stone-400" />
+                          </div>
+                          <span className="font-bold text-[#5c141d] text-base">{item.name}</span>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted">
-                        {getStockCategoryName(item.categoryId)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-bold text-sm">
-                          {item.quantity}{" "}
-                          <span className="text-xs font-normal text-muted">{item.unit}</span>
+
+                      {/* CATEGORY */}
+                      <td className="py-4 pr-4">
+                        <span className="inline-flex bg-stone-100/90 border border-stone-200/60 text-stone-600 px-3.5 py-1 rounded-full text-xs font-semibold">
+                          {categoryName}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted">
-                        {item.lowStockThreshold} {item.unit}
+
+                      {/* REMAINING QUANTITY */}
+                      <td className="py-4 pr-4">
+                        <div className="flex flex-col justify-center min-w-[130px]">
+                          <span className="font-black text-stone-900 text-sm tracking-wide uppercase">
+                            {item.quantity} {item.unit}
+                          </span>
+                          <div className="w-28 sm:w-36 h-2 bg-stone-200/70 rounded-full overflow-hidden mt-1.5">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                isLow ? "bg-amber-500" : "bg-emerald-500"
+                              }`}
+                              style={{ width: `${progressPercent}%` }}
+                            />
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={status} />
+
+                      {/* STATUS */}
+                      <td className="py-4 pr-4">
+                        {status === "low-stock" || status === "out-of-stock" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-amber-50/90 text-amber-700 border border-amber-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> LOW STOCK
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-emerald-50/90 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> OPTIMAL
+                          </span>
+                        )}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => openEditModal(item)}
-                            className="p-1.5 rounded-lg text-stone-500 hover:text-[#800000] hover:bg-[#800000]/5 transition-colors"
-                            title="Edit"
-                          >
-                            <Edit3 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => openAdjustModal(item, "add")}
-                            className="p-1.5 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
-                            title="Add Stock"
-                          >
-                            <ArrowUpCircle className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => openAdjustModal(item, "deduct")}
-                            className="p-1.5 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
-                            title="Deduct Stock"
-                          >
-                            <ArrowDownCircle className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => setDetailItem(item)}
-                            className="p-1.5 rounded-lg text-stone-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                            title="View History"
-                          >
-                            <History className="h-4 w-4" />
-                          </button>
+
+                      {/* ALERT THRESHOLD */}
+                      <td className="py-4 pr-4">
+                        <span className="text-xs font-bold text-stone-500">
+                          {item.lowStockThreshold} {item.unit}
+                        </span>
+                      </td>
+
+                      {/* ACTION */}
+                      <td className="py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {isLow ? (
+                            <button
+                              onClick={() => {
+                                alert(`Admin notified regarding low stock for ${item.name}`);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 bg-white text-stone-700 font-bold text-xs hover:bg-stone-50 transition-colors shadow-2xs cursor-pointer"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-stone-400" /> Contact Admin
+                            </button>
+                          ) : (
+                            <span className="text-stone-300 font-bold px-2">—</span>
+                          )}
+
+                          {/* Options dropdown menu for full editing capabilities */}
+                          <div className="relative">
+                            <button
+                              onClick={() =>
+                                setActiveActionItemId(
+                                  activeActionItemId === item.id ? null : item.id
+                                )
+                              }
+                              className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                            {activeActionItemId === item.id && (
+                              <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-stone-200 bg-white p-1.5 shadow-lg space-y-1 text-left">
+                                <button
+                                  onClick={() => openEditModal(item)}
+                                  className="w-full text-left px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 rounded-lg flex items-center gap-2 cursor-pointer"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5 text-stone-500" /> Edit Item
+                                </button>
+                                <button
+                                  onClick={() => openAdjustModal(item, "add")}
+                                  className="w-full text-left px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg flex items-center gap-2 cursor-pointer"
+                                >
+                                  <ArrowUpCircle className="w-3.5 h-3.5 text-emerald-600" /> Add Stock
+                                </button>
+                                <button
+                                  onClick={() => openAdjustModal(item, "deduct")}
+                                  className="w-full text-left px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2 cursor-pointer"
+                                >
+                                  <ArrowDownCircle className="w-3.5 h-3.5 text-red-500" /> Deduct Stock
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -504,62 +487,93 @@ export function StaffInventoryTab({
           </table>
         </div>
 
-        {/* Mobile cards */}
-        <div className="md:hidden space-y-3 p-2">
+        {/* INVENTORY CARDS — Mobile View */}
+        <div className="md:hidden space-y-3">
           {filteredItems.length === 0 ? (
-            <div className="text-center py-10">
-              <Filter className="h-8 w-8 text-muted/30 mx-auto mb-3" />
-              <p className="text-sm font-semibold text-muted">No inventory items found</p>
+            <div className="text-center py-10 text-stone-400">
+              <Filter className="h-8 w-8 mx-auto mb-2 text-stone-300" />
+              <p className="font-semibold text-sm">No inventory items found</p>
             </div>
           ) : (
             filteredItems.map((item) => {
               const status = getItemStatus(item);
+              const isLow = status === "low-stock" || status === "out-of-stock";
+              const categoryName = getStockCategoryName(item.categoryId);
+
+              let progressPercent = 100;
+              if (item.lowStockThreshold > 0) {
+                const ratio = item.quantity / item.lowStockThreshold;
+                if (isLow) {
+                  progressPercent = Math.min(100, Math.max(12, ratio * 50));
+                } else {
+                  progressPercent = Math.min(100, Math.max(30, (item.quantity / (item.lowStockThreshold * 2.5)) * 100));
+                }
+              }
+
               return (
                 <div
                   key={item.id}
-                  className="rounded-xl border border-stone-200 bg-white/90 p-4 space-y-3"
+                  className="rounded-2xl border border-stone-200/80 bg-white p-4 space-y-3"
                 >
                   <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-semibold text-ink text-sm">{item.name}</p>
-                      <p className="text-[11px] text-muted mt-0.5">
-                        {getStockCategoryName(item.categoryId)}
-                      </p>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-stone-100 border border-stone-200/60 flex items-center justify-center text-stone-400 shrink-0">
+                        <BarChart2 className="w-4 h-4 text-stone-400" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-[#5c141d] text-base">{item.name}</p>
+                        <span className="inline-flex bg-stone-100 text-stone-600 px-2.5 py-0.5 rounded-full text-[10px] font-semibold mt-0.5">
+                          {categoryName}
+                        </span>
+                      </div>
                     </div>
-                    <StatusBadge status={status} />
+                    {isLow ? (
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                        • LOW STOCK
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        • OPTIMAL
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center gap-4 text-xs">
-                    <div>
-                      <p className="text-muted">Stock</p>
-                      <p className="font-bold text-sm text-ink">
+
+                  {/* Quantity & Progress */}
+                  <div className="space-y-1 pt-1">
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-stone-500">Remaining</span>
+                      <span className="text-stone-900 uppercase">
                         {item.quantity} {item.unit}
-                      </p>
+                      </span>
                     </div>
-                    <div>
-                      <p className="text-muted">Threshold</p>
-                      <p className="font-bold text-sm text-ink">
-                        {item.lowStockThreshold} {item.unit}
-                      </p>
+                    <div className="w-full h-2 bg-stone-200/70 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${isLow ? "bg-amber-500" : "bg-emerald-500"}`}
+                        style={{ width: `${progressPercent}%` }}
+                      />
                     </div>
+                    <p className="text-[10px] text-stone-400 text-right">Threshold: {item.lowStockThreshold} {item.unit}</p>
                   </div>
-                  <div className="flex items-center gap-1.5 pt-1 border-t border-stone-100">
+
+                  {/* Mobile Actions */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-stone-100">
                     <button
                       onClick={() => openEditModal(item)}
-                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-semibold text-stone-600 hover:text-[#800000] hover:bg-[#800000]/5 border border-stone-200 transition-colors"
+                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl py-1.5 text-xs font-bold text-stone-700 bg-stone-50 border border-stone-200"
                     >
-                      <Edit3 className="h-3.5 w-3.5" /> Edit
+                      <Edit3 className="w-3.5 h-3.5" /> Edit
                     </button>
                     <button
                       onClick={() => openAdjustModal(item, "add")}
-                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 border border-emerald-200 transition-colors"
+                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200"
                     >
-                      <ArrowUpCircle className="h-3.5 w-3.5" /> Add
+                      <ArrowUpCircle className="w-3.5 h-3.5" /> + Stock
                     </button>
                     <button
                       onClick={() => openAdjustModal(item, "deduct")}
-                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 border border-red-200 transition-colors"
+                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl py-1.5 text-xs font-bold text-red-600 bg-red-50 border border-red-200"
                     >
-                      <ArrowDownCircle className="h-3.5 w-3.5" /> Deduct
+                      <ArrowDownCircle className="w-3.5 h-3.5" /> - Stock
                     </button>
                   </div>
                 </div>
@@ -567,7 +581,7 @@ export function StaffInventoryTab({
             })
           )}
         </div>
-      </AdminPanel>
+      </div>
 
       {/* ── ADD/EDIT STOCK ITEM MODAL ── */}
       <AdminModal
@@ -635,20 +649,6 @@ export function StaffInventoryTab({
               />
             </AdminField>
           </div>
-          <AdminField label="Supplier (Optional)">
-            <AdminInput
-              value={stockForm.supplier}
-              onChange={(e) => setStockForm({ ...stockForm, supplier: e.target.value })}
-              placeholder="e.g. Manila Trading Co."
-            />
-          </AdminField>
-          <AdminField label="Notes (Optional)">
-            <AdminTextarea
-              value={stockForm.notes}
-              onChange={(e) => setStockForm({ ...stockForm, notes: e.target.value })}
-              placeholder="Any notes about this stock item..."
-            />
-          </AdminField>
         </div>
       </AdminModal>
 
@@ -671,11 +671,11 @@ export function StaffInventoryTab({
         {adjustItem && (
           <div className="space-y-4">
             <div className="rounded-xl bg-stone-50 border border-stone-200 p-3">
-              <p className="text-xs text-muted font-semibold uppercase tracking-wider">Item</p>
-              <p className="font-bold text-ink mt-0.5">{adjustItem.name}</p>
-              <p className="text-xs text-muted mt-1">
+              <p className="text-xs text-stone-500 font-semibold uppercase tracking-wider">Item</p>
+              <p className="font-bold text-[#5c141d] mt-0.5">{adjustItem.name}</p>
+              <p className="text-xs text-stone-600 mt-1">
                 Current stock:{" "}
-                <span className="font-semibold text-ink">
+                <span className="font-bold">
                   {adjustItem.quantity} {adjustItem.unit}
                 </span>
               </p>
@@ -692,16 +692,6 @@ export function StaffInventoryTab({
                 onChange={(e) => setAdjustQty(Number(e.target.value))}
                 placeholder="0"
               />
-              {adjustType === "add" && adjustQty > 0 && (
-                <p className="text-xs text-emerald-600 mt-1">
-                  New total: {adjustItem.quantity + adjustQty} {adjustItem.unit}
-                </p>
-              )}
-              {adjustType === "deduct" && adjustQty > 0 && (
-                <p className="text-xs text-red-600 mt-1">
-                  New total: {Math.max(0, adjustItem.quantity - adjustQty)} {adjustItem.unit}
-                </p>
-              )}
             </AdminField>
             <AdminField label="Reason" required>
               <AdminSelect
@@ -729,149 +719,47 @@ export function StaffInventoryTab({
         }
       >
         <div className="space-y-4">
-          {/* Filter by item */}
           <div className="relative">
             <select
               value={historyItemFilter}
               onChange={(e) => setHistoryItemFilter(e.target.value)}
-              className="appearance-none w-full rounded-xl border border-stone-200 bg-white py-2 pl-3 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-[#800000]/20"
+              className="appearance-none w-full rounded-xl border border-stone-200 bg-white py-2 pl-3 pr-8 text-sm focus:outline-none"
             >
               <option value="all">All Items</option>
               {stockItems.map((i) => (
                 <option key={i.id} value={i.id}>{i.name}</option>
               ))}
             </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted pointer-events-none" />
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-stone-400 pointer-events-none" />
           </div>
 
-          {/* History list */}
-          {stockHistory.filter(
-            (h) => historyItemFilter === "all" || h.itemId === historyItemFilter
-          ).length === 0 ? (
-            <div className="text-center py-8">
-              <History className="h-8 w-8 text-muted/30 mx-auto mb-2" />
-              <p className="text-sm text-muted font-semibold">No stock movements recorded yet</p>
-              <p className="text-xs text-muted/60 mt-1">
-                Adjustments will appear here once stock is added or deducted.
-              </p>
+          {stockHistory.filter((h) => historyItemFilter === "all" || h.itemId === historyItemFilter).length === 0 ? (
+            <div className="text-center py-8 text-stone-400">
+              <History className="h-8 w-8 mx-auto mb-2 text-stone-300" />
+              <p className="text-sm font-semibold">No stock movements recorded yet</p>
             </div>
           ) : (
-            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            <div className="space-y-2 max-h-[350px] overflow-y-auto">
               {stockHistory
                 .filter((h) => historyItemFilter === "all" || h.itemId === historyItemFilter)
-                .map((entry) => {
-                  const item = stockItems.find((i) => i.id === entry.itemId);
-                  return (
-                    <div
-                      key={entry.id}
-                      className="rounded-xl border border-stone-200 bg-white/80 p-3 flex items-center justify-between gap-3"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-ink truncate">{entry.itemName}</p>
-                        <p className="text-xs text-muted mt-0.5">{entry.reason}</p>
-                        <p className="text-[10px] text-muted/60 mt-0.5">
-                          {entry.staffName} &middot; {formatTimestamp(entry.timestamp)}
-                        </p>
-                      </div>
-                      <ActionBadge action={entry.action} qty={entry.quantity} unit={item?.unit} />
+                .map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="rounded-xl border border-stone-200 bg-stone-50/50 p-3 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div>
+                      <p className="font-bold text-stone-800">{entry.itemName}</p>
+                      <p className="text-stone-500">{entry.reason}</p>
+                      <p className="text-[10px] text-stone-400 mt-0.5">{entry.staffName} &middot; {formatTimestamp(entry.timestamp)}</p>
                     </div>
-                  );
-                })}
+                    <span className={`font-bold ${entry.action === "add" ? "text-emerald-600" : "text-red-600"}`}>
+                      {entry.action === "add" ? "+" : "-"}{entry.quantity}
+                    </span>
+                  </div>
+                ))}
             </div>
           )}
         </div>
-      </AdminModal>
-
-      {/* ── ITEM DETAIL / HISTORY MODAL ── */}
-      <AdminModal
-        isOpen={!!detailItem}
-        onClose={() => setDetailItem(null)}
-        title={detailItem ? `${detailItem.name} — Details` : ""}
-        footer={
-          <div className="flex gap-3 justify-end">
-            <AdminButton variant="secondary" onClick={() => setDetailItem(null)}>
-              Close
-            </AdminButton>
-            {detailItem && (
-              <>
-                <AdminButton
-                  onClick={() => {
-                    setDetailItem(null);
-                    openAdjustModal(detailItem, "add");
-                  }}
-                >
-                  Add Stock
-                </AdminButton>
-                <AdminButton
-                  variant="secondary"
-                  onClick={() => {
-                    setDetailItem(null);
-                    openAdjustModal(detailItem, "deduct");
-                  }}
-                >
-                  Deduct Stock
-                </AdminButton>
-              </>
-            )}
-          </div>
-        }
-      >
-        {detailItem && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-stone-50 border border-stone-200 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Current Stock</p>
-                <p className="text-xl font-bold text-ink mt-1">
-                  {detailItem.quantity} <span className="text-sm font-normal text-muted">{detailItem.unit}</span>
-                </p>
-              </div>
-              <div className="rounded-xl bg-stone-50 border border-stone-200 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Status</p>
-                <div className="mt-2">
-                  <StatusBadge status={getItemStatus(detailItem)} />
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-stone-50 border border-stone-200 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Category</p>
-                <p className="text-sm font-semibold text-ink mt-1">{getStockCategoryName(detailItem.categoryId)}</p>
-              </div>
-              <div className="rounded-xl bg-stone-50 border border-stone-200 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Low Stock Threshold</p>
-                <p className="text-sm font-semibold text-ink mt-1">{detailItem.lowStockThreshold} {detailItem.unit}</p>
-              </div>
-            </div>
-
-            {/* Item-specific history */}
-            <div>
-              <p className="text-xs font-bold text-muted uppercase tracking-wider mb-2">Recent Activity</p>
-              {stockHistory.filter((h) => h.itemId === detailItem.id).length === 0 ? (
-                <p className="text-xs text-muted/60 py-4 text-center">No activity recorded for this item yet.</p>
-              ) : (
-                <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                  {stockHistory
-                    .filter((h) => h.itemId === detailItem.id)
-                    .slice(0, 10)
-                    .map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="rounded-lg border border-stone-100 bg-white p-2.5 flex items-center justify-between gap-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-xs text-muted">{entry.reason}</p>
-                          <p className="text-[10px] text-muted/60 mt-0.5">
-                            {entry.staffName} &middot; {formatTimestamp(entry.timestamp)}
-                          </p>
-                        </div>
-                        <ActionBadge action={entry.action} qty={entry.quantity} unit={detailItem.unit} />
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </AdminModal>
     </div>
   );
