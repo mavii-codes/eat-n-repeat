@@ -97,6 +97,22 @@ export default function StaffPortalPage() {
 
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<StaffTab>("dashboard");
+
+  // Menu Tab State
+  const [menuSearch, setMenuSearch] = useState("");
+  const [menuCatFilter, setMenuCatFilter] = useState("all");
+  const [menuAvailFilter, setMenuAvailFilter] = useState("all");
+  const [menuSort, setMenuSort] = useState("name-asc");
+  const [itemToArchive, setItemToArchive] = useState<any | null>(null);
+
+  // Orders Tab State
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState("all");
+  const [orderTypeFilter, setOrderTypeFilter] = useState("all");
+  const [orderHistorySearch, setOrderHistorySearch] = useState("");
+  const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Form states for adding/editing menu items
