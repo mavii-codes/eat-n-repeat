@@ -91,11 +91,12 @@ export default function StaffPortalPage() {
     updateDeliveryStatus,
     getMenuCategoryName,
     getStockCategoryName,
-    staffAccounts,
+    staffAccounts,\n    archiveMenuItem,
   } = useAdminData();
 
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<StaffTab>("dashboard");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Form states for adding/editing menu items
   const [menuModalOpen, setMenuModalOpen] = useState(false);
@@ -494,7 +495,7 @@ export default function StaffPortalPage() {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+                            onClick={() => { setActiveTab(tab.id); setIsMobileMenuOpen(false); }}
               className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all ${
                 activeTab === tab.id
                   ? "bg-accent/20 text-white border-l-4 border-accent shadow-inner"
@@ -536,244 +537,1021 @@ export default function StaffPortalPage() {
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === "dashboard" && (
-          <>
-          <div className="space-y-5">
-            <header className="flex flex-col gap-4 rounded-3xl border border-white/80 bg-white/85 px-5 py-5 shadow-[0_20px_60px_-42px_rgba(74,20,28,0.5)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <div className="space-y-6">
+            {/* HEADER */}
+            <header className="flex flex-col gap-4 rounded-3xl border border-white/80 bg-white/90 px-6 py-6 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.28em] text-accent">Staff workspace</p>
-                <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-[#63131d] sm:text-4xl">Good day, {user.name.split(" ")[0]}!</h1>
-                <p className="mt-2 text-sm text-muted">Here&apos;s your café pulse for today.</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-accent/80">Staff Workspace</p>
+                <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-[#63131d]">Good day, {user?.name || 'Staff'}!</h1>
+                <p className="mt-1 text-sm text-[#8a5a5a]">Here's your cafe pulse for today.</p>
+                <p className="mt-2 text-xs font-medium text-[#63131d]/60 bg-[#63131d]/5 inline-block px-3 py-1 rounded-full border border-[#63131d]/10">
+                  {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                </p>
               </div>
-              <div className="flex items-center gap-3 rounded-2xl border border-accent/10 bg-[#fffaf7] px-3 py-2.5">
-                <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-[#7b1726] to-[#c53a50] font-serif text-lg font-bold text-white shadow-lg">{user.name.slice(0, 1).toUpperCase()}{stockNotifications.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-sans font-bold">{stockNotifications.length}</span>}</div>
-                <div className="pr-2"><p className="text-sm font-bold text-[#63131d]">{user.name}</p><p className="text-xs capitalize text-muted">{user.role.replace("_", " ")}</p></div>
+              <div className="flex items-center gap-3">
+                <button className="relative rounded-full bg-[#fffaf7] p-2.5 text-[#63131d] shadow-sm border border-accent/10 hover:bg-white transition-colors cursor-pointer">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                  {stockNotifications.length > 0 && <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-[#fffaf7]"></span>}
+                </button>
               </div>
             </header>
 
-            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {/* KPI CARDS */}
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               {[
-                { label: "Today's Orders", value: salesSummary.totalOrders, note: "All order channels", color: "bg-[#fff0ea] text-[#8b3b25]", icon: "▣" },
-                { label: "Pending Orders", value: salesSummary.pendingOrders, note: "Needs attention", color: "bg-[#fff5dc] text-[#9a6100]", icon: "◷" },
-                { label: "Completed", value: salesSummary.completedOrders, note: "Served or delivered", color: "bg-[#eaf8ed] text-[#24753c]", icon: "✓" },
-                { label: "Low Stock", value: stockNotifications.length, note: "Ingredients to watch", color: "bg-[#fff0f0] text-[#bd2525]", icon: "!" },
-              ].map((stat) => <div key={stat.label} className="rounded-2xl border border-[#eaded8] bg-white/80 p-4 shadow-[0_14px_34px_-30px_rgba(55,20,20,0.55)]"><div className="flex items-start justify-between gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl text-xl font-bold ${stat.color}`}>{stat.icon}</span><span className="text-[11px] font-semibold text-muted">Live</span></div><p className="mt-4 text-sm font-medium text-ink">{stat.label}</p><p className="mt-1 font-serif text-3xl font-bold text-[#63131d]">{stat.value}</p><p className="mt-1 text-xs text-muted">{stat.note}</p></div>)}
+                { label: "Today's Orders", value: salesSummary.totalOrders, color: "text-[#8b3b25]" },
+                { label: "Pending Orders", value: salesSummary.pendingOrders, color: "text-[#9a6100]" },
+                { label: "Sales", value: `₱${salesSummary.totalSales.toLocaleString()}`, color: "text-[#24753c]" },
+                { label: "Completed", value: salesSummary.completedOrders, color: "text-[#24753c]" },
+                { label: "Low Stock", value: stockNotifications.length, color: "text-[#bd2525]" },
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md hover:bg-white/95">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">{stat.label}</p>
+                  <p className={`mt-2 font-serif text-3xl font-bold ${stat.color}`}>{stat.value}</p>
+                </div>
+              ))}
             </section>
 
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.85fr)]">
-              <AdminPanel title="Today’s Orders" subtitle="Latest in-store tickets" action={<button onClick={() => setActiveTab("orders")} className="text-xs font-bold text-accent hover:underline">View all</button>}>
-                <div className="divide-y divide-accent/10 px-5">{storeOrders.filter((order) => !order.archived).slice(0, 5).map((order) => <div key={order.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3.5 text-sm"><span className="font-bold text-[#63131d]">{order.orderId}</span><span className="min-w-[110px] flex-1 text-xs text-muted">{order.items}</span><span className="font-semibold">₱{order.total}</span><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold capitalize ${order.status === "completed" ? "bg-green-100 text-green-700" : order.status === "cancelled" ? "bg-stone-100 text-stone-600" : "bg-amber-100 text-amber-800"}`}>{order.status}</span></div>)}{storeOrders.filter((order) => !order.archived).length === 0 && <p className="py-9 text-center text-sm text-muted">No orders have arrived yet.</p>}</div>
-              </AdminPanel>
-              <div className="space-y-5">
-                <AdminPanel title="Inventory alerts" subtitle="Ingredients needing attention" action={<button onClick={() => setActiveTab("inventory")} className="text-xs font-bold text-accent hover:underline">Open stock</button>}>
-                  <div className="divide-y divide-accent/10 px-5">{stockNotifications.slice(0, 3).map((alert) => <div key={alert.id} className="flex gap-3 py-3.5"><span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-sm font-bold text-red-600">!</span><div className="min-w-0"><p className="truncate text-sm font-bold text-[#63131d]">{alert.title.replace("Low stock: ", "")}</p><p className="mt-0.5 text-xs text-muted">{alert.details}</p></div></div>)}{stockNotifications.length === 0 && <p className="py-7 text-center text-sm text-muted">All ingredients are within their stock levels.</p>}</div>
+            {/* STATUS SUMMARY */}
+            <section className="rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur-sm">
+              <h2 className="text-sm font-bold text-[#63131d] mb-4 flex items-center gap-2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>
+                Order Status Summary
+              </h2>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 text-center">
+                {[
+                  { s: "Pending", c: "bg-amber-50 text-amber-700 border-amber-200" },
+                  { s: "Confirmed", c: "bg-blue-50 text-blue-700 border-blue-200" },
+                  { s: "Preparing", c: "bg-purple-50 text-purple-700 border-purple-200" },
+                  { s: "Ready", c: "bg-teal-50 text-teal-700 border-teal-200" },
+                  { s: "Completed", c: "bg-green-50 text-green-700 border-green-200" },
+                  { s: "Cancelled", c: "bg-stone-50 text-stone-600 border-stone-200" },
+                ].map(status => {
+                  const count = [...storeOrders, ...deliveryOrders].filter(o => !o.archived && o.status === status.s.toLowerCase()).length;
+                  return (
+                    <div key={status.s} className={`rounded-xl border p-3 flex flex-col items-center justify-center ${status.c}`}>
+                      <span className="text-2xl font-bold">{count}</span>
+                      <span className="text-[10px] font-semibold uppercase mt-1 opacity-80">{status.s}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+              {/* LEFT COLUMN: CUSTOMER ORDERS */}
+              <div className="space-y-6">
+                <AdminPanel title="Customer Orders" subtitle="Today's active orders from all channels" action={<button onClick={() => setActiveTab("orders")} className="text-xs font-bold text-accent hover:underline">View all</button>}>
+                  <div className="overflow-x-auto p-1">
+                    <table className="w-full text-left text-sm min-w-[500px]">
+                      <thead>
+                        <tr className="border-b border-accent/10 text-muted">
+                          <th className="px-4 py-3 font-medium">ID</th>
+                          <th className="px-4 py-3 font-medium">Type</th>
+                          <th className="px-4 py-3 font-medium">Items</th>
+                          <th className="px-4 py-3 font-medium">Total</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, type: "Delivery"}))]
+                          .filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered")
+                          .sort((a, b) => b.id.localeCompare(a.id))
+                          .slice(0, 5)
+                          .map((order) => (
+                          <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
+                            <td className="px-4 py-3 font-bold text-[#63131d]">{order.orderId}</td>
+                            <td className="px-4 py-3 text-xs font-medium text-muted">{order.type}</td>
+                            <td className="px-4 py-3 text-xs text-[#1c1c1c] truncate max-w-[150px]">{order.items}</td>
+                            <td className="px-4 py-3 font-semibold text-[#24753c]">₱{order.total}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
+                                order.status === "pending" ? "bg-amber-100 text-amber-800" :
+                                order.status === "preparing" ? "bg-purple-100 text-purple-800" :
+                                "bg-blue-100 text-blue-800"
+                              }`}>{order.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                        {[...storeOrders, ...deliveryOrders].filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered").length === 0 && (
+                          <tr><td colSpan={5} className="py-8 text-center text-sm text-muted">No active orders at the moment.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </AdminPanel>
-                <AdminPanel title="Quick actions" subtitle="Jump into your shift"><div className="grid grid-cols-3 gap-2 px-4 py-4 text-center text-[11px] font-semibold text-[#63131d]">{[{ label: "Orders", icon: "▣", action: () => setActiveTab("orders") }, { label: "Stock", icon: "□", action: () => setActiveTab("inventory") }, { label: "Menu", icon: "☷", action: () => setActiveTab("menu") }].map((action, index) => <button key={action.label} onClick={action.action} className="group flex flex-col items-center gap-2 rounded-xl py-1.5 hover:bg-accent-light"><span className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg ${["bg-rose-50 text-accent", "bg-emerald-50 text-emerald-700", "bg-amber-50 text-amber-700"][index]}`}>{action.icon}</span>{action.label}</button>)}</div></AdminPanel>
+
+                <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
+                  <div className="divide-y divide-accent/5 px-5 py-2">
+                    {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: o.time, raw: o})), 
+                      ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderId} received`, time: o.time, raw: o}))]
+                      .sort((a, b) => b.id.localeCompare(a.id))
+                      .slice(0, 4)
+                      .map((activity, i) => (
+                      <div key={`act-${activity.id}-${i}`} className="flex items-start gap-3 py-3 text-sm">
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#63131d]/10 text-[#63131d]">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                        </span>
+                        <div className="flex-1">
+                          <p className="text-[#1c1c1c] font-medium">{activity.text}</p>
+                          <p className="text-[10px] text-muted mt-0.5">{activity.time}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {storeOrders.length === 0 && deliveryOrders.length === 0 && (
+                      <p className="py-8 text-center text-sm text-muted">No recent activity to show.</p>
+                    )}
+                  </div>
+                </AdminPanel>
               </div>
-            </section>
 
+              {/* RIGHT COLUMN: ALERTS & ACTIONS */}
+              <div className="space-y-6">
+                <AdminPanel title="Needs Attention" subtitle="Tasks requiring staff action">
+                  <div className="divide-y divide-accent/10 px-5">
+                    {salesSummary.pendingOrders > 0 && (
+                      <button onClick={() => setActiveTab("orders")} className="w-full flex items-center justify-between py-3.5 hover:bg-white/40 transition-colors text-left group cursor-pointer">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 font-bold text-sm">◷</span>
+                          <div>
+                            <p className="text-sm font-bold text-[#63131d] group-hover:text-accent">{salesSummary.pendingOrders} Pending Orders</p>
+                            <p className="text-[10px] text-muted">Awaiting confirmation or prep</p>
+                          </div>
+                        </div>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-muted"><polyline points="9 18 15 12 9 6" /></svg>
+                      </button>
+                    )}
+                    {stockNotifications.length > 0 && (
+                      <button onClick={() => setActiveTab("inventory")} className="w-full flex items-center justify-between py-3.5 hover:bg-white/40 transition-colors text-left group cursor-pointer">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-50 text-red-600 font-bold text-sm">!</span>
+                          <div>
+                            <p className="text-sm font-bold text-[#63131d] group-hover:text-accent">{stockNotifications.length} Low Stock Items</p>
+                            <p className="text-[10px] text-muted">Requires replenishment</p>
+                          </div>
+                        </div>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-muted"><polyline points="9 18 15 12 9 6" /></svg>
+                      </button>
+                    )}
+                    {salesSummary.pendingOrders === 0 && stockNotifications.length === 0 && (
+                      <p className="py-6 text-center text-xs text-muted">No urgent tasks at the moment.</p>
+                    )}
+                  </div>
+                </AdminPanel>
+
+                <AdminPanel title="Inventory Alerts" subtitle="Low or out of stock items" action={<button onClick={() => setActiveTab("inventory")} className="text-xs font-bold text-accent hover:underline">Open stock</button>}>
+                  <div className="divide-y divide-accent/10 px-5">
+                    {stockNotifications.slice(0, 3).map((alert) => (
+                      <div key={alert.id} className="flex gap-3 py-3">
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600">!</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-[#63131d]">{alert.title.replace("Low stock: ", "")}</p>
+                          <p className="mt-0.5 text-[10px] text-muted">{alert.details}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {stockNotifications.length === 0 && (
+                      <p className="py-6 text-center text-xs text-muted">Stock levels are healthy.</p>
+                    )}
+                  </div>
+                </AdminPanel>
+
+                <AdminPanel title="Quick Actions" subtitle="Jump to section">
+                  <div className="grid grid-cols-2 gap-3 px-4 py-4 text-center text-[11px] font-semibold text-[#63131d]">
+                    {[
+                      { label: "View Orders", icon: "▣", action: () => setActiveTab("orders") },
+                      { label: "Manage Menu", icon: "☷", action: () => setActiveTab("menu") },
+                      { label: "Check Stock", icon: "□", action: () => setActiveTab("inventory") },
+                      { label: "Open POS", icon: "₱", action: () => setActiveTab("pos") }
+                    ].map((action, index) => (
+                      <button key={action.label} onClick={action.action} className="group flex flex-col items-center gap-2 rounded-xl py-3 border border-white/50 bg-white/40 hover:bg-white hover:shadow-sm transition-all cursor-pointer">
+                        <span className={`flex h-8 w-8 items-center justify-center rounded-lg text-lg ${["bg-rose-50 text-accent", "bg-emerald-50 text-emerald-700", "bg-blue-50 text-blue-700", "bg-amber-50 text-amber-700"][index]}`}>{action.icon}</span>
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </AdminPanel>
+              </div>
+            </div>
           </div>
-          </>
         )}
-
         {/* TAB 2: CUSTOMER ORDERS */}
-        {activeTab === "orders" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Operations</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">In-store Orders</h1>
-              <p className="text-sm text-muted">Manage in-store customer tickets, update workflow status, and confirm payments.</p>
-            </div>
+        {activeTab === "orders" && (() => {
+          // Process data
+          const allOrders = [...storeOrders, ...deliveryOrders.map(d => ({
+              ...d,
+              id: d.id,
+              orderId: d.orderNumber,
+              time: d.orderedAt,
+              orderType: "delivery",
+              paid: true, // assume paid for delivery in this mock unless stated
+              customerName: d.customerName,
+              subtotal: d.subtotal,
+              deliveryFee: d.deliveryFee
+          }))];
 
-            <AdminPanel title="Active Orders Tickets" subtitle="Awaiting prep or completion">
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">ID</th>
-                      <th className="px-4 py-3 font-medium">Time</th>
-                      <th className="px-4 py-3 font-medium">Items</th>
-                      <th className="px-4 py-3 font-medium">Total</th>
-                      <th className="px-4 py-3 font-medium">Payment</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {storeOrders.filter(o => !o.archived && o.status !== "completed").length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="text-center py-8 text-muted">No active order tickets.</td>
-                      </tr>
-                    ) : (
-                      storeOrders.filter(o => !o.archived && o.status !== "completed").map((order) => (
-                        <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
-                          <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}</td>
-                          <td className="px-4 py-3 text-muted text-xs">{order.time}</td>
-                          <td className="px-4 py-3 text-xs font-medium">{order.items}</td>
-                          <td className="px-4 py-3 font-semibold">₱{order.total}</td>
-                          <td className="px-4 py-3">
-                            {order.paid ? (
-                              <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">Paid</span>
-                            ) : (
-                              <button
-                                onClick={() => confirmStoreOrderPayment(order.id)}
-                                className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 hover:bg-green-100 hover:text-green-800 transition-colors cursor-pointer"
-                              >
-                                Confirm Payment
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex rounded-full bg-red-50 text-accent border border-accent/15 px-2.5 py-0.5 text-xs font-semibold capitalize">
-                              {order.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 flex gap-2 items-center">
-                            <AdminSelect
-                              value={order.status}
-                              onChange={(e) => updateStoreOrderStatus(order.id, e.target.value as any)}
-                              className="!py-1 !text-xs max-w-28"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="completed">Completed</option>
-                              <option value="cancelled">Cancelled</option>
-                            </AdminSelect>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenChat(`Customer #${order.orderId}`, order.orderId)}
-                              className="p-1.5 text-accent hover:bg-accent-light rounded-lg transition-colors cursor-pointer focus:outline-none"
-                              title="Chat with Customer"
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-4 w-4">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                              </svg>
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+          const activeOrders = allOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled");
+          const historyOrders = allOrders.filter(o => o.status === "completed" || o.status === "cancelled");
+
+          // Summary Counts
+          const summary = {
+            total: activeOrders.length,
+            pending: activeOrders.filter(o => o.status === "pending").length,
+            preparing: activeOrders.filter(o => o.status === "preparing").length,
+            ready: activeOrders.filter(o => o.status === "ready" || o.status === "ready_for_delivery").length,
+            completed: historyOrders.filter(o => o.status === "completed").length,
+            cancelled: historyOrders.filter(o => o.status === "cancelled").length,
+          };
+
+          // Filter active
+          const filteredActive = activeOrders.filter(o => {
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderSearch.toLowerCase()) || 
+                                  o.customerName?.toLowerCase().includes(orderSearch.toLowerCase());
+            const matchesStatus = orderStatusFilter === "all" || o.status === orderStatusFilter;
+            const matchesType = orderTypeFilter === "all" || (o.orderType || "dine-in") === orderTypeFilter;
+            return matchesSearch && matchesStatus && matchesType;
+          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+
+          // Filter history
+          const filteredHistory = historyOrders.filter(o => {
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) || 
+                                  o.customerName?.toLowerCase().includes(orderHistorySearch.toLowerCase());
+            const matchesStatus = orderHistoryStatusFilter === "all" || o.status === orderHistoryStatusFilter;
+            return matchesSearch && matchesStatus;
+          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+
+          return (
+            <div className="space-y-6">
+              {/* HEADER */}
+              <div>
+                <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Operations</span>
+                <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">In-store Orders</h1>
+                <p className="text-sm text-muted">Manage customer orders, update workflow status, and confirm payments.</p>
               </div>
-            </AdminPanel>
 
-            <AdminPanel title="Customer Order History" subtitle="Fulfilled or cancelled records">
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">ID</th>
-                      <th className="px-4 py-3 font-medium">Time</th>
-                      <th className="px-4 py-3 font-medium">Items</th>
-                      <th className="px-4 py-3 font-medium">Total</th>
-                      <th className="px-4 py-3 font-medium">Payment</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg">Final Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {storeOrders.filter(o => o.status === "completed" || o.status === "cancelled").length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="text-center py-8 text-muted">No history found.</td>
-                      </tr>
-                    ) : (
-                      storeOrders.filter(o => o.status === "completed" || o.status === "cancelled").map((order) => (
-                        <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-muted">
-                          <td className="px-4 py-3 font-bold">{order.orderId}</td>
-                          <td className="px-4 py-3 text-xs">{order.time}</td>
-                          <td className="px-4 py-3 text-xs">{order.items}</td>
-                          <td className="px-4 py-3 font-semibold text-ink">₱{order.total}</td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">Confirmed Paid</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
-                              order.status === "completed" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"
-                            }`}>
-                              {order.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              {/* SUMMARY ROW */}
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                {[
+                  { label: "Total Active", value: summary.total, color: "text-[#800000]" },
+                  { label: "Pending", value: summary.pending, color: "text-amber-600" },
+                  { label: "Preparing", value: summary.preparing, color: "text-blue-600" },
+                  { label: "Ready", value: summary.ready, color: "text-indigo-600" },
+                  { label: "Completed", value: summary.completed, color: "text-green-700" },
+                  { label: "Cancelled", value: summary.cancelled, color: "text-red-600" },
+                ].map(stat => (
+                  <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-xl p-3 border border-white/40 shadow-sm flex flex-col items-center justify-center">
+                    <p className="text-[10px] font-bold text-muted uppercase tracking-wider">{stat.label}</p>
+                    <p className={`text-xl font-bold font-serif mt-1 ${stat.color}`}>{stat.value}</p>
+                  </div>
+                ))}
               </div>
-            </AdminPanel>
-          </div>
-        )}
 
-        {/* TAB 3: MENU ITEMS */}
-        {activeTab === "menu" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Menu</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Menu Management</h1>
-              <p className="text-sm text-muted">Add, edit, or adjust the live availability of café items.</p>
-            </div>
+              {/* ACTIVE ORDERS PANEL */}
+              <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
+                {/* FILTERS */}
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                  <div className="relative w-full md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                    <input 
+                      type="text" 
+                      placeholder="Search ID or customer..." 
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
+                      value={orderTypeFilter}
+                      onChange={(e) => setOrderTypeFilter(e.target.value)}
+                    >
+                      <option value="all">All Types</option>
+                      <option value="dine-in">Dine-in</option>
+                      <option value="takeout">Takeout</option>
+                      <option value="delivery">Delivery</option>
+                    </select>
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
+                      value={orderStatusFilter}
+                      onChange={(e) => setOrderStatusFilter(e.target.value)}
+                    >
+                      <option value="all">All Statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="preparing">Preparing</option>
+                      <option value="ready">Ready</option>
+                    </select>
+                  </div>
+                </div>
 
-            <AdminPanel
-              title="Café Menu Catalog"
-              subtitle={`${menuItems.filter(m => !m.archived).length} menu items`}
-              action={<AdminButton onClick={openAddMenu}>+ Add Menu Item</AdminButton>}
-            >
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">Item Name</th>
-                      <th className="px-4 py-3 font-medium">Category</th>
-                      <th className="px-4 py-3 font-medium">Price</th>
-                      <th className="px-4 py-3 font-medium">Availability Status</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {menuItems.filter(m => !m.archived).map((item) => (
-                      <tr key={item.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
-                        <td className="px-4 py-3 font-medium text-[#800000]">
-                          <div className="flex items-center gap-3">
-                            {item.image ? (
-                              <img src={item.image} alt={item.name} className="h-10 w-10 shrink-0 rounded-lg object-cover border border-accent/10 shadow-sm" />
-                            ) : (
-                              <div className="h-10 w-10 shrink-0 rounded-lg bg-accent/5 text-accent flex items-center justify-center font-bold text-sm">
-                                {item.name.charAt(0)}
+                {/* DESKTOP TABLE / MOBILE CARDS */}
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
+                  {filteredActive.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
+                        <Filter className="h-6 w-6 text-accent/40" />
+                      </div>
+                      <p className="text-[#800000] font-bold">No Active Orders</p>
+                      <p className="text-sm text-muted mt-1 max-w-xs">New customer orders will appear here when they are placed.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Order ID</th>
+                              <th className="px-4 py-3 font-medium">Customer</th>
+                              <th className="px-4 py-3 font-medium">Type</th>
+                              <th className="px-4 py-3 font-medium">Items</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
+                              <th className="px-4 py-3 font-medium">Payment</th>
+                              <th className="px-4 py-3 font-medium">Status</th>
+                              <th className="px-4 py-3 font-medium text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredActive.map((order) => (
+                              <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10">
+                                <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}</td>
+                                <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-accent/10 shadow-sm">
+                                    {order.orderType || "dine-in"}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-muted max-w-[150px] truncate">{order.items}</td>
+                                <td className="px-4 py-3 font-bold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3">
+                                  {order.paid ? (
+                                    <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-200">Confirmed Paid</span>
+                                  ) : (
+                                    <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <AdminSelect
+                                    value={order.status}
+                                    onChange={(e) => {
+                                      if (order.orderType === 'delivery') {
+                                        updateDeliveryStatus(order.id, e.target.value as any);
+                                      } else {
+                                        updateStoreOrderStatus(order.id, e.target.value as any);
+                                      }
+                                    }}
+                                    className="!py-1.5 !text-xs max-w-[120px] shadow-sm font-medium"
+                                  >
+                                    <option value="pending">Pending</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="preparing">Preparing</option>
+                                    <option value="ready">Ready</option>
+                                    {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
+                                  </AdminSelect>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => setSelectedOrderDetails(order)}
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-accent hover:underline bg-white px-3 py-1.5 rounded-lg border border-accent/10 shadow-sm"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" /> Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* MOBILE CARDS */}
+                      <div className="md:hidden flex flex-col gap-3 p-2">
+                        {filteredActive.map((order) => (
+                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
                               </div>
-                            )}
+                              <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
+                                {order.orderType || "dine-in"}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
+                              <span className="text-muted truncate max-w-[60%]">{order.items}</span>
+                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Status:</span>
+                                <AdminSelect
+                                  value={order.status}
+                                  onChange={(e) => {
+                                    if (order.orderType === 'delivery') {
+                                      updateDeliveryStatus(order.id, e.target.value as any);
+                                    } else {
+                                      updateStoreOrderStatus(order.id, e.target.value as any);
+                                    }
+                                  }}
+                                  className="!py-1 !text-xs w-32 shadow-sm"
+                                >
+                                  <option value="pending">Pending</option>
+                                  <option value="confirmed">Confirmed</option>
+                                  <option value="preparing">Preparing</option>
+                                  <option value="ready">Ready</option>
+                                  {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
+                                  <option value="completed">Completed</option>
+                                  <option value="cancelled">Cancelled</option>
+                                </AdminSelect>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Payment:</span>
+                                {order.paid ? (
+                                  <span className="text-[10px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">Confirmed Paid</span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Pending</span>
+                                )}
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={() => setSelectedOrderDetails(order)}
+                              className="w-full mt-1 py-2 bg-white text-accent font-bold text-sm rounded-lg border border-accent/10 shadow-sm flex items-center justify-center gap-2"
+                            >
+                              <Eye className="h-4 w-4" /> View Details
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </AdminPanel>
+
+              {/* ORDER HISTORY */}
+              <AdminPanel title="Customer Order History" subtitle="Fulfilled or cancelled records">
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                  <div className="relative w-full md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                    <input 
+                      type="text" 
+                      placeholder="Search history..." 
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                      value={orderHistorySearch}
+                      onChange={(e) => setOrderHistorySearch(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium w-full md:w-auto"
+                    value={orderHistoryStatusFilter}
+                    onChange={(e) => setOrderHistoryStatusFilter(e.target.value)}
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl overflow-x-auto">
+                  {filteredHistory.length === 0 ? (
+                    <div className="text-center py-12 text-muted flex flex-col items-center">
+                      <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
+                        <Filter className="h-6 w-6 text-accent/40" />
+                      </div>
+                      <p className="font-medium text-[#800000]">No history found.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block">
+                        <table className="w-full text-left text-sm min-w-[640px]">
+                          <thead>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Order ID</th>
+                              <th className="px-4 py-3 font-medium">Customer</th>
+                              <th className="px-4 py-3 font-medium">Time</th>
+                              <th className="px-4 py-3 font-medium">Type</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
+                              <th className="px-4 py-3 font-medium">Final Status</th>
+                              <th className="px-4 py-3 font-medium text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredHistory.map((order) => (
+                              <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10 text-[#2B2523]">
+                                <td className="px-4 py-3 font-bold">{order.orderId}</td>
+                                <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
+                                <td className="px-4 py-3 text-xs text-muted">{order.time}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-200">
+                                    {order.orderType || "dine-in"}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 font-semibold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
+                                    {order.status}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => setSelectedOrderDetails(order)}
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-accent hover:underline bg-white px-3 py-1.5 rounded-lg border border-accent/10 shadow-sm"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" /> Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      {/* MOBILE HISTORY CARDS */}
+                      <div className="md:hidden flex flex-col gap-3 p-2">
+                        {filteredHistory.map((order) => (
+                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 opacity-90">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
+                              </div>
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
+                                {order.status}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
+                              <span className="text-muted text-xs">{order.time}</span>
+                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                            </div>
+
+                            <button
+                              onClick={() => setSelectedOrderDetails(order)}
+                              className="w-full mt-1 py-2 bg-white text-accent font-bold text-sm rounded-lg border border-accent/10 shadow-sm flex items-center justify-center gap-2"
+                            >
+                              <Eye className="h-4 w-4" /> View Details
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </AdminPanel>
+
+              {/* ORDER DETAILS MODAL */}
+              {selectedOrderDetails && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+                  <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                    {/* Header */}
+                    <div className="flex justify-between items-center p-5 border-b border-accent/10 bg-white">
+                      <div>
+                        <h2 className="font-serif text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
+                        <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 mt-1 border border-gray-200 shadow-sm">
+                          {selectedOrderDetails.orderType || "Dine-in"}
+                        </span>
+                      </div>
+                      <button 
+                        onClick={() => setSelectedOrderDetails(null)}
+                        className="p-2 text-muted hover:bg-gray-100 hover:text-[#2B2523] rounded-full transition-colors"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    
+                    {/* Body */}
+                    <div className="p-5 overflow-y-auto space-y-6">
+                      
+                      {/* Customer Info */}
+                      <div className="bg-white p-5 rounded-xl shadow-sm border border-accent/5 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-accent"></div>
+                        <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-4">Customer Details</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Name</p>
+                            <p className="font-medium mt-1">{selectedOrderDetails.customerName || "Walk-in Customer"}</p>
+                          </div>
+                          {selectedOrderDetails.phone && (
                             <div>
-                              <p>{item.name}</p>
-                              <p className="text-[10px] text-muted font-normal mt-0.5">{item.description}</p>
+                              <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Contact</p>
+                              <p className="font-medium mt-1">{selectedOrderDetails.phone}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Date & Time</p>
+                            <p className="font-medium mt-1">{selectedOrderDetails.time}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Status</p>
+                            <p className="font-bold text-accent capitalize mt-1">{selectedOrderDetails.status}</p>
+                          </div>
+                        </div>
+                        {selectedOrderDetails.orderType === 'delivery' && selectedOrderDetails.address && (
+                          <div className="mt-5 pt-4 border-t border-accent/5">
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-accent" /> Delivery Address</p>
+                            <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.address}</p>
+                            <button
+                              onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.orderId); }}
+                              className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 bg-accent/5 text-accent font-bold text-sm rounded-lg border border-accent/10 hover:bg-accent/10 hover:shadow-sm transition-all"
+                            >
+                              <MessageCircle className="h-4 w-4" /> Chat with Customer
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Order Items */}
+                      <div>
+                        <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-3 px-1">Order Summary</h3>
+                        <div className="bg-white rounded-xl shadow-sm border border-accent/5 overflow-hidden">
+                          <div className="p-5 space-y-4">
+                            <div className="flex flex-col gap-2 text-sm text-[#2B2523] font-medium leading-relaxed">
+                              {selectedOrderDetails.items}
                             </div>
                           </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted">{getMenuCategoryName(item.categoryId)}</td>
-                        <td className="px-4 py-3 font-semibold">₱{item.price}</td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleToggleAvailability(item)}
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold transition-all cursor-pointer ${
-                              item.available
-                                ? "bg-green-100 text-green-800 border border-green-200"
-                                : "bg-red-100 text-red-800 border border-red-200"
-                            }`}
-                          >
-                            {item.available ? "● Available" : "○ Out of Stock"}
-                          </button>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => openEditMenu(item)}
-                            className="rounded-lg px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent-light transition-colors cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          
+                          <div className="bg-accent-light/30 p-5 border-t border-accent/10 space-y-3 text-sm">
+                            {selectedOrderDetails.orderType === 'delivery' && (
+                              <>
+                                <div className="flex justify-between text-muted font-medium">
+                                  <span>Subtotal</span>
+                                  <span>₱{(selectedOrderDetails as any).subtotal?.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-muted font-medium">
+                                  <span>Delivery Fee</span>
+                                  <span>₱{(selectedOrderDetails as any).deliveryFee?.toFixed(2)}</span>
+                                </div>
+                                <div className="h-px bg-accent/10 w-full my-2"></div>
+                              </>
+                            )}
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-[#800000]">Total</span>
+                              <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{selectedOrderDetails.total?.toFixed(2) || ((selectedOrderDetails as any).subtotal + ((selectedOrderDetails as any).deliveryFee||0)).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Payment Status */}
+                      <div className="flex justify-between items-center p-5 bg-white rounded-xl shadow-sm border border-accent/5">
+                        <span className="text-sm font-bold text-[#2B2523] uppercase tracking-wide">Payment Status</span>
+                        {selectedOrderDetails.paid ? (
+                          <span className="px-4 py-1.5 bg-green-50 text-green-700 font-bold text-xs rounded-full border border-green-200 shadow-sm flex items-center gap-1.5">
+                            <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Confirmed Paid
+                          </span>
+                        ) : (
+                          <span className="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200 shadow-sm flex items-center gap-1.5">
+                            <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div> Pending Payment
+                          </span>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {activeTab === "menu" && (() => {
+          // Process data
+          const activeMenuItems = menuItems.filter(m => !m.archived);
+          
+          // Summary counts
+          const summary = {
+            total: activeMenuItems.length,
+            available: activeMenuItems.filter(m => m.available).length,
+            unavailable: activeMenuItems.filter(m => !m.available).length,
+            lowStock: activeMenuItems.filter(m => {
+              // Basic check if a stock item name matches item name or is a substring
+              // A real system would use a mapping/recipe
+              const relatedStock = stockItems.find(s => m.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(m.name.toLowerCase()));
+              return relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
+            }).length
+          };
+
+          // Filter & Sort
+          let filteredMenu = activeMenuItems.filter(m => {
+            const matchesSearch = m.name.toLowerCase().includes(menuSearch.toLowerCase()) || 
+                                  m.description.toLowerCase().includes(menuSearch.toLowerCase());
+            const matchesCat = menuCatFilter === "all" || m.categoryId === menuCatFilter;
+            const matchesAvail = menuAvailFilter === "all" || (menuAvailFilter === "available" ? m.available : !m.available);
+            return matchesSearch && matchesCat && matchesAvail;
+          });
+
+          filteredMenu.sort((a, b) => {
+            if (menuSort === "name-asc") return a.name.localeCompare(b.name);
+            if (menuSort === "name-desc") return b.name.localeCompare(a.name);
+            if (menuSort === "price-asc") return a.price - b.price;
+            if (menuSort === "price-desc") return b.price - a.price;
+            return 0;
+          });
+
+          return (
+            <div className="space-y-6">
+              {/* HEADER */}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+                <div>
+                  <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Menu</span>
+                  <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Menu Items</h1>
+                  <p className="text-sm text-muted">Manage your café menu, availability, pricing, and item details.</p>
+                </div>
+                <button 
+                  onClick={openAddMenu}
+                  className="inline-flex items-center justify-center gap-2 bg-[#800000] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#600000] transition-colors shadow-sm"
+                >
+                  <Plus className="h-4 w-4" /> Add Menu Item
+                </button>
               </div>
-            </AdminPanel>
-          </div>
-        )}
+
+              {/* SUMMARY ROW */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: "Total Items", value: summary.total, color: "text-[#800000]" },
+                  { label: "Available", value: summary.available, color: "text-green-700" },
+                  { label: "Unavailable", value: summary.unavailable, color: "text-amber-600" },
+                  { label: "Low Stock", value: summary.lowStock, color: "text-red-600" },
+                ].map(stat => (
+                  <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/40 shadow-sm flex flex-col">
+                    <p className="text-xs font-bold text-muted uppercase tracking-wider">{stat.label}</p>
+                    <p className={`text-2xl font-bold font-serif mt-1 ${stat.color}`}>{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* MENU ITEMS PANEL */}
+              <AdminPanel title="Menu Catalog" subtitle="Active menu items visible to customers">
+                {/* FILTERS TOOLBAR */}
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
+                  <div className="relative w-full lg:w-72 shrink-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                    <input 
+                      type="text" 
+                      placeholder="Search menu items..." 
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                      value={menuSearch}
+                      onChange={(e) => setMenuSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full lg:w-auto">
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
+                      value={menuCatFilter}
+                      onChange={(e) => setMenuCatFilter(e.target.value)}
+                    >
+                      <option value="all">All Categories</option>
+                      {menuCategories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
+                      value={menuAvailFilter}
+                      onChange={(e) => setMenuAvailFilter(e.target.value)}
+                    >
+                      <option value="all">All Availability</option>
+                      <option value="available">Available</option>
+                      <option value="unavailable">Unavailable</option>
+                    </select>
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
+                      value={menuSort}
+                      onChange={(e) => setMenuSort(e.target.value)}
+                    >
+                      <option value="name-asc">Name A-Z</option>
+                      <option value="name-desc">Name Z-A</option>
+                      <option value="price-asc">Price Low-High</option>
+                      <option value="price-desc">Price High-Low</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* CONTENT AREA */}
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
+                  {activeMenuItems.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="h-16 w-16 rounded-full bg-accent/5 flex items-center justify-center mb-4">
+                        <Plus className="h-8 w-8 text-accent/40" />
+                      </div>
+                      <p className="text-lg font-bold text-[#800000]">No menu items found.</p>
+                      <p className="text-sm text-muted mt-1 max-w-xs">Start building your menu by adding your first item.</p>
+                      <button 
+                        onClick={openAddMenu}
+                        className="mt-4 px-4 py-2 bg-accent/10 text-accent font-bold text-sm rounded-lg hover:bg-accent/20 transition-colors"
+                      >
+                        Add Menu Item
+                      </button>
+                    </div>
+                  ) : filteredMenu.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <Filter className="h-8 w-8 text-muted/30 mb-3" />
+                      <p className="font-bold text-[#2B2523]">No matching menu items.</p>
+                      <p className="text-sm text-muted mt-1">Try changing your search or filters.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Item</th>
+                              <th className="px-4 py-3 font-medium">Category</th>
+                              <th className="px-4 py-3 font-medium">Price</th>
+                              <th className="px-4 py-3 font-medium">Stock</th>
+                              <th className="px-4 py-3 font-medium">Availability</th>
+                              <th className="px-4 py-3 font-medium text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredMenu.map((item) => {
+                              const relatedStock = stockItems.find(s => item.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(item.name.toLowerCase()));
+                              const isLowStock = relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
+
+                              return (
+                                <tr key={item.id} className="border-b border-accent/5 hover:bg-accent-light/20 transition-colors">
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-3">
+                                      {item.image ? (
+                                        <img src={item.image} alt={item.name} className="h-10 w-10 shrink-0 rounded-lg object-cover border border-accent/10 shadow-sm" />
+                                      ) : (
+                                        <div className="h-10 w-10 shrink-0 rounded-lg bg-accent/5 text-accent flex items-center justify-center font-bold text-sm">
+                                          {item.name.charAt(0)}
+                                        </div>
+                                      )}
+                                      <div>
+                                        <p className="font-bold text-[#2B2523]">{item.name}</p>
+                                        <p className="text-[10px] text-muted font-normal mt-0.5 line-clamp-1 max-w-[200px]">{item.description}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
+                                      {getMenuCategoryName(item.categoryId)}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 font-serif font-bold text-[#800000]">₱{item.price.toFixed(2)}</td>
+                                  <td className="px-4 py-3">
+                                    {isLowStock ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600"><AlertTriangle className="h-3 w-3" /> Low Stock</span>
+                                    ) : relatedStock ? (
+                                      <span className="text-[10px] text-muted">In Stock</span>
+                                    ) : (
+                                      <span className="text-[10px] text-gray-400">-</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {item.available ? (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-green-50 text-green-700 border border-green-200">
+                                        <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Available
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-gray-100 text-gray-600 border border-gray-200">
+                                        <div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Unavailable
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex justify-end items-center gap-2">
+                                      <button
+                                        onClick={() => handleToggleAvailability(item)}
+                                        className="p-1.5 text-muted hover:text-[#2B2523] hover:bg-white rounded-md transition-colors"
+                                        title={item.available ? "Mark Unavailable" : "Mark Available"}
+                                      >
+                                        <Eye className={`h-4 w-4 ${!item.available ? "opacity-40" : ""}`} />
+                                      </button>
+                                      <button
+                                        onClick={() => openEditMenu(item)}
+                                        className="p-1.5 text-accent hover:bg-accent-light rounded-md transition-colors"
+                                        title="Edit Item"
+                                      >
+                                        <Edit3 className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setItemToArchive(item)}
+                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                        title="Archive Item"
+                                      >
+                                        <Archive className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* MOBILE CARDS */}
+                      <div className="md:hidden flex flex-col gap-3 p-2">
+                        {filteredMenu.map((item) => {
+                          const relatedStock = stockItems.find(s => item.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(item.name.toLowerCase()));
+                          const isLowStock = relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
+                          
+                          return (
+                            <div key={item.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 relative overflow-hidden">
+                              {!item.available && <div className="absolute top-0 left-0 w-1 h-full bg-gray-300"></div>}
+                              <div className="flex gap-3">
+                                {item.image ? (
+                                  <img src={item.image} alt={item.name} className="h-16 w-16 shrink-0 rounded-lg object-cover border border-accent/10 shadow-sm" />
+                                ) : (
+                                  <div className="h-16 w-16 shrink-0 rounded-lg bg-accent/5 text-accent flex items-center justify-center font-bold text-xl">
+                                    {item.name.charAt(0)}
+                                  </div>
+                                )}
+                                <div className="flex-1">
+                                  <div className="flex justify-between items-start">
+                                    <h3 className={`font-bold ${item.available ? 'text-[#800000]' : 'text-gray-500'}`}>{item.name}</h3>
+                                  </div>
+                                  <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-100 mt-1">
+                                    {getMenuCategoryName(item.categoryId)}
+                                  </span>
+                                  <p className="text-xs text-muted font-normal mt-1 line-clamp-2">{item.description}</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex justify-between items-center text-sm border-t border-accent/5 pt-3 mt-1">
+                                <div className="flex flex-col">
+                                  {isLowStock && <span className="text-[10px] font-bold text-red-600 mb-0.5">Low Stock</span>}
+                                  {item.available ? (
+                                    <span className="text-[10px] font-bold uppercase text-green-600">Available</span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold uppercase text-gray-500">Unavailable</span>
+                                  )}
+                                </div>
+                                <span className="font-serif font-bold text-lg text-[#2B2523]">₱{item.price.toFixed(2)}</span>
+                              </div>
+
+                              <div className="flex gap-2 mt-1">
+                                <button
+                                  onClick={() => handleToggleAvailability(item)}
+                                  className="flex-1 py-2 bg-gray-50 text-[#2B2523] font-bold text-xs rounded-lg border border-gray-200 shadow-sm"
+                                >
+                                  {item.available ? "Mark Unavailable" : "Mark Available"}
+                                </button>
+                                <button
+                                  onClick={() => openEditMenu(item)}
+                                  className="flex-1 py-2 bg-accent/5 text-accent font-bold text-xs rounded-lg border border-accent/10 shadow-sm"
+                                >
+                                  Edit Item
+                                </button>
+                                <button
+                                  onClick={() => setItemToArchive(item)}
+                                  className="px-3 py-2 bg-red-50 text-red-600 rounded-lg border border-red-100 shadow-sm"
+                                >
+                                  <Archive className="h-4 w-4 mx-auto" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </AdminPanel>
+
+              {/* ARCHIVE CONFIRMATION MODAL */}
+              {itemToArchive && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+                  <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 mb-4">
+                      <AlertTriangle className="h-6 w-6 text-red-600" />
+                    </div>
+                    <h3 className="text-lg font-bold text-[#2B2523] mb-2">Archive Menu Item?</h3>
+                    <p className="text-sm text-muted mb-6">
+                      Are you sure you want to archive <strong>{itemToArchive.name}</strong>? This item will no longer appear in the active menu.
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setItemToArchive(null)}
+                        className="flex-1 py-2.5 bg-gray-100 text-[#2B2523] font-bold text-sm rounded-xl hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          archiveMenuItem(itemToArchive.id);
+                          setItemToArchive(null);
+                        }}
+                        className="flex-1 py-2.5 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition-colors shadow-sm"
+                      >
+                        Archive Item
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          );
+        })()}
 
         {/* TAB 4: INVENTORY */}
         {activeTab === "inventory" && (
