@@ -193,7 +193,7 @@ async function sendResetEmail(email: string, token: string) {
 
   const resetUrl = `${config.clientOrigin}/customer/reset-password?token=${token}`;
   const info = await transporter.sendMail({
-    from: '"Eat n RepEat Cafe" <noreply@eatnrepeat.ph>',
+    from: config.smtp.from,
     to: email,
     subject: "Password Reset Request - Eat n RepEat",
     text: `You requested a password reset. Click the link to reset your password: ${resetUrl}`,
@@ -253,7 +253,7 @@ async function sendVerificationEmail(email: string, token: string) {
 
   const verifyUrl = `${config.clientOrigin}/customer/verify-email?token=${token}`;
   const info = await transporter.sendMail({
-    from: '"Eat n RepEat Cafe" <noreply@eatnrepeat.ph>',
+    from: config.smtp.from,
     to: email,
     subject: "Verify Your Email - Eat n RepEat",
     text: `Please verify your email address. Click the link to verify: ${verifyUrl}`,
