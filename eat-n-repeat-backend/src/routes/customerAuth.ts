@@ -79,8 +79,8 @@ router.post("/register", async (req, res) => {
     const id = `cust-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 
     await pool.execute(
-      "INSERT INTO customers (id, name, email, phone, password_hash) VALUES (?, ?, ?, ?, ?)",
-      [id, name, email.toLowerCase(), phone || null, passwordHash]
+      "INSERT INTO customers (id, name, email, phone, password_hash, status) VALUES (?, ?, ?, ?, ?, ?)",
+      [id, name, email.toLowerCase(), phone || null, passwordHash, "active"]
     );
 
     const verifyToken = crypto.randomBytes(32).toString("hex");
@@ -137,9 +137,12 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
+    // Temporarily disabled verification check to allow accounts to log in without SMTP
+    /*
     if (user.status === "pending_verification") {
       return res.status(403).json({ message: "unverified_email" });
     }
+    */
 
     if (user.status !== "active") {
       return res.status(403).json({ message: "This account is disabled." });
