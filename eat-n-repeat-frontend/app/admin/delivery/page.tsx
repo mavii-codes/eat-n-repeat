@@ -1,30 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { AdminPanel } from "@/components/admin/AdminForm";
 import { DeliveryOrdersTable } from "@/components/admin/DeliveryOrdersTable";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { useAdminData } from "@/context/AdminDataContext";
-import {
-  activeDeliveryStatuses,
-  historyDeliveryStatuses,
-} from "@/lib/admin/delivery-utils";
-
-type Tab = "all" | "active" | "history";
+import { Truck, CheckCircle2, Clock } from "lucide-react";
 
 export default function DeliveryPage() {
   const {
     deliveryOrders,
     updateDeliveryStatus,
-    archiveDeliveryOrder,
     getServiceAreaName,
     getActiveDeliveryOrders,
     getDeliveryHistory,
+    updateDeliveryPerson,
   } = useAdminData();
 
-  const [tab, setTab] = useState<Tab>("all");
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
 
@@ -35,156 +28,76 @@ export default function DeliveryPage() {
 
   const activeOrders = getActiveDeliveryOrders();
   const historyOrders = getDeliveryHistory();
-  const activeDeliveryList = deliveryOrders.filter((order) => !order.archived);
-
-  const displayedOrders = useMemo(() => {
-    if (tab === "active") return activeOrders;
-    if (tab === "history") return historyOrders;
-    return activeDeliveryList;
-  }, [tab, activeDeliveryList, activeOrders, historyOrders]);
-
-  const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: "all", label: "All Orders", count: activeDeliveryList.length },
-    { id: "active", label: "Monitor Status", count: activeOrders.length },
-    { id: "history", label: "Delivery History", count: historyOrders.length },
-  ];
+  const outForDeliveryCount = deliveryOrders.filter((order) => order.status === "out_for_delivery").length;
 
   return (
-    <>
+    <div className="space-y-6">
       <AdminPageHeader
         badge="Delivery"
         title="Delivery Orders"
-        subtitle="View all delivery orders, monitor live status, and browse delivery history."
-      />
-
-      <section className="mb-5 grid gap-5 sm:grid-cols-3">
-        {[
-          { label: "Active Deliveries", value: activeOrders.length },
-          {
-            label: "Out for Delivery",
-            value: deliveryOrders.filter(
-              (order) => order.status === "out_for_delivery",
-            ).length,
-          },
-          { label: "Completed Today", value: historyOrders.length },
-        ].map((stat) => (
-          <div key={stat.label} className="admin-stat-card rounded-2xl p-5 pl-6">
-            <p className="text-sm font-medium text-muted">{stat.label}</p>
-            <p className="mt-3 font-serif text-3xl font-semibold text-[#800000]">
-              {stat.value}
-            </p>
-          </div>
-        ))}
-      </section>
-
-      <div className="mb-5 flex flex-wrap gap-2">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setTab(item.id)}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-              tab === item.id
-                ? "bg-gradient-to-r from-accent to-accent-dark text-white"
-                : "border border-accent/10 bg-card text-muted hover:bg-accent-light hover:text-accent"
-            }`}
-          >
-            {item.label} ({item.count})
-          </button>
-        ))}
-      </div>
-
-      <AdminPanel
-        title={
-          tab === "all"
-            ? "All Delivery Orders"
-            : tab === "active"
-              ? "Monitor Delivery Status"
-              : "Delivery History"
-        }
-        subtitle={
-          tab === "active"
-            ? "Update order status as deliveries progress"
-            : tab === "history"
-              ? "Completed and cancelled deliveries"
-              : "Full list of delivery orders"
-        }
+        subtitle="Manage live delivery dispatches, monitor courier schedule, and view delivery logs."
         action={
           <div className="flex flex-wrap gap-2">
             <Link
               href="/admin/delivery/settings"
-              className="rounded-xl border border-accent/15 bg-white px-4 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent-light"
+              className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-xs font-bold text-stone-700 hover:bg-stone-50 transition-colors shadow-2xs"
             >
               Fees & Areas
             </Link>
             <Link
               href="/admin/delivery/reports"
-              className="rounded-xl bg-gradient-to-r from-accent to-accent-dark px-4 py-2.5 text-sm font-semibold text-white"
+              className="rounded-xl bg-[#63131d] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#500f17] transition-colors shadow-2xs"
             >
               Delivery Reports
             </Link>
           </div>
         }
-      >
-        <DeliveryOrdersTable
-          orders={displayedOrders}
-          getServiceAreaName={getServiceAreaName}
-          showStatusControl={tab === "active"}
-          onStatusChange={updateDeliveryStatus}
-          onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
-          onArchive={
-            tab === "history"
-              ? (order) => {
-                  if (confirm(`Archive delivery ${order.orderNumber}?`)) {
-                    archiveDeliveryOrder(order.id);
-                  }
-                }
-              : undefined
-          }
-        />
-      </AdminPanel>
+      />
 
-      {tab === "active" && (
-        <div className="mt-5 grid gap-3 sm:grid-cols-4">
-          {activeDeliveryStatuses.map((status) => (
-            <div
-              key={status}
-              className="admin-panel rounded-xl px-4 py-3 text-center"
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-                {status.replaceAll("_", " ")}
-              </p>
-              <p className="mt-1 text-lg font-semibold text-[#800000]">
-                {
-                  activeDeliveryList.filter((order) => order.status === status)
-                    .length
-                }
-              </p>
-            </div>
-          ))}
+      {/* KPI SUMMARY STAT CARDS */}
+      <section className="grid gap-4 sm:grid-cols-3">
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-5 border border-stone-200 shadow-sm flex items-center gap-4">
+          <div className="w-11 h-11 rounded-xl bg-[#63131d]/10 flex items-center justify-center text-[#63131d] shrink-0">
+            <Truck className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Active Deliveries</p>
+            <p className="text-2xl font-black text-[#63131d] mt-0.5">{activeOrders.length}</p>
+          </div>
         </div>
-      )}
 
-      {tab === "history" && (
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {historyDeliveryStatuses.map((status) => (
-            <div
-              key={status}
-              className="admin-panel rounded-xl px-4 py-3"
-            >
-              <p className="text-sm font-medium capitalize text-muted">
-                {status} orders
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-[#800000]">
-                {
-                  activeDeliveryList.filter((order) => order.status === status)
-                    .length
-                }
-              </p>
-            </div>
-          ))}
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-5 border border-rose-200 shadow-sm flex items-center gap-4">
+          <div className="w-11 h-11 rounded-xl bg-rose-50 flex items-center justify-center text-rose-700 shrink-0">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-800">Out for Delivery</p>
+            <p className="text-2xl font-black text-rose-700 mt-0.5">{outForDeliveryCount}</p>
+          </div>
         </div>
-      )}
+
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-5 border border-emerald-200 shadow-sm flex items-center gap-4">
+          <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-700 shrink-0">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Completed Orders</p>
+            <p className="text-2xl font-black text-emerald-700 mt-0.5">{historyOrders.length}</p>
+          </div>
+        </div>
+      </section>
+
+      {/* MAIN DELIVERY ORDERS TABLE COMPONENT */}
+      <DeliveryOrdersTable
+        orders={deliveryOrders}
+        getServiceAreaName={getServiceAreaName}
+        showStatusControl={true}
+        onStatusChange={updateDeliveryStatus}
+        onDeliveryPersonChange={updateDeliveryPerson}
+        onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
+        isAdmin={true}
+      />
+
       {activeChatOrder && (
         <AdminChatModal
           open={chatOpen}
@@ -193,6 +106,6 @@ export default function DeliveryPage() {
           orderId={activeChatOrder.orderNumber}
         />
       )}
-    </>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Geist_Mono, Pacifico, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
@@ -24,17 +24,44 @@ const pacifico = Pacifico({
 });
 
 export const metadata: Metadata = {
-  title: "Eat n' Repeat | Admin Portal",
+  title: {
+    template: "%s | Eat n RepEat Cafe",
+    default: "Eat n RepEat Cafe | Cordova, Cebu",
+  },
   description:
-    "Owner admin portal for Eat n' Repeat Cordova — sales, inventory, and system management.",
+    "Eat n RepEat Cafe — coffee, meals, milk tea, snacks, and more in Cordova, Cebu.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://eatnrepeat.vercel.app"),
+  openGraph: {
+    title: "Eat n RepEat Cafe | Cordova, Cebu",
+    description: "Eat n RepEat Cafe — coffee, meals, milk tea, snacks, and more in Cordova, Cebu.",
+    url: "/",
+    siteName: "Eat n RepEat Cafe",
+    locale: "en_PH",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Eat n RepEat Cafe | Cordova, Cebu",
+    description: "Eat n RepEat Cafe — coffee, meals, milk tea, snacks, and more in Cordova, Cebu.",
+  },
   icons: {
     icon: "/logo.png?v=2",
     apple: "/logo.png?v=2",
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 import { AdminDataProvider } from "@/context/AdminDataContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { SessionProvider } from "@/lib/customer/auth-provider";
+import { NetworkStatusProvider } from "@/context/NetworkStatusContext";
+import { OnlineIndicator } from "@/components/shared/OnlineIndicator";
+import { OfflineBanner } from "@/components/shared/OfflineBanner";
 
 export default function RootLayout({
   children,
@@ -47,9 +74,13 @@ export default function RootLayout({
       className={`${dmSans.variable} ${geistMono.variable} ${playfair.variable} ${pacifico.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <AdminDataProvider>
-          <AuthProvider>{children}</AuthProvider>
-        </AdminDataProvider>
+        <NetworkStatusProvider>
+          <OfflineBanner />
+          <OnlineIndicator />
+          <AdminDataProvider>
+            <AuthProvider><SessionProvider>{children}</SessionProvider></AuthProvider>
+          </AdminDataProvider>
+        </NetworkStatusProvider>
       </body>
     </html>
   );

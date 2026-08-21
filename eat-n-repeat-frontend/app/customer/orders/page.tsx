@@ -1,81 +1,143 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
-import { OrderCard } from '@/components/customer/OrderCard';
+import { OrderCard, type OrderCardProps } from '@/components/customer/OrderCard';
+import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
+import { useAdminData } from '@/context/AdminDataContext';
+import { Package, Bike } from 'lucide-react';
 
-// Mock orders
-const mockOrders = [
+// Realistic sample orders for Cordova branch customer portal
+const fallbackOrders: OrderCardProps[] = [
   {
-    id: '1',
+    id: 'ord-101',
     orderNumber: '20240716001',
-    date: 'July 16, 2024 • 10:30 AM',
-    status: 'ready' as const,
-    total: 12.50,
+    date: 'Today • 10:30 AM',
+    status: 'pending',
+    subtotal: 334.00,
+    deliveryFee: 45.00,
+    discount: 0,
+    total: 379.00,
+    paymentMethod: 'Cash on Delivery',
+    customerName: 'Maria Santos',
+    customerPhone: '0917 123 4567',
+    customerAddress: 'Suba-Basbas, Cordova, Cebu',
     items: [
-      { name: 'Cappuccino', quantity: 2, price: 4.50 },
-      { name: 'Croissant', quantity: 1, price: 3.99 },
+      { name: 'Signature Chicken Inasal Rice Bowl', quantity: 1, price: 189.00 },
+      { name: 'House Special Latte', quantity: 1, price: 145.00 },
     ],
-    estimatedTime: '10 min',
-    deliveryType: 'dine-in' as const,
+    estimatedTime: '~30-40 mins',
+    deliveryType: 'delivery',
   },
   {
-    id: '2',
+    id: 'ord-102',
+    orderNumber: '20240716002',
+    date: 'Today • 9:15 AM',
+    status: 'preparing',
+    subtotal: 274.00,
+    deliveryFee: 45.00,
+    discount: 0,
+    total: 319.00,
+    paymentMethod: 'GCash e-Wallet',
+    customerName: 'Juan Dela Cruz',
+    customerPhone: '0922 987 6543',
+    customerAddress: 'Poblacion, Cordova, Cebu',
+    items: [
+      { name: 'Uji Matcha Milktea', quantity: 1, price: 165.00 },
+      { name: 'Garlic Parmesan Truffle Fries', quantity: 1, price: 109.00 },
+    ],
+    estimatedTime: '~15-20 mins',
+    deliveryType: 'delivery',
+  },
+  {
+    id: 'ord-103',
     orderNumber: '20240715002',
-    date: 'July 15, 2024 • 2:45 PM',
-    status: 'delivered' as const,
-    total: 18.99,
+    date: 'Yesterday • 2:45 PM',
+    status: 'delivered',
+    subtotal: 423.00,
+    deliveryFee: 0,
+    discount: 30.00,
+    total: 393.00,
+    paymentMethod: 'Cash on Delivery',
+    customerName: 'Maria Santos',
+    customerPhone: '0917 123 4567',
+    customerAddress: 'Suba-Basbas, Cordova, Cebu',
     items: [
-      { name: 'Espresso', quantity: 1, price: 3.50 },
-      { name: 'Chocolate Cake', quantity: 2, price: 5.99 },
-      { name: 'Iced Latte', quantity: 1, price: 4.99 },
+      { name: 'Spam & Egg Comfort Bowl', quantity: 1, price: 165.00 },
+      { name: 'Brown Sugar Boba Milk', quantity: 1, price: 149.00 },
+      { name: 'Garlic Parmesan Truffle Fries', quantity: 1, price: 109.00 },
     ],
-    deliveryType: 'delivery' as const,
-  },
-  {
-    id: '3',
-    orderNumber: '20240714003',
-    date: 'July 14, 2024 • 8:20 AM',
-    status: 'delivered' as const,
-    total: 16.48,
-    items: [
-      { name: 'Avocado Toast', quantity: 1, price: 6.50 },
-      { name: 'Berry Muffin', quantity: 2, price: 3.99 },
-      { name: 'Cappuccino', quantity: 1, price: 4.50 },
-    ],
-    deliveryType: 'delivery' as const,
-  },
-  {
-    id: '4',
-    orderNumber: '20240713004',
-    date: 'July 13, 2024 • 12:00 PM',
-    status: 'cancelled' as const,
-    total: 9.99,
-    items: [
-      { name: 'Caesar Salad', quantity: 1, price: 7.99 },
-    ],
-    deliveryType: 'dine-in' as const,
-  },
-  {
-    id: '5',
-    orderNumber: '20240712005',
-    date: 'July 12, 2024 • 3:30 PM',
-    status: 'delivered' as const,
-    total: 14.49,
-    items: [
-      { name: 'Iced Latte', quantity: 2, price: 4.99 },
-      { name: 'Croissant', quantity: 1, price: 3.99 },
-    ],
-    deliveryType: 'delivery' as const,
+    deliveryType: 'delivery',
   },
 ];
 
-type OrderStatus = 'all' | 'active' | 'completed' | 'cancelled';
+type OrderFilterStatus = 'all' | 'active' | 'completed' | 'cancelled';
 
 export default function OrdersPage() {
-  const [selectedStatus, setSelectedStatus] = useState<OrderStatus>('all');
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [selectedStatus, setSelectedStatus] = useState<OrderFilterStatus>('all');
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
+  
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/customer/login?callbackUrl=/customer/orders');
+    }
+  }, [status, router]);
 
-  const filteredOrders = mockOrders.filter(order => {
+  const { deliveryOrders, updateDeliveryStatus, menuItems } = useAdminData();
+
+  if (status === 'loading' || status === 'unauthenticated') {
+    return (
+      <div className="min-h-screen bg-[#FFF8F0] flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-[#B91C1C]/30 border-t-[#B91C1C] rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // Map live orders from AdminDataContext if present
+  const liveMappedOrders: OrderCardProps[] = deliveryOrders.map((o) => {
+    const isCompleted = o.status === 'delivered';
+    const isCancel = o.status === 'cancelled';
+    const isPending = o.status === 'pending';
+    const isConfirmed = o.status === 'assigned';
+    const isPreparing = o.status === 'preparing';
+
+    let mappedStatus: OrderCardProps['status'] = 'preparing';
+    if (isCompleted) mappedStatus = 'delivered';
+    else if (isCancel) mappedStatus = 'cancelled';
+    else if (isPending) mappedStatus = 'pending';
+    else if (isConfirmed) mappedStatus = 'preparing';
+    else if (isPreparing) mappedStatus = 'preparing';
+    else if (o.status === 'out_for_delivery') mappedStatus = 'out_for_delivery';
+
+    return {
+      id: o.id || o.orderNumber,
+      orderNumber: o.orderNumber,
+      date: new Date(o.orderedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }),
+      status: mappedStatus,
+      subtotal: o.subtotal || o.total,
+      deliveryFee: o.deliveryFee || 0,
+      total: o.total,
+      paymentMethod: 'Cash on Delivery',
+      customerName: o.customerName || 'Valued Customer',
+      customerPhone: o.phone || '(032) 492-0000',
+      customerAddress: o.address || 'Cordova, Cebu',
+      items: [
+        { name: o.items || 'Signature Menu Items', quantity: 1, price: o.subtotal || o.total },
+      ],
+      deliveryType: 'delivery',
+    };
+  });
+
+  const allOrdersList = liveMappedOrders.length > 0 ? liveMappedOrders : fallbackOrders;
+
+  const filteredOrders = allOrdersList.filter((order) => {
     if (selectedStatus === 'all') return true;
     if (selectedStatus === 'active') return !['delivered', 'cancelled'].includes(order.status);
     if (selectedStatus === 'completed') return order.status === 'delivered';
@@ -84,84 +146,190 @@ export default function OrdersPage() {
   });
 
   const stats = {
-    active: mockOrders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length,
-    completed: mockOrders.filter(o => o.status === 'delivered').length,
-    total: mockOrders.reduce((sum, o) => sum + o.total, 0),
+    active: allOrdersList.filter((o) => !['delivered', 'cancelled'].includes(o.status)).length,
+    completed: allOrdersList.filter((o) => o.status === 'delivered').length,
+    total: allOrdersList.reduce((sum, o) => sum + o.total, 0),
   };
 
+  // RepEat Order Handler: adds all items from a past order to cart
+  const handleReorder = (items: { name: string; quantity: number; price: number }[]) => {
+    setCartItems((prev) => {
+      let updated = [...prev];
+      items.forEach((item, idx) => {
+        const matched = menuItems.find((mi) => mi.name.toLowerCase() === item.name.toLowerCase());
+        const menuItemId = matched ? matched.id : `mi-repeat-${idx}`;
+
+        const existing = updated.find((ci) => ci.menuItem.id === menuItemId);
+        if (existing) {
+          updated = updated.map((ci) =>
+            ci.menuItem.id === menuItemId
+              ? { ...ci, quantity: ci.quantity + item.quantity }
+              : ci
+          );
+        } else {
+          updated.push({
+            menuItem: {
+              id: menuItemId,
+              name: item.name,
+              description: 'Customer favorite item',
+              price: item.price,
+              available: true,
+            },
+            quantity: item.quantity,
+          });
+        }
+      });
+      return updated;
+    });
+
+    setIsCartOpen(true);
+  };
+
+  // Order Cancellation Handler
+  const handleCancelOrder = (orderId: string) => {
+    updateDeliveryStatus(orderId, 'cancelled');
+  };
+
+  const handleUpdateQuantity = (id: string, delta: number) => {
+    setCartItems((prev) =>
+      prev
+        .map((ci) => {
+          if (ci.menuItem.id === id) {
+            const newQty = ci.quantity + delta;
+            return newQty > 0 ? { ...ci, quantity: newQty } : null;
+          }
+          return ci;
+        })
+        .filter(Boolean) as CartItem[]
+    );
+  };
+
+  const handleRemoveItem = (id: string) => {
+    setCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== id));
+  };
+
+  const handleClearCart = () => setCartItems([]);
+
+  const totalCartCount = cartItems.reduce((acc, ci) => acc + ci.quantity, 0);
+  const totalCartSubtotal = cartItems.reduce((acc, ci) => acc + ci.menuItem.price * ci.quantity, 0);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50 via-white to-amber-50">
-      <CustomerHeader 
-        title="Your Orders" 
-        subtitle="Track and manage all your orders in one place"
+    <div className="min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col justify-between selection:bg-[#B91C1C] selection:text-white">
+      <div>
+        <CustomerHeader
+          onOpenCart={() => setIsCartOpen(true)}
+          cartCount={totalCartCount}
+          cartSubtotal={totalCartSubtotal}
+          fulfillmentType={fulfillmentType}
+          setFulfillmentType={setFulfillmentType}
+        />
+
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+          {/* Hero Banner */}
+          <div className="relative overflow-hidden bg-gradient-to-r from-[#1c1917] to-[#44403c] text-white rounded-[2.5rem] p-8 sm:p-12 shadow-xl mb-8 border border-stone-800">
+            <div className="relative z-10 max-w-2xl">
+              <span className="inline-block px-3 py-1 bg-stone-700/50 border border-stone-600/50 text-stone-200 text-xs font-black uppercase tracking-widest rounded-full mb-4">
+                Order Dashboard
+              </span>
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-3">
+                My Orders &amp; Real-Time Tracking
+              </h1>
+              <p className="text-stone-300 text-sm sm:text-base leading-relaxed">
+                Track active kitchen preparation, view detailed order histories, download official receipts, and re-order your past favorites in just one click.
+              </p>
+            </div>
+            
+            {/* Decorative Elements */}
+            <div className="absolute -bottom-10 -right-10 opacity-[0.07] rotate-[-15deg] pointer-events-none select-none">
+              <Package className="w-28 h-28 text-white" />
+            </div>
+            <div className="absolute top-10 right-24 opacity-10 rotate-[15deg] pointer-events-none select-none">
+              <Bike className="w-14 h-14 text-white" />
+            </div>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8">
+            <div className="p-6 rounded-3xl bg-white border border-amber-200/80 shadow-2xs">
+              <p className="text-xs font-black text-stone-500 uppercase tracking-wider">Active Orders</p>
+              <p className="text-3xl font-black text-[#B91C1C] mt-1">{stats.active}</p>
+            </div>
+            <div className="p-6 rounded-3xl bg-white border border-amber-200/80 shadow-2xs">
+              <p className="text-xs font-black text-stone-500 uppercase tracking-wider">Completed Orders</p>
+              <p className="text-3xl font-black text-emerald-700 mt-1">{stats.completed}</p>
+            </div>
+            <div className="p-6 rounded-3xl bg-white border border-amber-200/80 shadow-2xs">
+              <p className="text-xs font-black text-stone-500 uppercase tracking-wider">Total Spent</p>
+              <p className="text-3xl font-black text-[#451a03] mt-1">₱{stats.total.toFixed(2)}</p>
+            </div>
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex gap-2 sm:gap-3 mb-8 overflow-x-auto no-scrollbar pb-2">
+            {(['all', 'active', 'completed', 'cancelled'] as const).map((status) => {
+              const isActive = selectedStatus === status;
+              return (
+                <button
+                  key={status}
+                  onClick={() => setSelectedStatus(status)}
+                  className={`px-5 py-2.5 rounded-full text-xs sm:text-sm font-extrabold transition-all duration-200 shadow-2xs border ${
+                    isActive
+                      ? 'bg-[#B91C1C] text-white border-[#B91C1C] shadow-red-500/20 scale-105'
+                      : 'bg-white text-stone-700 border-amber-200/80 hover:bg-amber-50'
+                  }`}
+                >
+                  {status === 'all' && 'All Orders'}
+                  {status === 'active' && 'Active Kitchen Prep'}
+                  {status === 'completed' && 'Delivered / Completed'}
+                  {status === 'cancelled' && 'Cancelled'}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Orders List */}
+          {filteredOrders.length > 0 ? (
+            <div className="space-y-6 mb-12">
+              {filteredOrders.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  {...order}
+                  onReorder={handleReorder}
+                  onCancelOrder={handleCancelOrder}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-amber-300 p-8 shadow-2xs">
+              <Package className="w-12 h-12 text-stone-400 mx-auto mb-4" />
+              <h3 className="text-xl font-extrabold text-[#451a03] mb-1">No orders found</h3>
+              <p className="text-xs sm:text-sm text-stone-600 mb-6">
+                {selectedStatus === 'active' && "You don't have any active orders right now."}
+                {selectedStatus === 'completed' && "You haven't completed any orders yet."}
+                {selectedStatus === 'cancelled' && "You don't have any cancelled orders."}
+                {selectedStatus === 'all' && 'Start by exploring our handcrafted menu!'}
+              </p>
+              <Link
+                href="/customer"
+                className="inline-block px-8 py-3 bg-[#B91C1C] hover:bg-[#991B1B] text-white rounded-full font-black text-xs sm:text-sm shadow-md transition hover:scale-105"
+              >
+                Browse Menu &amp; Order
+              </Link>
+            </div>
+          )}
+        </main>
+      </div>
+
+      <CartDrawer
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        cartItems={cartItems}
+        onUpdateQuantity={handleUpdateQuantity}
+        onRemoveItem={handleRemoveItem}
+        onClearCart={handleClearCart}
+        fulfillmentType={fulfillmentType}
+        setFulfillmentType={setFulfillmentType}
       />
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Stats Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-12">
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
-            <p className="text-sm font-semibold text-blue-900">Active Orders</p>
-            <p className="text-3xl font-bold text-blue-700 mt-2">{stats.active}</p>
-          </div>
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-green-50 to-green-100 border border-green-200">
-            <p className="text-sm font-semibold text-green-900">Completed Orders</p>
-            <p className="text-3xl font-bold text-green-700 mt-2">{stats.completed}</p>
-          </div>
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
-            <p className="text-sm font-semibold text-amber-900">Total Spent</p>
-            <p className="text-3xl font-bold text-amber-700 mt-2">${stats.total.toFixed(2)}</p>
-          </div>
-        </div>
-
-        {/* Filter Tabs */}
-        <div className="flex gap-4 mb-8 border-b border-amber-100/30 pb-4">
-          {(['all', 'active', 'completed', 'cancelled'] as const).map(status => (
-            <button
-              key={status}
-              onClick={() => setSelectedStatus(status)}
-              className={`px-4 py-2 font-semibold transition relative ${
-                selectedStatus === status
-                  ? 'text-amber-700'
-                  : 'text-amber-900/60 hover:text-amber-900'
-              }`}
-            >
-              {status === 'all' && 'All Orders'}
-              {status === 'active' && 'Active'}
-              {status === 'completed' && 'Completed'}
-              {status === 'cancelled' && 'Cancelled'}
-              {selectedStatus === status && (
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-700 rounded-t"></div>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Orders List */}
-        {filteredOrders.length > 0 ? (
-          <div className="space-y-4 mb-12">
-            {filteredOrders.map(order => (
-              <OrderCard key={order.id} {...order} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-16">
-            <div className="text-6xl mb-4">📦</div>
-            <h3 className="text-2xl font-bold text-amber-950 mb-2">No orders found</h3>
-            <p className="text-amber-900/70 mb-6">
-              {selectedStatus === 'active' && "You don't have any active orders"}
-              {selectedStatus === 'completed' && "You haven't completed any orders yet"}
-              {selectedStatus === 'cancelled' && "You don't have any cancelled orders"}
-              {selectedStatus === 'all' && 'Start by placing your first order!'}
-            </p>
-            <a
-              href="/customer/menu"
-              className="inline-block px-8 py-3 bg-amber-700 text-white rounded-full hover:bg-amber-800 transition font-semibold"
-            >
-              Browse Menu
-            </a>
-          </div>
-        )}
-      </main>
     </div>
   );
 }

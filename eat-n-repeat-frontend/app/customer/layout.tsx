@@ -1,26 +1,32 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Pacifico } from "next/font/google";
 import { CartProvider } from "@/lib/customer/cart";
-import { SessionProvider } from "@/lib/customer/auth-provider";
+import { ReviewsProvider } from "@/context/ReviewsContext";
+import { CustomerNotificationProvider } from "@/context/CustomerNotificationContext";
+import { CustomerChatBot } from "@/components/customer/CustomerChatBot";
 import "@/styles/customer.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const pacifico = Pacifico({ weight: "400", subsets: ["latin"], variable: "--font-pacifico" });
 
 export const metadata: Metadata = {
-  title: "Eat n RepEat – Customer Portal",
-  description: "Cozy café ordering experience for customers."
+  title: "Menu",
+  description: "Browse coffee, meals, milk tea, snacks, and other menu items from Eat n RepEat Cafe.",
 };
 
 export default function CustomerLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-background text-foreground customer-portal">
-        <SessionProvider>
-          <CartProvider>{children}</CartProvider>
-        </SessionProvider>
-      </body>
-    </html>
+    <div className="customer-portal min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col font-sans">
+      <CartProvider>
+          <ReviewsProvider>
+            <CustomerNotificationProvider>
+              {children}
+              <CustomerChatBot />
+            </CustomerNotificationProvider>
+          </ReviewsProvider>
+        </CartProvider>
+    </div>
   );
 }

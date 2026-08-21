@@ -11,10 +11,11 @@ import {
 import { initialAdminData } from "@/lib/admin/mock-data";
 import type {
   AdminDataState,
-  AttendanceRecord,
-  AttendanceStatus,
   DeliveryOrder,
   DeliveryOrderInput,
+  AvailabilityStatus,
+  DeliveryTeamMember,
+  AssignmentLogEntry,
   DeliverySettings,
   DeliveryStatus,
   MenuCategory,
@@ -30,6 +31,9 @@ import type {
   StockCategoryInput,
   StockItem,
   StockItemInput,
+  StockRequest,
+  StockRequestInput,
+  StockHistoryLog,
   SystemSettings,
 } from "@/lib/admin/types";
 
@@ -82,7 +86,10 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
       data.deliveryOrders,
       initialAdminData.deliveryOrders,
     ),
-    serviceAreas: data.serviceAreas ?? initialAdminData.serviceAreas,
+    serviceAreas: ensureArchived(
+      data.serviceAreas,
+      initialAdminData.serviceAreas,
+    ),
     deliverySettings:
       data.deliverySettings ?? initialAdminData.deliverySettings,
     storeOrders: ensureArchived(
@@ -92,12 +99,11 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
       ...order,
       orderId: order.orderId ?? order.id,
     })),
-    attendanceRecords: data.attendanceRecords ?? initialAdminData.attendanceRecords ?? [],
+
   };
 }
 
-type AdminDataContextValue = AdminDataState & {
-  addMenuItem: (input: MenuItemInput) => void;
+type AdminDataContextValue = AdminDataState & {  addMenuItem: (input: MenuItemInput) => void;
   updateMenuItem: (id: string, input: MenuItemInput) => void;
   deleteMenuItem: (id: string) => void;
   archiveMenuItem: (id: string) => void;
@@ -110,9 +116,11 @@ type AdminDataContextValue = AdminDataState & {
   addStockItem: (input: StockItemInput) => void;
   updateStockItem: (id: string, input: StockItemInput) => void;
   deleteStockItem: (id: string) => void;
+  archiveStockItem: (id: string) => void;
   addStockCategory: (input: StockCategoryInput) => void;
   updateStockCategory: (id: string, input: StockCategoryInput) => void;
   deleteStockCategory: (id: string) => boolean;
+  archiveStockCategory: (id: string) => void;
   addStaffAccount: (input: StaffAccountInput) => void;
   updateStaffAccount: (id: string, input: StaffAccountInput) => void;
   deleteStaffAccount: (id: string) => void;
@@ -124,30 +132,33 @@ type AdminDataContextValue = AdminDataState & {
   getMenuItemsByCategory: (categoryId: string) => MenuItem[];
   getStockItemsByCategory: (categoryId: string) => StockItem[];
   updateDeliveryStatus: (id: string, status: DeliveryStatus) => void;
+  updateDeliveryPerson: (id: string, person: string) => void;
+  updateDeliveryTeamMemberStatus: (id: string, status: AvailabilityStatus) => void;
+  reassignDeliveryOrder: (orderId: string, newPersonId: string, reassignNote?: string) => void;
+  addStockRequest: (input: StockRequestInput) => void;
+  updateStockRequestStatus: (id: string, status: "Pending" | "Approved" | "Rejected", adminNote?: string) => void;
   addDeliveryOrder: (input: DeliveryOrderInput) => void;
   deleteDeliveryOrder: (id: string) => void;
   archiveDeliveryOrder: (id: string) => void;
   restoreDeliveryOrder: (id: string) => void;
   archiveStoreOrder: (id: string) => void;
   restoreStoreOrder: (id: string) => void;
-  updateStoreOrderStatus: (id: string, status: "pending" | "completed" | "cancelled") => void;
+  updateStoreOrderStatus: (id: string, status: "completed" | "cancelled") => void;
   confirmStoreOrderPayment: (id: string) => void;
+  addStoreOrder: (input: any) => void;
   addServiceArea: (input: ServiceAreaInput) => void;
   updateServiceArea: (id: string, input: ServiceAreaInput) => void;
-  deleteServiceArea: (id: string) => boolean;
+  deleteServiceArea: (id: string) => void;
+  archiveServiceArea: (id: string) => void;
+  restoreServiceArea: (id: string) => void;
   updateDeliverySettings: (settings: DeliverySettings) => void;
-  getServiceAreaName: (serviceAreaId: string) => string;
+  getServiceAreaName: (id: string) => string;
   getActiveDeliveryOrders: () => DeliveryOrder[];
   getDeliveryHistory: () => DeliveryOrder[];
   getActiveMenuItems: () => MenuItem[];
   getActiveMenuCategories: () => MenuCategory[];
   getActiveStaffAccounts: () => StaffAccount[];
   getActiveStoreOrders: () => RecentOrder[];
-  clockIn: (staffId: string, staffName: string) => void;
-  clockOut: (staffId: string) => void;
-  addAttendanceRecord: (input: Omit<AttendanceRecord, "id">) => void;
-  updateAttendanceRecord: (id: string, input: Partial<AttendanceRecord>) => void;
-  deleteAttendanceRecord: (id: string) => void;
 };
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
@@ -177,6 +188,20 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setData(initialAdminData);
     }
+  }, []);
+
+  // Listen to cross-tab storage changes to keep customer and admin portals in sync
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue) as Partial<AdminDataState>;
+          setData(normalizeStoredData(parsed));
+        } catch {}
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   useEffect(() => {
@@ -537,10 +562,20 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
+    setData((prev) => ({
+      ...prev,
+      storeOrders: [
+        ...prev.storeOrders,
+        { ...input, id: createId("ord"), archived: false },
+      ],
+    }));
+  }, []);
+
   const addServiceArea = useCallback((input: ServiceAreaInput) => {
     setData((prev) => ({
       ...prev,
-      serviceAreas: [...prev.serviceAreas, { ...input, id: createId("sa") }],
+      serviceAreas: [...prev.serviceAreas, { ...input, id: createId("sa"), archived: false }],
     }));
   }, []);
 
@@ -549,7 +584,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       setData((prev) => ({
         ...prev,
         serviceAreas: prev.serviceAreas.map((area) =>
-          area.id === id ? { ...input, id } : area,
+          area.id === id ? { ...area, ...input } : area,
         ),
       }));
     },
@@ -570,6 +605,24 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       };
     });
     return deleted;
+  }, []);
+
+  const archiveServiceArea = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      serviceAreas: prev.serviceAreas.map((area) =>
+        area.id === id ? { ...area, archived: true, archivedAt: archiveTimestamp() } : area,
+      ),
+    }));
+  }, []);
+
+  const restoreServiceArea = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      serviceAreas: prev.serviceAreas.map((area) =>
+        area.id === id ? { ...area, archived: false, archivedAt: undefined } : area,
+      ),
+    }));
   }, []);
 
   const updateDeliverySettings = useCallback((settings: DeliverySettings) => {
@@ -625,105 +678,59 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     [data.storeOrders],
   );
 
-  const clockIn = useCallback((staffId: string, staffName: string) => {
-    const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
-    const nowTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-    const parseTimeVal = (timeStr: string) => {
-      const [t, modifier] = timeStr.split(" ");
-      let [hours, minutes] = t.split(":").map(Number);
-      if (modifier === "PM" && hours < 12) hours += 12;
-      if (modifier === "AM" && hours === 12) hours = 0;
-      return hours * 60 + minutes;
-    };
-    const nowMins = parseTimeVal(nowTime);
-    const thresholdMins = 8 * 60 + 30; // 08:30 AM
-    const status: AttendanceStatus = nowMins > thresholdMins ? "Late" : "Present";
 
-    setData((prev) => {
-      const exists = prev.attendanceRecords.some((r) => r.staffId === staffId && r.date === todayStr);
-      if (exists) return prev;
-
-      const newRecord: AttendanceRecord = {
-        id: createId("att"),
-        staffId,
-        staffName,
-        date: todayStr,
-        timeIn: nowTime,
-        status,
-      };
-      return {
-        ...prev,
-        attendanceRecords: [...prev.attendanceRecords, newRecord],
-      };
-    });
-  }, []);
-
-  const clockOut = useCallback((staffId: string) => {
-    const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
-    const nowTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-
-    setData((prev) => {
-      return {
-        ...prev,
-        attendanceRecords: prev.attendanceRecords.map((r) => {
-          if (r.staffId === staffId && r.date === todayStr && !r.timeOut && (r.status === "Present" || r.status === "Late")) {
-            let totalHours = undefined;
-            try {
-              const parseTime = (timeStr: string, dateStr: string) => {
-                const [time, modifier] = timeStr.split(" ");
-                let [hours, minutes] = time.split(":").map(Number);
-                if (modifier === "PM" && hours < 12) hours += 12;
-                if (modifier === "AM" && hours === 12) hours = 0;
-                return new Date(`${dateStr}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`);
-              };
-              if (r.timeIn) {
-                const inDate = parseTime(r.timeIn, r.date);
-                const outDate = parseTime(nowTime, r.date);
-                const diffMs = outDate.getTime() - inDate.getTime();
-                if (diffMs > 0) {
-                  totalHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
-                }
-              }
-            } catch (e) {
-              console.error("Error parsing hours:", e);
-            }
-            return {
-              ...r,
-              timeOut: nowTime,
-              status: r.status,
-              totalHours,
-            };
-          }
-          return r;
-        }),
-      };
-    });
-  }, []);
-
-  const addAttendanceRecord = useCallback((input: Omit<AttendanceRecord, "id">) => {
+  
+  const updateDeliveryPerson = useCallback((id: string, person: string) => {
     setData((prev) => ({
       ...prev,
-      attendanceRecords: [
-        ...prev.attendanceRecords,
-        { ...input, id: createId("att") },
-      ],
+      deliveryOrders: prev.deliveryOrders.map((o) => (o.id === id ? { ...o, deliveryPerson: person } : o)),
     }));
   }, []);
 
-  const updateAttendanceRecord = useCallback((id: string, input: Partial<AttendanceRecord>) => {
+  const updateDeliveryTeamMemberStatus = useCallback((id: string, status: AvailabilityStatus) => {
     setData((prev) => ({
       ...prev,
-      attendanceRecords: prev.attendanceRecords.map((r) =>
-        r.id === id ? { ...r, ...input, id } : r
+      deliveryTeam: prev.deliveryTeam.map((m) => (m.id === id ? { ...m, status } : m)),
+    }));
+  }, []);
+
+  const reassignDeliveryOrder = useCallback((orderId: string, newPersonId: string, reassignNote?: string) => {
+    setData((prev) => ({
+      ...prev,
+      deliveryOrders: prev.deliveryOrders.map((o) => (o.id === orderId ? { ...o, deliveryPerson: newPersonId } : o)),
+    }));
+  }, []);
+
+  const addStockRequest = useCallback((input: StockRequestInput) => {
+    setData((prev) => ({
+      ...prev,
+      stockRequests: [...(prev.stockRequests || []), { ...input, id: createId("sr"), status: "Pending", createdAt: new Date().toISOString() }]
+    }));
+  }, []);
+
+  const updateStockRequestStatus = useCallback((id: string, status: "Pending" | "Approved" | "Rejected", adminNote?: string) => {
+    setData((prev) => ({
+      ...prev,
+      stockRequests: (prev.stockRequests || []).map(req => req.id === id ? { ...req, status, adminNote: adminNote !== undefined ? adminNote : req.adminNote } : req)
+    }));
+  }, []);
+
+  const archiveStockItem = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      stockItems: prev.stockItems.map((item) =>
+        item.id === id ? { ...item, archived: true, archivedAt: new Date().toISOString() } : item
       ),
     }));
   }, []);
 
-  const deleteAttendanceRecord = useCallback((id: string) => {
+  const archiveStockCategory = useCallback((id: string) => {
     setData((prev) => ({
       ...prev,
-      attendanceRecords: prev.attendanceRecords.filter((r) => r.id !== id),
+      stockCategories: prev.stockCategories.map((c) =>
+        c.id === id ? { ...c, archived: true, archivedAt: new Date().toISOString() } : c
+      ),
     }));
   }, []);
 
@@ -743,9 +750,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addStockItem,
       updateStockItem,
       deleteStockItem,
+      archiveStockItem,
       addStockCategory,
       updateStockCategory,
       deleteStockCategory,
+      archiveStockCategory,
       addStaffAccount,
       updateStaffAccount,
       deleteStaffAccount,
@@ -757,6 +766,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getMenuItemsByCategory,
       getStockItemsByCategory,
       updateDeliveryStatus,
+      updateDeliveryPerson,
+      updateDeliveryTeamMemberStatus,
+      reassignDeliveryOrder,
+      addStockRequest,
+      updateStockRequestStatus,
       addDeliveryOrder,
       deleteDeliveryOrder,
       archiveDeliveryOrder,
@@ -765,9 +779,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       restoreStoreOrder,
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
+      addStoreOrder,
       addServiceArea,
       updateServiceArea,
       deleteServiceArea,
+      archiveServiceArea,
+      restoreServiceArea,
       updateDeliverySettings,
       getServiceAreaName,
       getActiveDeliveryOrders,
@@ -776,11 +793,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getActiveMenuCategories,
       getActiveStaffAccounts,
       getActiveStoreOrders,
-      clockIn,
-      clockOut,
-      addAttendanceRecord,
-      updateAttendanceRecord,
-      deleteAttendanceRecord,
     }),
     [
       data,
@@ -797,9 +809,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addStockItem,
       updateStockItem,
       deleteStockItem,
+      archiveStockItem,
       addStockCategory,
       updateStockCategory,
       deleteStockCategory,
+      archiveStockCategory,
       addStaffAccount,
       updateStaffAccount,
       deleteStaffAccount,
@@ -811,6 +825,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getMenuItemsByCategory,
       getStockItemsByCategory,
       updateDeliveryStatus,
+      updateDeliveryPerson,
+      updateDeliveryTeamMemberStatus,
+      reassignDeliveryOrder,
+      addStockRequest,
+      updateStockRequestStatus,
       addDeliveryOrder,
       deleteDeliveryOrder,
       archiveDeliveryOrder,
@@ -819,9 +838,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       restoreStoreOrder,
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
+      addStoreOrder,
       addServiceArea,
       updateServiceArea,
       deleteServiceArea,
+      archiveServiceArea,
+      restoreServiceArea,
       updateDeliverySettings,
       getServiceAreaName,
       getActiveDeliveryOrders,
@@ -830,11 +852,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getActiveMenuCategories,
       getActiveStaffAccounts,
       getActiveStoreOrders,
-      clockIn,
-      clockOut,
-      addAttendanceRecord,
-      updateAttendanceRecord,
-      deleteAttendanceRecord,
     ],
   );
 

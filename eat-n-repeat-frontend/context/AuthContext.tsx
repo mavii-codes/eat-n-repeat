@@ -70,18 +70,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (!matchedAccount) {
-      setError("Invalid username/email or password.");
+      setError("Invalid credentials or unauthorized account.");
       return false;
     }
 
     if (matchedAccount.status !== "active") {
-      setError("This account is currently inactive. Please contact the administrator.");
+      setError("Invalid credentials or unauthorized account.");
       return false;
     }
 
     // Verify password
     if (matchedAccount.password !== passwordInput) {
-      setError("Invalid username/email or password.");
+      setError("Invalid credentials or unauthorized account.");
       return false;
     }
 
@@ -104,12 +104,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const input: StaffAccountInput = {
-      name: user.name,
-      username: user.username,
-      email: user.email,
+      ...user,
       password: newPassword,
-      role: user.role,
-      status: user.status,
     };
 
     updateStaffAccount(user.id, input);
@@ -123,12 +119,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const input: StaffAccountInput = {
+      ...user,
       name,
       username,
       email,
       password: user.password || "staff123",
-      role: user.role,
-      status: user.status,
     };
 
     updateStaffAccount(user.id, input);

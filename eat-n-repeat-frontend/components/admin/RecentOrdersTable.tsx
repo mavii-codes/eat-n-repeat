@@ -5,8 +5,11 @@ type RecentOrdersTableProps = {
   onArchive?: (order: RecentOrder) => void;
 };
 
-const statusStyles = {
+const statusStyles: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800 ring-1 ring-amber-200",
+  confirmed: "bg-blue-100 text-blue-800 ring-1 ring-blue-200",
+  preparing: "bg-orange-100 text-orange-800 ring-1 ring-orange-200",
+  ready: "bg-purple-100 text-purple-800 ring-1 ring-purple-200",
   completed: "bg-green-100 text-green-800 ring-1 ring-green-200",
   cancelled: "bg-red-100 text-red-800 ring-1 ring-red-200",
 };

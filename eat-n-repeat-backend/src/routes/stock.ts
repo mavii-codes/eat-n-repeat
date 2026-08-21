@@ -129,4 +129,116 @@ router.delete("/items/:id", async (req, res) => {
   return res.status(204).send();
 });
 
+/* ── Stock Requests Endpoints ── */
+
+const stockRequestInputSchema = z.object({
+  ingredientId: z.string().trim().min(1),
+  ingredientName: z.string().trim().min(1),
+  currentQuantity: z.coerce.number(),
+  unit: z.string().trim().min(1),
+  threshold: z.coerce.number(),
+  message: z.string().optional(),
+  staffId: z.string().optional(),
+  staffName: z.string().optional(),
+});
+
+const stockRequestStatusSchema = z.object({
+  status: z.enum(["Pending", "Approved", "Rejected"]),
+  adminNote: z.string().optional(),
+});
+
+const requestResponse = (row: any) => ({
+  id: row.id,
+  staffId: row.staff_id,
+  staffName: row.staff_name,
+  ingredientId: row.ingredient_id,
+  ingredientName: row.ingredient_name,
+  currentQuantity: Number(row.current_quantity),
+  unit: row.unit,
+  threshold: Number(row.threshold),
+  status: row.status,
+  message: row.message || "",
+  adminNote: row.admin_note || "",
+  createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+});
+
+router.get("/requests", async (_req, res) => {
+  const [rows] = await getPool().query<mysql.RowDataPacket[]>(
+    "SELECT * FROM stock_requests ORDER BY created_at DESC",
+  );
+  return res.json({ requests: rows.map(requestResponse) });
+});
+
+router.post("/requests", async (req, res) => {
+  const parsed = stockRequestInputSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid restock request details." });
+  }
+
+  const { ingredientId, ingredientName, currentQuantity, unit, threshold, message } = parsed.data;
+  const staffId = (req as any).user?.id || parsed.data.staffId || "sf-1";
+  const staffName = (req as any).user?.name || parsed.data.staffName || "Staff";
+
+  // Prevent duplicate requests if a pending request already exists for this ingredient
+  const [existing] = await getPool().query<mysql.RowDataPacket[]>(
+    "SELECT id FROM stock_requests WHERE ingredient_id = ? AND status = 'Pending' LIMIT 1",
+    [ingredientId]
+  );
+  if (existing.length > 0) {
+    return res.status(409).json({ message: "A restock request for this item is already pending Admin review." });
+  }
+
+  const id = `sr-${randomUUID()}`;
+  const createdAt = new Date();
+
+  await getPool().execute(
+    `INSERT INTO stock_requests 
+     (id, staff_id, staff_name, ingredient_id, ingredient_name, current_quantity, unit, threshold, status, message, admin_note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, NULL, ?)`,
+    [id, staffId, staffName, ingredientId, ingredientName, currentQuantity, unit, threshold, message || null, createdAt]
+  );
+
+  return res.status(201).json({
+    request: {
+      id,
+      staffId,
+      staffName,
+      ingredientId,
+      ingredientName,
+      currentQuantity,
+      unit,
+      threshold,
+      status: "Pending",
+      message: message || "",
+      adminNote: "",
+      createdAt: createdAt.toISOString(),
+    },
+  });
+});
+
+router.patch("/requests/:id/status", async (req, res) => {
+  const parsed = stockRequestStatusSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid request status." });
+  }
+
+  const { status, adminNote } = parsed.data;
+
+  const [result] = await getPool().execute<mysql.ResultSetHeader>(
+    "UPDATE stock_requests SET status = ?, admin_note = ? WHERE id = ?",
+    [status, adminNote || null, req.params.id]
+  );
+
+  if (result.affectedRows === 0) {
+    return res.status(404).json({ message: "Stock request not found." });
+  }
+
+  const [rows] = await getPool().execute<mysql.RowDataPacket[]>(
+    "SELECT * FROM stock_requests WHERE id = ? LIMIT 1",
+    [req.params.id]
+  );
+
+  return res.json({ request: requestResponse(rows[0]) });
+});
+
 export default router;

@@ -3,16 +3,16 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { Logo } from "@/components/brand/Logo";
-import { AdminButton, AdminField, AdminInput } from "@/components/admin/AdminForm";
+import Image from "next/image";
+import { Lock, Eye, EyeOff, ShieldCheck, User, Package, Users } from "lucide-react";
 
 export default function LoginPage() {
   const { user, login, loading: authLoading, error, clearError } = useAuth();
   const [usernameOrEmail, setUsernameOrEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [showForgotModal, setShowForgotModal] = useState(false);
   const router = useRouter();
 
   // Clear context error on mount
@@ -60,168 +60,254 @@ export default function LoginPage() {
 
   if (authLoading) {
     return (
-      <div className="admin-shell min-h-screen flex items-center justify-center text-white">
+      <div className="min-h-screen flex items-center justify-center bg-[#FFFFFF] animate-in fade-in duration-500">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
-          <p className="font-serif text-lg text-white/70">Loading Portal...</p>
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#8B2E2E] border-t-transparent"></div>
+          <p className="font-sans text-[15px] font-medium text-[#2D2A26]/70">Loading Portal...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="admin-shell min-h-screen flex items-center justify-center px-4 py-12">
-      <div className="admin-panel w-full max-w-md rounded-2xl p-8 transition-all">
-        <div className="flex flex-col items-center text-center">
-          <Logo size="lg" className="mb-2" />
-          <h1 className="font-serif text-2xl font-bold tracking-tight text-[#800000] mt-3">
-            Portal Sign In
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Enter your credentials to access your workspace.
-          </p>
+    <div className="min-h-screen flex flex-col lg:flex-row bg-[#FFFFFF]">
+      
+      {/* LEFT SIDE: Branding (Hidden on Mobile) */}
+      <div className="hidden lg:flex w-full lg:w-1/2 relative flex-col justify-between p-8 sm:p-10 lg:p-16 min-h-[450px] lg:min-h-screen overflow-hidden">
+        {/* Background Image */}
+        <div 
+          className="absolute inset-0 z-0"
+          style={{
+            backgroundImage: "url('/admin-cafe-bg.jpg?v=1')",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        ></div>
+        
+        {/* Dark/Coffee Overlay */}
+        <div className="absolute inset-0 bg-[#1C1814]/75 z-0 backdrop-blur-[1px]"></div>
+
+        {/* Top Content */}
+        <div className="relative z-10 flex flex-col h-full max-w-[540px]">
+          {/* Logo */}
+          <div className="mb-10 lg:mb-16">
+            <Image
+              src="/logo.png"
+              alt="Eat n' RepEat Café Logo"
+              width={90}
+              height={90}
+              unoptimized
+              className="object-contain"
+            />
+          </div>
+
+          <div className="flex-1 flex flex-col justify-center">
+            <h1 className="text-[32px] sm:text-[38px] lg:text-[46px] font-bold text-white leading-[1.1] mb-5 tracking-tight">
+              Welcome to <br className="hidden sm:block" /> Eat n' RepEat Café
+            </h1>
+            <p className="text-[16px] lg:text-[18px] text-white/90 mb-10 leading-relaxed font-medium">
+              Manage your café operations from one secure workspace.
+            </p>
+
+            <div className="space-y-6">
+              <div className="flex items-center gap-4 text-white">
+                <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                  <ShieldCheck className="w-4 h-4 text-[#C97A40]" />
+                </div>
+                <p className="text-[15px] lg:text-[16px] font-semibold tracking-wide">
+                  Secure Admin & Staff Access
+                </p>
+              </div>
+              <div className="flex items-center gap-4 text-white">
+                <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                  <Package className="w-4 h-4 text-[#C97A40]" />
+                </div>
+                <p className="text-[15px] lg:text-[16px] font-semibold tracking-wide">
+                  Order & Inventory Management
+                </p>
+              </div>
+              <div className="flex items-center gap-4 text-white">
+                <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                  <Users className="w-4 h-4 text-[#C97A40]" />
+                </div>
+                <p className="text-[15px] lg:text-[16px] font-semibold tracking-wide">
+                  Staff & Administration
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {errorMsg && (
-          <div className="admin-alert mt-6 rounded-xl p-4 text-xs font-semibold text-amber-900 border border-amber-200">
-            <div className="flex gap-2.5 items-center">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-4 w-4 shrink-0 text-amber-700">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span>{errorMsg}</span>
-            </div>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <AdminField label="Username or Email">
-            <AdminInput
-              type="text"
-              value={usernameOrEmail}
-              onChange={(e) => {
-                setUsernameOrEmail(e.target.value);
-                if (errorMsg) setErrorMsg(null);
-              }}
-              placeholder="e.g. admin or maria@eatnrepeat.com"
-              disabled={isPending}
-              autoComplete="username"
-              required
-            />
-          </AdminField>
-
-          <AdminField label="Password">
-            <div className="relative">
-              <AdminInput
-                type="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  if (errorMsg) setErrorMsg(null);
-                }}
-                placeholder="••••••••"
-                disabled={isPending}
-                autoComplete="current-password"
-                required
-              />
-            </div>
-            <div className="mt-1.5 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowForgotModal(true)}
-                className="text-xs font-semibold text-accent hover:text-accent-dark transition-colors cursor-pointer"
-              >
-                Forgot Password?
-              </button>
-            </div>
-          </AdminField>
-
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={isPending}
-              className="w-full bg-gradient-to-r from-accent to-accent-dark text-white rounded-xl py-3 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-[0_12px_32px_-14px_rgba(196,30,58,0.35)]"
-            >
-              {isPending ? (
-                <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                  <span>Signing In...</span>
-                </>
-              ) : (
-                "Sign In"
-              )}
-            </button>
-          </div>
-        </form>
-
-        <div className="mt-8 border-t border-accent/10 pt-5 text-center">
-          <p className="text-xs leading-5 text-muted">
-            <span className="font-semibold text-accent">Security Note:</span> Public registration is disabled. Staff accounts are created and managed exclusively by the Café Admin.
+        {/* Bottom Content */}
+        <div className="relative z-10 mt-12 lg:mt-16 pt-6 border-t border-white/15">
+          <h3 className="text-[14px] font-bold text-white mb-2 uppercase tracking-widest">
+            Administrator Managed System
+          </h3>
+          <p className="text-[14px] text-white/70 leading-relaxed font-medium">
+            Staff accounts are created and managed by the Café Administrator.
           </p>
         </div>
       </div>
 
-      {/* Forgot Password Modal */}
-      {showForgotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="admin-panel w-full max-w-md rounded-2xl p-6 relative">
-            <button
-              onClick={() => setShowForgotModal(false)}
-              className="absolute top-4 right-4 text-muted hover:text-ink transition-colors cursor-pointer"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-            
-            <h2 className="font-serif text-xl font-bold text-[#800000] mb-2">
-              Forgot Password?
-            </h2>
-            <p className="text-xs text-muted leading-5 mb-4">
-              Eat n&apos; Repeat Café uses credentials-based local account management.
+      {/* RIGHT SIDE: Login Form (and Mobile Full Screen) */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-10 lg:p-16 bg-[#FAF8F5] lg:bg-[#FFFFFF] min-h-[100dvh] lg:min-h-0 relative">
+        
+        {/* Mobile Smooth Top Background Atmosphere */}
+        <div className="absolute top-0 left-0 w-full h-[55dvh] lg:hidden z-0 pointer-events-none overflow-hidden">
+          <div 
+            className="absolute inset-0 opacity-[0.35] blur-[2px] scale-105"
+            style={{
+              backgroundImage: "url('/admin-cafe-bg.jpg?v=1')",
+              backgroundSize: "cover",
+              backgroundPosition: "top center",
+              WebkitMaskImage: "linear-gradient(to bottom, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)",
+              maskImage: "linear-gradient(to bottom, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)"
+            }}
+          ></div>
+        </div>
+
+        <div className="w-full max-w-[420px] animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out flex flex-col justify-center relative z-10 pt-[10px] lg:pt-0">
+          
+          {/* MOBILE Header */}
+          <div className="flex flex-col items-center lg:hidden mb-10 text-center">
+            <Image
+              src="/logo.png"
+              alt="Eat n' RepEat Café Logo"
+              width={85}
+              height={85}
+              unoptimized
+              className="object-contain mb-5"
+            />
+            <h1 className="text-[24px] font-bold text-[#2D2A26] leading-tight mb-2">
+              Welcome to <br />Eat n' RepEat Café
+            </h1>
+            <p className="text-[14px] text-[#2D2A26]/60 font-medium px-4">
+              Sign in to access your Admin or Staff workspace.
             </p>
+          </div>
 
-            <div className="space-y-4">
-              <div className="rounded-xl border border-accent/15 bg-accent-light/30 p-4">
-                <p className="text-xs font-bold text-[#800000]">For Staff Accounts</p>
-                <p className="text-xs text-muted mt-1 leading-5">
-                  Staff accounts cannot register themselves or self-reset passwords. Please contact your Café Administrator **Marvin Barro** (owner@eatnrepeat.com) or request a reset in the staff accounts dashboard to get a new temporary password.
-                </p>
-              </div>
+          {/* DESKTOP Header */}
+          <div className="hidden lg:block mb-10 text-left">
+            <h2 className="text-[32px] font-bold text-[#2D2A26] tracking-tight mb-3">
+              Portal Sign In
+            </h2>
+            <p className="text-[15px] text-[#2D2A26]/60 font-medium">
+              Sign in to access your Admin or Staff workspace.
+            </p>
+          </div>
 
-              <div className="rounded-xl border border-accent/15 bg-accent-light/30 p-4">
-                <p className="text-xs font-bold text-[#800000]">For Admin Account</p>
-                <p className="text-xs text-muted mt-1 leading-5">
-                  If you are the Admin and forgot your password, you can reset your local database to restore the default credentials (`admin`/`admin123`) by clearing the browser local storage.
-                </p>
-                <button
-                  onClick={() => {
-                    if (confirm("This will clear your local storage and reset all café data (menu, stock, and staff) to initial default mock values. Continue?")) {
-                      localStorage.clear();
-                      window.location.reload();
-                    }
+          {errorMsg && (
+            <div className="mb-6 rounded-lg p-3.5 text-[14px] font-semibold text-[#8B2E2E] bg-red-50 border border-red-100 flex items-center gap-3 justify-center lg:justify-start">
+              <ShieldCheck className="w-5 h-5 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5 lg:space-y-5">
+            <div className="space-y-0 lg:space-y-2">
+              <label className="hidden lg:block text-[14px] font-bold text-[#2D2A26] text-left">
+                Username or Email
+              </label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-5 lg:pl-4 flex items-center pointer-events-none text-[#2D2A26]/40 group-focus-within:text-[#8B2E2E] transition-colors">
+                  <User className="w-[18px] h-[18px] lg:w-5 lg:h-5" />
+                </div>
+                <input
+                  type="text"
+                  value={usernameOrEmail}
+                  onChange={(e) => {
+                    setUsernameOrEmail(e.target.value);
+                    if (errorMsg) setErrorMsg(null);
                   }}
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-accent text-accent bg-white px-3 py-1.5 text-xs font-semibold hover:bg-accent-light transition-colors cursor-pointer"
+                  placeholder="Enter your username or email"
+                  disabled={isPending}
+                  autoComplete="username"
+                  required
+                  className="w-full h-[54px] pl-[46px] lg:pl-[44px] pr-5 lg:pr-4 rounded-xl border-none lg:border lg:border-[#E8DDD5] bg-[#F6F4F0] lg:bg-[#FAF8F5] text-[15px] font-medium text-[#2D2A26] placeholder:text-[#2D2A26]/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#8B2E2E]/20 lg:focus:border-[#8B2E2E] lg:hover:border-[#C97A40]/40 transition-all shadow-sm"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-0 lg:space-y-2">
+              <label className="hidden lg:block text-[14px] font-bold text-[#2D2A26] text-left">
+                Password
+              </label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-5 lg:pl-4 flex items-center pointer-events-none text-[#2D2A26]/40 group-focus-within:text-[#8B2E2E] transition-colors">
+                  <Lock className="w-[18px] h-[18px] lg:w-5 lg:h-5" />
+                </div>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errorMsg) setErrorMsg(null);
+                  }}
+                  placeholder="Enter your password"
+                  disabled={isPending}
+                  autoComplete="current-password"
+                  required
+                  className="w-full h-[54px] pl-[46px] lg:pl-[44px] pr-12 lg:pr-12 rounded-xl border-none lg:border lg:border-[#E8DDD5] bg-[#F6F4F0] lg:bg-[#FAF8F5] text-[15px] font-medium text-[#2D2A26] placeholder:text-[#2D2A26]/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#8B2E2E]/20 lg:focus:border-[#8B2E2E] lg:hover:border-[#C97A40]/40 transition-all shadow-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-5 lg:pr-4 flex items-center text-[#2D2A26]/40 hover:text-[#8B2E2E] transition-colors focus:outline-none"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                    <path d="M21 21H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H21a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2z" />
-                  </svg>
-                  Reset Local Database
+                  {showPassword ? (
+                    <EyeOff className="w-[18px] h-[18px] lg:w-5 lg:h-5" />
+                  ) : (
+                    <Eye className="w-[18px] h-[18px] lg:w-5 lg:h-5" />
+                  )}
                 </button>
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end">
-              <AdminButton onClick={() => setShowForgotModal(false)}>
-                Close
-              </AdminButton>
+            <div className="pt-5 lg:pt-3">
+              <button
+                type="submit"
+                disabled={isPending}
+                className="w-full h-[54px] bg-[#8B2E2E] hover:bg-[#6F2323] text-white rounded-xl text-[15px] lg:text-[16px] font-bold transition-all disabled:opacity-70 flex items-center justify-center gap-2 active:scale-[0.98] shadow-md lg:shadow-sm lg:hover:shadow-md tracking-wider lg:tracking-normal"
+              >
+                {isPending ? (
+                  <>
+                    <div className="h-[20px] w-[20px] animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+                    <span className="lg:hidden uppercase">SIGNING IN...</span>
+                    <span className="hidden lg:inline">Signing In...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="lg:hidden uppercase">SIGN IN</span>
+                    <span className="hidden lg:inline">Sign In</span>
+                  </>
+                )}
+              </button>
             </div>
+          </form>
+
+          {/* Desktop Security Text */}
+          <div className="hidden lg:block mt-12 pt-8 border-t border-[#E8DDD5]">
+            <h3 className="flex items-center justify-center lg:justify-start gap-2 text-[14px] font-bold text-[#8B2E2E] mb-2">
+              <ShieldCheck className="w-[18px] h-[18px]" />
+              Authorized Personnel Only
+            </h3>
+            <p className="text-[13px] text-[#2D2A26]/60 leading-relaxed font-medium text-center lg:text-left">
+              This portal is restricted to authorized Eat n' RepEat Café Administrators and Staff.
+            </p>
           </div>
+
+          {/* Mobile Security Text */}
+          <div className="lg:hidden mt-8 text-center flex flex-col gap-2">
+            <h3 className="text-[13px] font-bold text-[#2D2A26]">
+              Authorized Personnel Only
+            </h3>
+            <p className="text-[12px] text-[#2D2A26]/60 font-medium px-4">
+              This portal is restricted to authorized Eat n' RepEat Café Admin and Staff.
+            </p>
+          </div>
+          
         </div>
-      )}
+      </div>
     </div>
   );
 }

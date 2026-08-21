@@ -17,26 +17,31 @@ function WarningIcon() {
 
 export function NotificationsPanel({ notifications }: NotificationsPanelProps) {
   return (
-    <div className="admin-panel flex h-full flex-col rounded-2xl p-6">
-      <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h2 className="font-serif text-xl font-semibold text-[#800000]">
+    <div className="admin-panel flex h-full min-w-0 flex-col rounded-2xl p-4 sm:p-6">
+      <div className="mb-4 flex items-start justify-between gap-3 sm:mb-5 sm:items-center">
+        <div className="min-w-0">
+          <h2 className="font-serif text-lg font-semibold text-[#800000] sm:text-xl">
             Notifications
           </h2>
-          <p className="mt-1 text-sm text-muted">System alerts & activity</p>
+          <p className="mt-1 text-xs text-muted sm:text-sm">System alerts & activity</p>
         </div>
-        <span className="flex h-8 min-w-8 items-center justify-center rounded-full bg-accent text-xs font-bold text-white">
+        <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-white sm:h-8 sm:min-w-8">
           {notifications.length}
         </span>
       </div>
 
-      <ul className="flex flex-1 flex-col gap-3">
+      <ul className="flex flex-1 flex-col gap-2.5 sm:gap-3">
+        {notifications.length === 0 && (
+          <li className="rounded-xl border border-dashed border-accent/20 bg-accent-light/20 px-4 py-6 text-center text-sm text-muted">
+            You&apos;re all caught up. There are no new alerts.
+          </li>
+        )}
         {notifications.map((notification) => (
-          <li key={notification.id} className="admin-alert rounded-xl px-4 py-3">
-            <div className="flex items-start gap-3">
+          <li key={notification.id} className="admin-alert min-w-0 rounded-xl px-3 py-3 sm:px-4">
+            <div className="flex items-start gap-2.5 sm:gap-3">
               <WarningIcon />
-              <div>
-                <p className="text-sm font-medium text-[#800000]">
+              <div className="min-w-0">
+                <p className="break-words text-sm font-medium leading-5 text-[#800000]">
                   {notification.title}
                 </p>
                 <p className="mt-1 text-xs text-muted">{notification.timestamp}</p>
@@ -48,7 +53,7 @@ export function NotificationsPanel({ notifications }: NotificationsPanelProps) {
 
       <Link
         href="/admin/stock"
-        className="mt-5 block rounded-xl bg-gradient-to-r from-accent to-accent-dark py-3 text-center text-sm font-semibold text-white transition-opacity hover:opacity-90"
+        className="mt-4 block min-h-11 rounded-xl bg-gradient-to-r from-accent to-accent-dark px-4 py-3 text-center text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:mt-5"
       >
         View Stock Management
       </Link>

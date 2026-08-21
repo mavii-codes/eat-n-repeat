@@ -20,14 +20,14 @@ export function AdminModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto p-4 flex items-start justify-center">
       <button
         type="button"
         aria-label="Close modal backdrop"
-        className="absolute inset-0 bg-ink/45 backdrop-blur-sm"
+        className="fixed inset-0 bg-ink/45 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="admin-panel relative z-10 w-full max-w-lg rounded-2xl p-6">
+      <div className="admin-panel relative z-10 my-auto w-full max-w-lg rounded-2xl p-6">
         <div className="mb-5 flex items-start justify-between gap-4">
           <h2 className="font-serif text-xl font-semibold text-[#800000]">
             {title}

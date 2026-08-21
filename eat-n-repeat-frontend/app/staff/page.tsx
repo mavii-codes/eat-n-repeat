@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
+import { DeliveryOrdersTable } from "@/components/admin/DeliveryOrdersTable";
+import { POSCashierTab } from "@/components/staff/POSCashierTab";
+import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
   AdminField,
@@ -16,22 +21,40 @@ import {
 } from "@/components/admin/AdminForm";
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
+import { PaymentDetailsModal } from "@/components/admin/PaymentDetailsModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
-import type { MenuItem, MenuItemInput, StockItem, StaffRole, DeliveryStatus, AttendanceRecord, AttendanceStatus } from "@/lib/admin/types";
+import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
+import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
 
-type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "profile" | "attendance";
+type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
 
-type PeriodSummary = {
-  staffId: string;
-  staffName: string;
-  position: string;
-  period: string; // e.g. "2026-07-13 to 2026-07-19" or "July 2026"
-  presentCount: number;
-  lateCount: number;
-  excusedCount: number;
-  absentCount: number;
-  totalHours: number;
-};
+type POSCartItem = { item: MenuItem; qty: number };
+
+const PHP_DENOMINATIONS = [
+  { value: 1000, label: "₱1,000 bill" },
+  { value: 500, label: "₱500 bill" },
+  { value: 200, label: "₱200 bill" },
+  { value: 100, label: "₱100 bill" },
+  { value: 50, label: "₱50 bill" },
+  { value: 20, label: "₱20 bill" },
+  { value: 10, label: "₱10 coin" },
+  { value: 5, label: "₱5 coin" },
+  { value: 1, label: "₱1 coin" },
+  { value: 0.25, label: "₱0.25 coin" },
+];
+
+function breakdownChange(change: number): { label: string; count: number }[] {
+  let remaining = Math.round(change * 100) / 100;
+  const result: { label: string; count: number }[] = [];
+  for (const denom of PHP_DENOMINATIONS) {
+    if (remaining >= denom.value) {
+      const count = Math.floor(remaining / denom.value);
+      remaining = Math.round((remaining - count * denom.value) * 100) / 100;
+      result.push({ label: denom.label, count });
+    }
+  }
+  return result;
+}
 
 function getWeekRange(dateStr: string): { start: string; end: string; label: string } {
   const [year, month, day] = dateStr.split("-").map(Number);
@@ -69,23 +92,41 @@ export default function StaffPortalPage() {
     stockCategories,
     updateStoreOrderStatus,
     confirmStoreOrderPayment,
+    addStoreOrder,
     addMenuItem,
     updateMenuItem,
-    updateStockItem,
     updateDeliveryStatus,
+    updateDeliveryPerson,
+    getServiceAreaName,
     getMenuCategoryName,
     getStockCategoryName,
-    attendanceRecords,
     staffAccounts,
-    addAttendanceRecord,
-    updateAttendanceRecord,
-    deleteAttendanceRecord,
-    clockIn,
-    clockOut,
+    archiveMenuItem,
+    addStockItem,
+    updateStockItem,
+    deleteStockItem,
   } = useAdminData();
 
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<StaffTab>("dashboard");
+
+  // Menu Tab State
+  const [menuSearch, setMenuSearch] = useState("");
+  const [menuCatFilter, setMenuCatFilter] = useState("all");
+  const [menuAvailFilter, setMenuAvailFilter] = useState("all");
+  const [menuSort, setMenuSort] = useState("name-asc");
+  const [itemToArchive, setItemToArchive] = useState<any | null>(null);
+
+  // Orders Tab State
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState("all");
+  const [orderTypeFilter, setOrderTypeFilter] = useState("all");
+  const [orderHistorySearch, setOrderHistorySearch] = useState("");
+  const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
+  const [paymentModalOrder, setPaymentModalOrder] = useState<any | null>(null);
+
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Form states for adding/editing menu items
   const [menuModalOpen, setMenuModalOpen] = useState(false);
@@ -96,6 +137,7 @@ export default function StaffPortalPage() {
     price: 0,
     categoryId: menuCategories[0]?.id || "",
     available: true,
+    image: "",
   });
 
   // Profile Form States
@@ -112,22 +154,27 @@ export default function StaffPortalPage() {
   const [pwdError, setPwdError] = useState<string | null>(null);
   const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
 
-  // Attendance Filter States
-  const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
-  const [attendanceForm, setAttendanceForm] = useState({
-    staffId: "",
-    date: new Date().toLocaleDateString("en-CA"),
-    timeIn: "08:00 AM",
-    timeOut: "05:00 PM",
-    status: "Present" as AttendanceStatus,
-    reason: "",
-    totalHours: undefined as number | undefined,
-  });
-  const [searchStaff, setSearchStaff] = useState("");
-  const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString("en-CA"));
-  const [viewTab, setViewTab] = useState<"daily" | "weekly" | "monthly">("daily");
-  const [attendanceSubTab, setAttendanceSubTab] = useState<"timecard" | "monitor">("timecard");
+
+  // POS Cashier States
+  const [posCart, setPosCart] = useState<POSCartItem[]>([]);
+  const [posTendered, setPosTendered] = useState("");
+  const [posReceiptOpen, setPosReceiptOpen] = useState(false);
+  const [posSearchTerm, setPosSearchTerm] = useState("");
+  const [posCategoryFilter, setPosCategoryFilter] = useState("all");
+  const [posReceiptData, setPosReceiptData] = useState<{
+    cart: POSCartItem[];
+    subtotal: number;
+    tax: number;
+    total: number;
+    tendered: number;
+    change: number;
+    breakdown: { label: string; count: number }[];
+    receiptNo: string;
+    date: string;
+    time: string;
+    cashier: string;
+  } | null>(null);
+
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
 
@@ -135,6 +182,17 @@ export default function StaffPortalPage() {
     setActiveChatOrder({ customerName, orderNumber });
     setChatOpen(true);
   };
+  
+  const handleNavigateToOrder = (type: string, orderId: string) => {
+    if (type === "delivery" || type === "status") {
+      setActiveTab("delivery");
+    } else {
+      setActiveTab("orders");
+      setOrderHistorySearch(orderId);
+      setOrderSearch(orderId);
+    }
+  };
+
   const [currentTime, setCurrentTime] = useState("");
 
   useEffect(() => {
@@ -157,211 +215,7 @@ export default function StaffPortalPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const myFullHistory = useMemo(() => {
-    if (!user) return [];
-    return attendanceRecords
-      .filter((r) => r.staffId === user.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [attendanceRecords, user]);
 
-  const todayStr = useMemo(() => {
-    return new Date().toLocaleDateString("en-CA");
-  }, []);
-
-  const todayRecord = useMemo(() => {
-    if (!user) return null;
-    return attendanceRecords.find((r) => r.staffId === user.id && r.date === todayStr);
-  }, [attendanceRecords, user, todayStr]);
-
-  const myHistory = useMemo(() => {
-    if (!user) return [];
-    return attendanceRecords
-      .filter((r) => r.staffId === user.id)
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, 5);
-  }, [attendanceRecords, user]);
-
-  const activeStaff = useMemo(() => {
-    return staffAccounts.filter((acc) => !acc.archived && acc.role !== "admin");
-  }, [staffAccounts]);
-
-  const weeklySummaries = useMemo(() => {
-    const groups: { [key: string]: PeriodSummary } = {};
-
-    attendanceRecords.forEach((record) => {
-      const staffAccount = staffAccounts.find((s) => s.id === record.staffId);
-      const position = staffAccount ? (staffAccount.role === "head_staff" ? "Head Staff" : "Staff") : "Staff";
-      
-      let weekLabel = "Unknown Period";
-      try {
-        weekLabel = getWeekRange(record.date).label;
-      } catch (e) {
-        console.error(e);
-      }
-
-      const key = `${record.staffId}_${weekLabel}`;
-
-      if (!groups[key]) {
-        groups[key] = {
-          staffId: record.staffId,
-          staffName: record.staffName,
-          position,
-          period: weekLabel,
-          presentCount: 0,
-          lateCount: 0,
-          excusedCount: 0,
-          absentCount: 0,
-          totalHours: 0,
-        };
-      }
-
-      if (record.status === "Present") groups[key].presentCount++;
-      else if (record.status === "Late") groups[key].lateCount++;
-      else if (record.status === "Excused") groups[key].excusedCount++;
-      else if (record.status === "Absent") groups[key].absentCount++;
-
-      if (record.totalHours) {
-        groups[key].totalHours = Number((groups[key].totalHours + record.totalHours).toFixed(2));
-      }
-    });
-
-    return Object.values(groups).sort((a, b) => b.period.localeCompare(a.period) || a.staffName.localeCompare(b.staffName));
-  }, [attendanceRecords, staffAccounts]);
-
-  const filteredWeeklySummaries = useMemo(() => {
-    return weeklySummaries.filter((s) => s.staffName.toLowerCase().includes(searchStaff.toLowerCase()));
-  }, [weeklySummaries, searchStaff]);
-
-  const monthlySummaries = useMemo(() => {
-    const groups: { [key: string]: PeriodSummary } = {};
-
-    attendanceRecords.forEach((record) => {
-      const staffAccount = staffAccounts.find((s) => s.id === record.staffId);
-      const position = staffAccount ? (staffAccount.role === "head_staff" ? "Head Staff" : "Staff") : "Staff";
-
-      let monthLabel = "Unknown Month";
-      try {
-        monthLabel = getMonthLabel(record.date);
-      } catch (e) {
-        console.error(e);
-      }
-
-      const key = `${record.staffId}_${monthLabel}`;
-
-      if (!groups[key]) {
-        groups[key] = {
-          staffId: record.staffId,
-          staffName: record.staffName,
-          position,
-          period: monthLabel,
-          presentCount: 0,
-          lateCount: 0,
-          excusedCount: 0,
-          absentCount: 0,
-          totalHours: 0,
-        };
-      }
-
-      if (record.status === "Present") groups[key].presentCount++;
-      else if (record.status === "Late") groups[key].lateCount++;
-      else if (record.status === "Excused") groups[key].excusedCount++;
-      else if (record.status === "Absent") groups[key].absentCount++;
-
-      if (record.totalHours) {
-        groups[key].totalHours = Number((groups[key].totalHours + record.totalHours).toFixed(2));
-      }
-    });
-
-    return Object.values(groups).sort((a, b) => b.period.localeCompare(a.period) || a.staffName.localeCompare(b.staffName));
-  }, [attendanceRecords, staffAccounts]);
-
-  const filteredMonthlySummaries = useMemo(() => {
-    return monthlySummaries.filter((s) => s.staffName.toLowerCase().includes(searchStaff.toLowerCase()));
-  }, [monthlySummaries, searchStaff]);
-
-  // Submit manual record Form
-  function handleAttendanceSubmit() {
-    if (!attendanceForm.staffId || !attendanceForm.date) {
-      alert("Staff Member and Date are required fields.");
-      return;
-    }
-
-    const selectedStaff = staffAccounts.find((s) => s.id === attendanceForm.staffId);
-    if (!selectedStaff) return;
-
-    let computedHours: number | undefined = undefined;
-    if (attendanceForm.timeIn && attendanceForm.timeOut && (attendanceForm.status === "Present" || attendanceForm.status === "Late")) {
-      try {
-        const parseTime = (timeStr: string, dateStr: string) => {
-          const [t, modifier] = timeStr.split(" ");
-          let [hoursVal, minutesVal] = t.split(":").map(Number);
-          if (modifier === "PM" && hoursVal < 12) hoursVal += 12;
-          if (modifier === "AM" && hoursVal === 12) hoursVal = 0;
-          return new Date(`${dateStr}T${String(hoursVal).padStart(2, "0")}:${String(minutesVal).padStart(2, "0")}:00`);
-        };
-        const inD = parseTime(attendanceForm.timeIn, attendanceForm.date);
-        const outD = parseTime(attendanceForm.timeOut, attendanceForm.date);
-        const diff = outD.getTime() - inD.getTime();
-        if (diff > 0) {
-          computedHours = Number((diff / (1000 * 60 * 60)).toFixed(2));
-        }
-      } catch (e) {
-        console.error("Hours calculation error:", e);
-      }
-    }
-
-    const payload = {
-      staffId: attendanceForm.staffId,
-      staffName: selectedStaff.name,
-      date: attendanceForm.date,
-      timeIn: (attendanceForm.status === "Present" || attendanceForm.status === "Late") ? attendanceForm.timeIn : undefined,
-      timeOut: (attendanceForm.status === "Present" || attendanceForm.status === "Late") ? attendanceForm.timeOut : undefined,
-      status: attendanceForm.status,
-      reason: attendanceForm.status === "Excused" ? attendanceForm.reason : undefined,
-      totalHours: computedHours !== undefined ? computedHours : attendanceForm.totalHours,
-    };
-
-    if (editingRecord) {
-      updateAttendanceRecord(editingRecord.id, payload);
-    } else {
-      addAttendanceRecord(payload);
-    }
-    setAttendanceModalOpen(false);
-  }
-
-  function openCreateAttendance() {
-    setEditingRecord(null);
-    setAttendanceForm({
-      staffId: activeStaff[0]?.id || "",
-      date: new Date().toLocaleDateString("en-CA"),
-      timeIn: "08:00 AM",
-      timeOut: "05:00 PM",
-      status: "Present",
-      reason: "",
-      totalHours: undefined,
-    });
-    setAttendanceModalOpen(true);
-  }
-
-  function openEditAttendance(record: AttendanceRecord) {
-    setEditingRecord(record);
-    setAttendanceForm({
-      staffId: record.staffId,
-      date: record.date,
-      timeIn: record.timeIn || "",
-      timeOut: record.timeOut || "",
-      status: record.status,
-      reason: record.reason || "",
-      totalHours: record.totalHours,
-    });
-    setAttendanceModalOpen(true);
-  }
-
-  function handleDeleteAttendance(record: AttendanceRecord) {
-    if (confirm(`Are you sure you want to delete this attendance log for ${record.staffName}?`)) {
-      deleteAttendanceRecord(record.id);
-    }
-  }
 
   // Load profile values on mount/user load
   useEffect(() => {
@@ -431,22 +285,31 @@ export default function StaffPortalPage() {
           </svg>
         ),
       },
-    ];
-
-    if (user?.role === "head_staff" || user?.role === "staff") {
-      list.push({
-        id: "attendance",
-        label: "Staff Attendance",
+      {
+        id: "archive",
+        label: "Archived Items",
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            <polyline points="21 8 21 21 3 21 3 8" />
+            <rect x="1" y="3" width="22" height="5" />
+            <line x1="10" y1="12" x2="14" y2="12" />
           </svg>
         ),
-      });
-    }
+      },
+    ];
+
+    list.push({
+      id: "pos" as StaffTab,
+      label: "POS Cashier",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="M2 10h20" />
+          <path d="M6 15h2M10 15h2M14 15h2" />
+          <path d="M12 4V2" />
+        </svg>
+      ),
+    });
 
     list.push({
       id: "profile",
@@ -495,18 +358,6 @@ export default function StaffPortalPage() {
       }));
   }, [stockItems]);
 
-  // Handle stock adjustment (+/- buttons)
-  function handleAdjustStock(item: StockItem, amount: number) {
-    const updatedQty = Math.max(0, item.quantity + amount);
-    updateStockItem(item.id, {
-      name: item.name,
-      categoryId: item.categoryId,
-      quantity: updatedQty,
-      unit: item.unit,
-      lowStockThreshold: item.lowStockThreshold,
-    });
-  }
-
   // Toggle availability of menu items
   function handleToggleAvailability(item: MenuItem) {
     updateMenuItem(item.id, {
@@ -527,6 +378,7 @@ export default function StaffPortalPage() {
       price: 0,
       categoryId: menuCategories[0]?.id || "",
       available: true,
+      image: "",
     });
     setMenuModalOpen(true);
   }
@@ -540,6 +392,7 @@ export default function StaffPortalPage() {
       price: item.price,
       categoryId: item.categoryId,
       available: item.available,
+      image: item.image || "",
     });
     setMenuModalOpen(true);
   }
@@ -601,12 +454,200 @@ export default function StaffPortalPage() {
     setConfirmNewPwd("");
   }
 
+  // POS Cashier Functions
+  const posSubtotal = posCart.reduce((sum, ci) => sum + ci.item.price * ci.qty, 0);
+  const posTaxRate = 0; // No tax for simplicity, set to e.g. 0.12 for 12% VAT
+  const posTax = Math.round(posSubtotal * posTaxRate * 100) / 100;
+  const posTotal = posSubtotal + posTax;
+  const posTenderedNum = parseFloat(posTendered) || 0;
+  const posChange = posTenderedNum - posTotal;
+
+  function posAddToCart(item: MenuItem) {
+    setPosCart((prev) => {
+      const existing = prev.find((ci) => ci.item.id === item.id);
+      if (existing) return prev.map((ci) => ci.item.id === item.id ? { ...ci, qty: ci.qty + 1 } : ci);
+      return [...prev, { item, qty: 1 }];
+    });
+  }
+
+  function posRemoveFromCart(itemId: string) {
+    setPosCart((prev) => prev.filter((ci) => ci.item.id !== itemId));
+  }
+
+  function posUpdateQty(itemId: string, qty: number) {
+    if (qty <= 0) { posRemoveFromCart(itemId); return; }
+    setPosCart((prev) => prev.map((ci) => ci.item.id === itemId ? { ...ci, qty } : ci));
+  }
+
+  function posClearCart() {
+    setPosCart([]);
+    setPosTendered("");
+  }
+
+  function posCompleteTransaction() {
+    if (posCart.length === 0 || posTenderedNum < posTotal) return;
+    const now = new Date();
+    const receiptNo = `ENR-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    
+    // Save to global context storeOrders list
+    addStoreOrder({
+      orderId: receiptNo.slice(-8), // use short ID for dashboard visibility
+      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      items: posCart.map((ci) => `${ci.item.name} (${ci.qty}x)`).join(", "),
+      total: posTotal,
+      status: "completed",
+      paid: true,
+    });
+
+    setPosReceiptData({
+      cart: [...posCart],
+      subtotal: posSubtotal,
+      tax: posTax,
+      total: posTotal,
+      tendered: posTenderedNum,
+      change: posChange,
+      breakdown: breakdownChange(posChange),
+      receiptNo,
+      date: now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }),
+      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      cashier: user?.name || "Cashier",
+    });
+    setPosReceiptOpen(true);
+  }
+
+  function posNewTransaction() {
+    setPosCart([]);
+    setPosTendered("");
+    setPosReceiptOpen(false);
+    setPosReceiptData(null);
+  }
+
+  const posFilteredItems = menuItems.filter((item) => {
+    if (item.archived || !item.available) return false;
+    if (posCategoryFilter !== "all" && item.categoryId !== posCategoryFilter) return false;
+    if (posSearchTerm && !item.name.toLowerCase().includes(posSearchTerm.toLowerCase())) return false;
+    return true;
+  });
+
   if (!user) return null;
 
   return (
-    <div className="admin-shell min-h-screen flex text-[#1c1c1c]">
-      {/* LEFT SIDEBAR */}
-      <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
+    <div className="admin-shell min-h-screen flex flex-col md:flex-row text-[#1c1c1c] w-full max-w-full overflow-x-hidden">
+      {/* MOBILE COMPACT HEADER BAR */}
+      <header className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-[#500f17] text-white px-4 py-3 shadow-md border-b border-white/10 w-full">
+        <div className="flex items-center gap-3">
+          <Logo size="sm" showText={false} />
+          <div>
+            <h1 className="font-serif text-base font-bold text-white leading-tight">Eat n&apos; Repeat</h1>
+            <p className="text-[10px] text-white/60 font-semibold uppercase tracking-wider">
+              {tabs.find((t) => t.id === activeTab)?.label || "Staff Portal"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Notification Button */}
+          <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} />
+
+          {/* Hamburger Menu Icon */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="p-2 rounded-xl bg-accent/30 text-white hover:bg-accent/50 transition-colors cursor-pointer"
+            aria-label="Toggle Navigation Menu"
+          >
+            {isMobileMenuOpen ? (
+              <X className="h-6 w-6" />
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* MOBILE SIDEBAR DRAWER OVERLAY */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+
+          {/* Drawer Panel */}
+          <aside className="admin-sidebar relative z-50 flex w-72 flex-col h-full bg-[#500f17] text-white shadow-2xl overflow-y-auto animate-in slide-in-from-left duration-200">
+            <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+              <div>
+                <Logo size="md" showText={false} />
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/50">
+                  Staff Portal
+                </p>
+                <p className="font-script text-lg text-white/90">Eat n&apos; Repeat</p>
+              </div>
+              <button
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <nav className="flex-1 space-y-1.5 px-4 py-5">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all cursor-pointer ${
+                    activeTab === tab.id
+                      ? "bg-accent/30 text-white border-l-4 border-accent shadow-inner"
+                      : "text-white/70 hover:bg-white/10"
+                  }`}
+                >
+                  <span
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                      activeTab === tab.id ? "bg-accent text-white" : "bg-white/10 text-white/80"
+                    }`}
+                  >
+                    {tab.icon}
+                  </span>
+                  <span className="text-sm font-semibold">{tab.label}</span>
+                </button>
+              ))}
+            </nav>
+
+            {/* Footer User Card */}
+            <div className="border-t border-white/10 px-5 py-4 space-y-3">
+              <div className="rounded-xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur-sm flex flex-col gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-white">{user?.name}</p>
+                  <p className="text-[10px] text-white/50 font-mono">@{user?.username} • {user?.role}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    logout();
+                  }}
+                  className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-accent/30 border border-accent/40 py-2 text-xs font-semibold text-white transition-all hover:bg-accent/50 cursor-pointer"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                  </svg>
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* DESKTOP LEFT SIDEBAR */}
+      <aside className="admin-sidebar hidden md:flex fixed inset-y-0 left-0 z-40 w-72 flex-col overflow-y-auto text-white">
         <div className="border-b border-white/8 px-6 py-6">
           <Logo size="md" showText={false} />
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/45">
@@ -619,7 +660,7 @@ export default function StaffPortalPage() {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => { setActiveTab(tab.id); setIsMobileMenuOpen(false); }}
               className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all ${
                 activeTab === tab.id
                   ? "bg-accent/20 text-white border-l-4 border-accent shadow-inner"
@@ -656,468 +697,1170 @@ export default function StaffPortalPage() {
         </div>
       </aside>
 
-      {/* MAIN MAIN AREA */}
-      <main className="relative z-10 pl-72 flex-1 mx-auto max-w-6xl px-8 py-8">
+      {/* MAIN CONTENT AREA */}
+      <main className="relative z-10 pl-0 md:pl-72 flex-1 mx-auto w-full max-w-6xl px-3 sm:px-6 md:px-8 py-4 md:py-8 overflow-x-hidden min-w-0">
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === "dashboard" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Overview</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Café Summary</h1>
-              <p className="text-sm text-muted">Monitor sales overview and alert notifications.</p>
-            </div>
+          <div className="space-y-6 w-full max-w-full min-w-0">
+            {/* HEADER */}
+            <header className="flex flex-col gap-4 rounded-2xl md:rounded-3xl border border-white/80 bg-white/90 p-4 sm:p-6 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-accent/80">Staff Workspace</p>
+                <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold tracking-tight text-[#63131d]">Good day, {user?.name || 'Staff'}!</h1>
+                <p className="mt-1 text-xs sm:text-sm text-[#8a5a5a]">Here's your cafe pulse for today.</p>
+                <p className="mt-2 text-xs font-medium text-[#63131d]/60 bg-[#63131d]/5 inline-block px-3 py-1 rounded-full border border-[#63131d]/10">
+                  {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                </p>
+              </div>
+              <div className="hidden md:flex items-center gap-3">
+                <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} />
+              </div>
+            </header>
 
-            {/* Sales Stats Summary */}
-            <section className="grid gap-5 sm:grid-cols-3">
-              <StatCard
-                title="Today's Sales Revenue"
-                value={`₱${salesSummary.totalSales.toLocaleString()}`}
-                subtitle="In-store & completed deliveries"
-                icon={<DollarIcon />}
-                tone="wine"
-              />
-              <StatCard
-                title="Completed Orders"
-                value={salesSummary.completedOrders.toLocaleString()}
-                subtitle="Fulfilled customer requests"
-                icon={<TrendIcon />}
-                tone="rose"
-              />
-              <StatCard
-                title="Pending Workload"
-                value={salesSummary.pendingOrders.toLocaleString()}
-                subtitle="Orders awaiting prep/delivery"
-                icon={<ClipboardIcon />}
-                tone="red"
-              />
+            {/* KPI CARDS */}
+            <section className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4">
+              {[
+                { label: "Today's Orders", value: salesSummary.totalOrders, color: "text-[#8b3b25]" },
+                { label: "Pending Orders", value: salesSummary.pendingOrders, color: "text-[#9a6100]" },
+                { label: "Sales", value: `₱${salesSummary.totalSales.toLocaleString()}`, color: "text-[#24753c]" },
+                { label: "Completed", value: salesSummary.completedOrders, color: "text-[#24753c]" },
+                { label: "Low Stock", value: stockNotifications.length, color: "text-[#bd2525]" },
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-2xl border border-white/60 bg-white/80 p-3.5 sm:p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md hover:bg-white/95">
+                  <p className="text-[10px] sm:text-xs font-semibold text-muted uppercase tracking-wide">{stat.label}</p>
+                  <p className={`mt-1 font-serif text-2xl sm:text-3xl font-bold ${stat.color}`}>{stat.value}</p>
+                </div>
+              ))}
             </section>
 
-            {/* My Attendance History */}
-            <div className="grid gap-5">
-              <div className="w-full">
-                <AdminPanel title="My Attendance History" subtitle="Your 5 most recent attendance entries">
-                  <div className="overflow-x-auto px-6 py-4">
-                    <table className="w-full text-left text-xs min-w-[650px]">
+            {/* STATUS SUMMARY */}
+            <section className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-sm backdrop-blur-sm">
+              <h2 className="text-sm font-bold text-[#63131d] mb-4 flex items-center gap-2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>
+                Order Status Summary
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 text-center">
+                {[
+                  { s: "Pending", c: "bg-amber-50 text-amber-700 border-amber-200" },
+                  { s: "Confirmed", c: "bg-blue-50 text-blue-700 border-blue-200" },
+                  { s: "Preparing", c: "bg-purple-50 text-purple-700 border-purple-200" },
+                  { s: "Ready", c: "bg-teal-50 text-teal-700 border-teal-200" },
+                  { s: "Completed", c: "bg-green-50 text-green-700 border-green-200" },
+                  { s: "Cancelled", c: "bg-stone-50 text-stone-600 border-stone-200" },
+                ].map(status => {
+                  const count = [...storeOrders, ...deliveryOrders].filter(o => !o.archived && o.status === status.s.toLowerCase()).length;
+                  return (
+                    <div key={status.s} className={`rounded-xl border p-2.5 sm:p-3 flex flex-col items-center justify-center ${status.c}`}>
+                      <span className="text-xl sm:text-2xl font-bold">{count}</span>
+                      <span className="text-[10px] font-semibold uppercase mt-0.5 opacity-80">{status.s}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <div className="grid gap-6 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
+              {/* LEFT COLUMN: CUSTOMER ORDERS */}
+              <div className="space-y-6">
+                <AdminPanel title="Customer Orders" subtitle="Today's active orders from all channels" action={<button onClick={() => setActiveTab("orders")} className="text-xs font-bold text-accent hover:underline">View all</button>}>
+                  <div className="overflow-x-auto p-1">
+                    <table className="w-full text-left text-sm min-w-[500px]">
                       <thead>
-                        <tr className="admin-table-head text-muted border-b border-accent/10 pb-2">
-                          <th className="py-2 font-medium">Date</th>
-                          <th className="py-2 font-medium">Time In</th>
-                          <th className="py-2 font-medium">Time Out</th>
-                          <th className="py-2 font-medium">Status</th>
-                          <th className="py-2 font-medium">Reason</th>
-                          <th className="py-2 font-medium text-right">Total Hours</th>
+                        <tr className="border-b border-accent/10 text-muted">
+                          <th className="px-4 py-3 font-medium">ID</th>
+                          <th className="px-4 py-3 font-medium">Type</th>
+                          <th className="px-4 py-3 font-medium">Items</th>
+                          <th className="px-4 py-3 font-medium">Total</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-accent/5">
-                        {myHistory.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="text-center py-8 text-muted">No attendance logs found.</td>
+                      <tbody>
+                        {[...storeOrders.map(o => ({...o, orderCode: o.orderId, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, orderCode: o.orderNumber, type: "Delivery"}))]
+                          .filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered")
+                          .sort((a, b) => b.id.localeCompare(a.id))
+                          .slice(0, 5)
+                          .map((order) => (
+                          <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
+                            <td className="px-4 py-3 font-bold text-[#63131d]">{order.orderCode}</td>
+                            <td className="px-4 py-3 text-xs font-medium text-muted">{order.type}</td>
+                            <td className="px-4 py-3 text-xs text-[#1c1c1c] truncate max-w-[150px]">{order.items}</td>
+                            <td className="px-4 py-3 font-semibold text-[#24753c]">₱{order.total}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
+                                order.status === "pending" ? "bg-amber-100 text-amber-800" :
+                                order.status === "preparing" ? "bg-purple-100 text-purple-800" :
+                                "bg-blue-100 text-blue-800"
+                              }`}>{order.status}</span>
+                            </td>
                           </tr>
-                        ) : (
-                          myHistory.map((h) => (
-                            <tr key={h.id} className="hover:bg-accent-light/5 text-ink">
-                              <td className="py-3 font-semibold text-[#800000]">{h.date}</td>
-                              <td className="py-3 text-muted font-mono">{h.timeIn || "—"}</td>
-                              <td className="py-3 text-muted font-mono">{h.timeOut || "—"}</td>
-                              <td className="py-3">
-                                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold border ${
-                                  !h.timeOut && (h.status === "Present" || h.status === "Late")
-                                    ? "bg-amber-50 text-amber-800 border-amber-200"
-                                    : h.status === "Late"
-                                    ? "bg-amber-50 text-amber-800 border-amber-200"
-                                    : h.status === "Absent"
-                                    ? "bg-red-50 text-red-800 border-red-200"
-                                    : h.status === "Excused"
-                                    ? "bg-blue-50 text-blue-800 border-blue-200"
-                                    : "bg-green-50 text-green-800 border-green-200"
-                                }`}>
-                                  {!h.timeOut && (h.status === "Present" || h.status === "Late") ? "On Shift" : h.status}
-                                </span>
-                              </td>
-                              <td className="py-3 text-muted italic max-w-[200px] truncate" title={h.reason || ""}>
-                                {h.reason || "—"}
-                              </td>
-                              <td className="py-3 text-right font-semibold">{h.totalHours ? `${h.totalHours} hrs` : "—"}</td>
-                            </tr>
-                          ))
+                        ))}
+                        {[...storeOrders, ...deliveryOrders].filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered").length === 0 && (
+                          <tr><td colSpan={5} className="py-8 text-center text-sm text-muted">No active orders at the moment.</td></tr>
                         )}
                       </tbody>
                     </table>
                   </div>
                 </AdminPanel>
-              </div>
-            </div>
 
-            {/* Notification alert panels */}
-            <div className="grid gap-5 md:grid-cols-2">
-              <AdminPanel title="System Alerts & Warnings" subtitle="Low inventory notices">
-                <div className="divide-y divide-accent/10 px-6 py-2 max-h-[300px] overflow-y-auto">
-                  {stockNotifications.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted">All stock levels are optimal. No alerts.</p>
-                  ) : (
-                    stockNotifications.map((notif) => (
-                      <div key={notif.id} className="py-4 flex gap-3">
-                        <span className="h-2.5 w-2.5 rounded-full bg-amber-500 mt-1.5 shrink-0" />
-                        <div>
-                          <p className="text-sm font-semibold text-amber-900">{notif.title}</p>
-                          <p className="text-xs text-muted mt-0.5">{notif.details}</p>
+                <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
+                  <div className="divide-y divide-accent/5 px-5 py-2">
+                    {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: o.time, raw: o})), 
+                      ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderNumber} received`, time: o.orderedAt, raw: o}))]
+                      .sort((a, b) => b.id.localeCompare(a.id))
+                      .slice(0, 4)
+                      .map((activity, i) => (
+                      <div key={`act-${activity.id}-${i}`} className="flex items-start gap-3 py-3 text-sm">
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#63131d]/10 text-[#63131d]">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                        </span>
+                        <div className="flex-1">
+                          <p className="text-[#1c1c1c] font-medium">{activity.text}</p>
+                          <p className="text-[10px] text-muted mt-0.5">{activity.time}</p>
                         </div>
                       </div>
-                    ))
+                    ))}
+                    {storeOrders.length === 0 && deliveryOrders.length === 0 && (
+                      <p className="py-8 text-center text-sm text-muted">No recent activity to show.</p>
+                    )}
+                  </div>
+                </AdminPanel>
+              </div>
+
+              {/* RIGHT COLUMN: ALERTS & ACTIONS */}
+              <div className="space-y-6">
+                <AdminPanel title="Needs Attention" subtitle="Tasks requiring staff action">
+                  <div className="divide-y divide-accent/10 px-5">
+                    {salesSummary.pendingOrders > 0 && (
+                      <button onClick={() => setActiveTab("orders")} className="w-full flex items-center justify-between py-3.5 hover:bg-white/40 transition-colors text-left group cursor-pointer">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 font-bold text-sm">◷</span>
+                          <div>
+                            <p className="text-sm font-bold text-[#63131d] group-hover:text-accent">{salesSummary.pendingOrders} Pending Orders</p>
+                            <p className="text-[10px] text-muted">Awaiting confirmation or prep</p>
+                          </div>
+                        </div>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-muted"><polyline points="9 18 15 12 9 6" /></svg>
+                      </button>
+                    )}
+                    {stockNotifications.length > 0 && (
+                      <button onClick={() => setActiveTab("inventory")} className="w-full flex items-center justify-between py-3.5 hover:bg-white/40 transition-colors text-left group cursor-pointer">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-50 text-red-600 font-bold text-sm">!</span>
+                          <div>
+                            <p className="text-sm font-bold text-[#63131d] group-hover:text-accent">{stockNotifications.length} Low Stock Items</p>
+                            <p className="text-[10px] text-muted">Requires replenishment</p>
+                          </div>
+                        </div>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-muted"><polyline points="9 18 15 12 9 6" /></svg>
+                      </button>
+                    )}
+                    {salesSummary.pendingOrders === 0 && stockNotifications.length === 0 && (
+                      <p className="py-6 text-center text-xs text-muted">No urgent tasks at the moment.</p>
+                    )}
+                  </div>
+                </AdminPanel>
+
+                <AdminPanel title="Inventory Alerts" subtitle="Low or out of stock items" action={<button onClick={() => setActiveTab("inventory")} className="text-xs font-bold text-accent hover:underline">Open stock</button>}>
+                  <div className="divide-y divide-accent/10 px-5">
+                    {stockNotifications.slice(0, 3).map((alert) => (
+                      <div key={alert.id} className="flex gap-3 py-3">
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600">!</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-[#63131d]">{alert.title.replace("Low stock: ", "")}</p>
+                          <p className="mt-0.5 text-[10px] text-muted">{alert.details}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {stockNotifications.length === 0 && (
+                      <p className="py-6 text-center text-xs text-muted">Stock levels are healthy.</p>
+                    )}
+                  </div>
+                </AdminPanel>
+
+                <AdminPanel title="Quick Actions" subtitle="Jump to section">
+                  <div className="grid grid-cols-2 gap-3 px-4 py-4 text-center text-[11px] font-semibold text-[#63131d]">
+                    {[
+                      { label: "View Orders", icon: "▣", action: () => setActiveTab("orders") },
+                      { label: "Manage Menu", icon: "☷", action: () => setActiveTab("menu") },
+                      { label: "Check Stock", icon: "□", action: () => setActiveTab("inventory") },
+                      { label: "Open POS", icon: "₱", action: () => setActiveTab("pos") }
+                    ].map((action, index) => (
+                      <button key={action.label} onClick={action.action} className="group flex flex-col items-center gap-2 rounded-xl py-3 border border-white/50 bg-white/40 hover:bg-white hover:shadow-sm transition-all cursor-pointer">
+                        <span className={`flex h-8 w-8 items-center justify-center rounded-lg text-lg ${["bg-rose-50 text-accent", "bg-emerald-50 text-emerald-700", "bg-blue-50 text-blue-700", "bg-amber-50 text-amber-700"][index]}`}>{action.icon}</span>
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </AdminPanel>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* TAB 2: CUSTOMER ORDERS */}
+        {activeTab === "orders" && (() => {
+          // Process data
+          const allOrders = [...storeOrders, ...deliveryOrders.map(d => ({
+              ...d,
+              id: d.id,
+              orderId: d.orderNumber,
+              time: d.orderedAt,
+              orderType: "delivery",
+              paid: d.paymentStatus === "paid" || d.paid === true,
+              customerName: d.customerName,
+              subtotal: d.subtotal,
+              deliveryFee: d.deliveryFee,
+              paymentStatus: d.paymentStatus || (d.paid ? "paid" : "pending"),
+              paymentMethod: d.paymentMethod,
+              cancelledBy: d.cancelledBy,
+              cancelledAt: d.cancelledAt,
+          }))];
+
+          const activeOrders = allOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled");
+          const historyOrders = allOrders.filter(o => o.status === "completed" || o.status === "cancelled");
+
+          // Summary Counts
+          const summary = {
+            total: activeOrders.length,
+            pending: activeOrders.filter(o => o.status === "pending").length,
+            preparing: activeOrders.filter(o => o.status === "preparing").length,
+            ready: activeOrders.filter(o => o.status === "ready" || o.status === "ready_for_delivery").length,
+            completed: historyOrders.filter(o => o.status === "completed").length,
+            cancelled: historyOrders.filter(o => o.status === "cancelled").length,
+          };
+
+          // Filter active
+          const filteredActive = activeOrders.filter(o => {
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderSearch.toLowerCase()) || 
+                                  o.customerName?.toLowerCase().includes(orderSearch.toLowerCase());
+            const matchesStatus = orderStatusFilter === "all" || o.status === orderStatusFilter;
+            const matchesType = orderTypeFilter === "all" || (o.orderType || "dine-in") === orderTypeFilter;
+            return matchesSearch && matchesStatus && matchesType;
+          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+
+          // Filter history
+          const filteredHistory = historyOrders.filter(o => {
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) || 
+                                  o.customerName?.toLowerCase().includes(orderHistorySearch.toLowerCase());
+            const matchesStatus = orderHistoryStatusFilter === "all" || o.status === orderHistoryStatusFilter;
+            return matchesSearch && matchesStatus;
+          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+
+          return (
+            <div className="space-y-6">
+              {/* HEADER */}
+              <div>
+                <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Operations</span>
+                <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">In-store Orders</h1>
+                <p className="text-sm text-muted">Manage customer orders, update workflow status, and confirm payments.</p>
+              </div>
+
+              {/* SUMMARY ROW */}
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                {[
+                  { label: "Total Active", value: summary.total, color: "text-[#800000]" },
+                  { label: "Pending", value: summary.pending, color: "text-amber-600" },
+                  { label: "Preparing", value: summary.preparing, color: "text-blue-600" },
+                  { label: "Ready", value: summary.ready, color: "text-indigo-600" },
+                  { label: "Completed", value: summary.completed, color: "text-green-700" },
+                  { label: "Cancelled", value: summary.cancelled, color: "text-red-600" },
+                ].map(stat => (
+                  <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-xl p-3 border border-white/40 shadow-sm flex flex-col items-center justify-center">
+                    <p className="text-[10px] font-bold text-muted uppercase tracking-wider">{stat.label}</p>
+                    <p className={`text-xl font-bold font-serif mt-1 ${stat.color}`}>{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* ACTIVE ORDERS PANEL */}
+              <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
+                {/* FILTERS */}
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                  <div className="relative w-full md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                    <input 
+                      type="text" 
+                      placeholder="Search ID or customer..." 
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
+                      value={orderTypeFilter}
+                      onChange={(e) => setOrderTypeFilter(e.target.value)}
+                    >
+                      <option value="all">All Types</option>
+                      <option value="dine-in">Dine-in</option>
+                      <option value="takeout">Takeout</option>
+                      <option value="delivery">Delivery</option>
+                    </select>
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
+                      value={orderStatusFilter}
+                      onChange={(e) => setOrderStatusFilter(e.target.value)}
+                    >
+                      <option value="all">All Statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="preparing">Preparing</option>
+                      <option value="ready">Ready</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* DESKTOP TABLE / MOBILE CARDS */}
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
+                  {filteredActive.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
+                        <Filter className="h-6 w-6 text-accent/40" />
+                      </div>
+                      <p className="text-[#800000] font-bold">No Active Orders</p>
+                      <p className="text-sm text-muted mt-1 max-w-xs">New customer orders will appear here when they are placed.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block w-full min-w-0 overflow-x-hidden">
+                        <table className="w-full table-fixed text-left text-xs align-middle">
+                          <colgroup>
+                            <col className="w-[85px]" />
+                            <col className="w-[115px]" />
+                            <col className="w-[80px]" />
+                            <col className="w-auto" />
+                            <col className="w-[80px]" />
+                            <col className="w-[130px]" />
+                            <col className="w-[120px]" />
+                            <col className="w-[90px]" />
+                          </colgroup>
+                          <thead>
+                            <tr className="text-muted border-b border-accent/10 bg-[#63131d]/5 font-semibold text-[11px] uppercase tracking-wider">
+                              <th className="px-3 py-3">Order ID</th>
+                              <th className="px-3 py-3">Customer</th>
+                              <th className="px-3 py-3 text-center">Type</th>
+                              <th className="px-3 py-3">Items</th>
+                              <th className="px-3 py-3">Total</th>
+                              <th className="px-3 py-3">Payment</th>
+                              <th className="px-3 py-3">Status</th>
+                              <th className="px-3 py-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-accent/5">
+                            {filteredActive.map((order) => (
+                              <tr key={order.id} className="hover:bg-accent-light/10 transition-colors h-14">
+                                <td className="px-3 py-2.5 font-bold text-[#63131d] truncate align-middle">
+                                  {order.orderId}
+                                </td>
+
+                                <td className="px-3 py-2.5 font-medium text-stone-800 align-middle">
+                                  <span className="line-clamp-2 leading-tight">{order.customerName || "Walk-in"}</span>
+                                </td>
+
+                                <td className="px-3 py-2.5 text-center align-middle">
+                                  <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-200 shadow-2xs">
+                                    {order.orderType || "dine-in"}
+                                  </span>
+                                </td>
+
+                                <td className="px-3 py-2.5 text-xs text-stone-600 align-middle">
+                          <p className="truncate max-w-full" title={order.items}>{order.items}</p>
+                                </td>
+
+                                <td className="px-3 py-2.5 font-bold text-[#63131d] whitespace-nowrap align-middle">
+                                  ₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}
+                                </td>
+
+                                <td className="px-3 py-2.5 align-middle">
+                                  <div className="flex flex-col items-start gap-1">
+                                    {(order.paid || order.paymentStatus === "paid" || order.status === "completed" || order.status === "delivered") ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200 shadow-2xs whitespace-nowrap">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
+                                      </span>
+                                    ) : order.paymentStatus === "failed" ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 shadow-2xs whitespace-nowrap">
+                                        🔴 Payment Failed
+                                      </span>
+                                    ) : order.paymentStatus === "cancelled" ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold text-stone-700 border border-stone-200 shadow-2xs whitespace-nowrap">
+                                        ⚪ Cancelled
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 shadow-2xs whitespace-nowrap">
+                                        🔴 Unpaid
+                                      </span>
+                                    )}
+                                    <button
+                                      onClick={() => setPaymentModalOrder(order)}
+                                      className="text-[10px] font-bold text-[#63131d] hover:underline cursor-pointer leading-none"
+                                    >
+                                      View Details
+                                    </button>
+                                  </div>
+                                </td>
+
+                                <td className="px-3 py-2.5 align-middle">
+                                  <AdminSelect
+                                    value={order.status}
+                                    onChange={(e) => {
+                                      if (order.orderType === 'delivery') {
+                                        updateDeliveryStatus(order.id, e.target.value as any);
+                                      } else {
+                                        updateStoreOrderStatus(order.id, e.target.value as any);
+                                      }
+                                    }}
+                                    className="!py-1 !px-2 !text-xs w-full shadow-2xs font-medium"
+                                  >
+                                    <option value="pending">Pending</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="preparing">Preparing</option>
+                                    <option value="ready">Ready</option>
+                                    {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
+                                  </AdminSelect>
+                                </td>
+
+                                <td className="px-3 py-2.5 text-right align-middle">
+                                  <button
+                                    onClick={() => setSelectedOrderDetails(order)}
+                                    className="inline-flex items-center gap-1 text-xs font-bold text-[#63131d] bg-white px-2.5 py-1.5 rounded-lg border border-[#63131d]/20 shadow-2xs hover:bg-[#fff9f6] transition-colors cursor-pointer"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" /> Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* MOBILE CARDS */}
+                      <div className="md:hidden flex flex-col gap-3 p-2">
+                        {filteredActive.map((order) => (
+                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="font-bold text-[#63131d]">{order.orderId}</h3>
+                                <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
+                              </div>
+                              <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
+                                {order.orderType || "dine-in"}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
+                              <span className="text-muted truncate max-w-[60%]">{order.items}</span>
+                              <span className="font-bold text-lg text-[#63131d]">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Status:</span>
+                                <AdminSelect
+                                  value={order.status}
+                                  onChange={(e) => {
+                                    if (order.orderType === 'delivery') {
+                                      updateDeliveryStatus(order.id, e.target.value as any);
+                                    } else {
+                                      updateStoreOrderStatus(order.id, e.target.value as any);
+                                    }
+                                  }}
+                                  className="!py-1 !text-xs w-32 shadow-sm"
+                                >
+                                  <option value="pending">Pending</option>
+                                  <option value="confirmed">Confirmed</option>
+                                  <option value="preparing">Preparing</option>
+                                  <option value="ready">Ready</option>
+                                  {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
+                                  <option value="completed">Completed</option>
+                                  <option value="cancelled">Cancelled</option>
+                                </AdminSelect>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Payment:</span>
+                                {(order.paid || order.paymentStatus === "paid" || order.status === "completed" || order.status === "delivered") ? (
+                                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
+                                  </span>
+                                ) : order.paymentStatus === "failed" ? (
+                                  <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                                    🔴 Payment Failed
+                                  </span>
+                                ) : order.paymentStatus === "cancelled" ? (
+                                  <span className="text-[10px] font-bold text-stone-700 bg-stone-100 px-2.5 py-0.5 rounded-full border border-stone-200">
+                                    ⚪ Cancelled
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                                    🔴 Unpaid
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 mt-1">
+                              <button
+                                onClick={() => setPaymentModalOrder(order)}
+                                className="py-2 bg-[#fff9f6] text-[#63131d] font-bold text-xs rounded-lg border border-[#63131d]/20 flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                View Payment
+                              </button>
+                              <button
+                                onClick={() => setSelectedOrderDetails(order)}
+                                className="py-2 bg-white text-[#63131d] font-bold text-xs rounded-lg border border-stone-200 shadow-2xs flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="h-3.5 w-3.5" /> Details
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
               </AdminPanel>
 
-              <AdminPanel title="Staff Quick Reference" subtitle="Operating guidelines">
-                <div className="p-6 text-sm text-muted leading-relaxed space-y-3">
-                  <p>Welcome to your staff shifts! To maintain restaurant efficiency, make sure to:</p>
-                  <ul className="list-disc pl-5 space-y-1.5 text-xs">
-                    <li>Confirm in-store payments as customers pay.</li>
-                    <li>Update inventory stock counts as raw ingredients arrive.</li>
-                    <li>Keep menu availability checked (toggle off items if ingredients run out).</li>
-                    <li>Update delivery status promptly so customers can track deliveries.</li>
-                  </ul>
+              {/* ORDER HISTORY */}
+              <AdminPanel title="Customer Order History" subtitle="Fulfilled or cancelled records">
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                  <div className="relative w-full md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                    <input 
+                      type="text" 
+                      placeholder="Search history..." 
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                      value={orderHistorySearch}
+                      onChange={(e) => setOrderHistorySearch(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium w-full md:w-auto"
+                    value={orderHistoryStatusFilter}
+                    onChange={(e) => setOrderHistoryStatusFilter(e.target.value)}
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl overflow-x-auto">
+                  {filteredHistory.length === 0 ? (
+                    <div className="text-center py-12 text-muted flex flex-col items-center">
+                      <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
+                        <Filter className="h-6 w-6 text-accent/40" />
+                      </div>
+                      <p className="font-medium text-[#800000]">No history found.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block">
+                        <table className="w-full text-left text-sm min-w-[640px]">
+                          <thead>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Order ID</th>
+                              <th className="px-4 py-3 font-medium">Customer</th>
+                              <th className="px-4 py-3 font-medium">Time</th>
+                              <th className="px-4 py-3 font-medium">Type</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
+                              <th className="px-4 py-3 font-medium">Order Status</th>
+                              <th className="px-4 py-3 font-medium">Payment Status</th>
+                              <th className="px-4 py-3 font-medium text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredHistory.map((order) => (
+                              <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10 text-[#2B2523]">
+                                <td className="px-4 py-3 font-bold">{order.orderId}</td>
+                                <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
+                                <td className="px-4 py-3 text-xs text-muted">{order.time}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-200">
+                                    {order.orderType || "dine-in"}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 font-semibold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'} border`}>
+                                    {order.status}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {(order.paid || order.paymentStatus === "paid") ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200 whitespace-nowrap">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
+                                    </span>
+                                  ) : order.paymentStatus === "refunded" ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold text-stone-700 border border-stone-200 whitespace-nowrap">
+                                      ⚪ Refunded
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 whitespace-nowrap">
+                                      🔴 Unpaid
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => setSelectedOrderDetails(order)}
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-accent hover:underline bg-white px-3 py-1.5 rounded-lg border border-accent/10 shadow-sm"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" /> Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      {/* MOBILE HISTORY CARDS */}
+                      <div className="md:hidden flex flex-col gap-3 p-2">
+                        {filteredHistory.map((order) => (
+                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 opacity-90">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
+                              </div>
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
+                                {order.status}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
+                              <span className="text-muted text-xs">{order.time}</span>
+                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                            </div>
+
+                            <button
+                              onClick={() => setSelectedOrderDetails(order)}
+                              className="w-full mt-1 py-2 bg-white text-accent font-bold text-sm rounded-lg border border-accent/10 shadow-sm flex items-center justify-center gap-2"
+                            >
+                              <Eye className="h-4 w-4" /> View Details
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </AdminPanel>
-            </div>
-          </div>
-        )}
 
-        {/* TAB 2: CUSTOMER ORDERS */}
-        {activeTab === "orders" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Operations</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">In-store Orders</h1>
-              <p className="text-sm text-muted">Manage in-store customer tickets, update workflow status, and confirm payments.</p>
-            </div>
-
-            <AdminPanel title="Active Orders Tickets" subtitle="Awaiting prep or completion">
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">ID</th>
-                      <th className="px-4 py-3 font-medium">Time</th>
-                      <th className="px-4 py-3 font-medium">Items</th>
-                      <th className="px-4 py-3 font-medium">Total</th>
-                      <th className="px-4 py-3 font-medium">Payment</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {storeOrders.filter(o => !o.archived && o.status !== "completed").length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="text-center py-8 text-muted">No active order tickets.</td>
-                      </tr>
-                    ) : (
-                      storeOrders.filter(o => !o.archived && o.status !== "completed").map((order) => (
-                        <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
-                          <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}</td>
-                          <td className="px-4 py-3 text-muted text-xs">{order.time}</td>
-                          <td className="px-4 py-3 text-xs font-medium">{order.items}</td>
-                          <td className="px-4 py-3 font-semibold">₱{order.total}</td>
-                          <td className="px-4 py-3">
-                            {order.paid ? (
-                              <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">Paid</span>
-                            ) : (
-                              <button
-                                onClick={() => confirmStoreOrderPayment(order.id)}
-                                className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 hover:bg-green-100 hover:text-green-800 transition-colors cursor-pointer"
-                              >
-                                Confirm Payment
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex rounded-full bg-red-50 text-accent border border-accent/15 px-2.5 py-0.5 text-xs font-semibold capitalize">
-                              {order.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 flex gap-2 items-center">
-                            <AdminSelect
-                              value={order.status}
-                              onChange={(e) => updateStoreOrderStatus(order.id, e.target.value as any)}
-                              className="!py-1 !text-xs max-w-28"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="completed">Completed</option>
-                              <option value="cancelled">Cancelled</option>
-                            </AdminSelect>
+              {/* ORDER DETAILS MODAL */}
+              {selectedOrderDetails && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+                  <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                    {/* Header */}
+                    <div className="flex justify-between items-center p-5 border-b border-accent/10 bg-white">
+                      <div>
+                        <h2 className="font-serif text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
+                        <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 mt-1 border border-gray-200 shadow-sm">
+                          {selectedOrderDetails.orderType || "Dine-in"}
+                        </span>
+                      </div>
+                      <button 
+                        onClick={() => setSelectedOrderDetails(null)}
+                        className="p-2 text-muted hover:bg-gray-100 hover:text-[#2B2523] rounded-full transition-colors"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    
+                    {/* Body */}
+                    <div className="p-5 overflow-y-auto space-y-6">
+                      
+                      {/* Customer Info */}
+                      <div className="bg-white p-5 rounded-xl shadow-sm border border-accent/5 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-accent"></div>
+                        <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-4">Customer Details</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Name</p>
+                            <p className="font-medium mt-1">{selectedOrderDetails.customerName || "Walk-in Customer"}</p>
+                          </div>
+                          {selectedOrderDetails.phone && (
+                            <div>
+                              <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Contact</p>
+                              <p className="font-medium mt-1">{selectedOrderDetails.phone}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Date & Time</p>
+                            <p className="font-medium mt-1">{selectedOrderDetails.time}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Status</p>
+                            <p className="font-bold text-accent capitalize mt-1">{selectedOrderDetails.status}</p>
+                          </div>
+                        </div>
+                        {selectedOrderDetails.orderType === 'delivery' && selectedOrderDetails.address && (
+                          <div className="mt-5 pt-4 border-t border-accent/5">
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-accent" /> Delivery Address</p>
+                            <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.address}</p>
                             <button
-                              type="button"
-                              onClick={() => handleOpenChat(`Customer #${order.orderId}`, order.orderId)}
-                              className="p-1.5 text-accent hover:bg-accent-light rounded-lg transition-colors cursor-pointer focus:outline-none"
-                              title="Chat with Customer"
+                              onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.orderId); }}
+                              className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 bg-accent/5 text-accent font-bold text-sm rounded-lg border border-accent/10 hover:bg-accent/10 hover:shadow-sm transition-all"
                             >
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-4 w-4">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                              </svg>
+                              <MessageCircle className="h-4 w-4" /> Chat with Customer
                             </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </AdminPanel>
+                          </div>
+                        )}
+                      </div>
 
-            <AdminPanel title="Customer Order History" subtitle="Fulfilled or cancelled records">
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">ID</th>
-                      <th className="px-4 py-3 font-medium">Time</th>
-                      <th className="px-4 py-3 font-medium">Items</th>
-                      <th className="px-4 py-3 font-medium">Total</th>
-                      <th className="px-4 py-3 font-medium">Payment</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg">Final Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {storeOrders.filter(o => o.status === "completed" || o.status === "cancelled").length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="text-center py-8 text-muted">No history found.</td>
-                      </tr>
-                    ) : (
-                      storeOrders.filter(o => o.status === "completed" || o.status === "cancelled").map((order) => (
-                        <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-muted">
-                          <td className="px-4 py-3 font-bold">{order.orderId}</td>
-                          <td className="px-4 py-3 text-xs">{order.time}</td>
-                          <td className="px-4 py-3 text-xs">{order.items}</td>
-                          <td className="px-4 py-3 font-semibold text-ink">₱{order.total}</td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">Confirmed Paid</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
-                              order.status === "completed" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-700"
-                            }`}>
-                              {order.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </AdminPanel>
-          </div>
-        )}
+                      {/* Order Items */}
+                      <div>
+                        <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-3 px-1">Order Summary</h3>
+                        <div className="bg-white rounded-xl shadow-sm border border-accent/5 overflow-hidden">
+                          <div className="p-5 space-y-4">
+                            <div className="flex flex-col gap-2 text-sm text-[#2B2523] font-medium leading-relaxed">
+                              {selectedOrderDetails.items}
+                            </div>
+                          </div>
+                          
+                          <div className="bg-accent-light/30 p-5 border-t border-accent/10 space-y-3 text-sm">
+                            {selectedOrderDetails.orderType === 'delivery' && (
+                              <>
+                                <div className="flex justify-between text-muted font-medium">
+                                  <span>Subtotal</span>
+                                  <span>₱{(selectedOrderDetails as any).subtotal?.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-muted font-medium">
+                                  <span>Delivery Fee</span>
+                                  <span>₱{(selectedOrderDetails as any).deliveryFee?.toFixed(2)}</span>
+                                </div>
+                                <div className="h-px bg-accent/10 w-full my-2"></div>
+                              </>
+                            )}
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-[#800000]">Total</span>
+                              <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{selectedOrderDetails.total?.toFixed(2) || ((selectedOrderDetails as any).subtotal + ((selectedOrderDetails as any).deliveryFee||0)).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
 
-        {/* TAB 3: MENU ITEMS */}
-        {activeTab === "menu" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Menu</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Menu Management</h1>
-              <p className="text-sm text-muted">Add, edit, or adjust the live availability of café items.</p>
+                      {/* Customer Note — from actual customer order data */}
+                      {(selectedOrderDetails as any).notes && String((selectedOrderDetails as any).notes).trim().length > 0 && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm">
+                          <h3 className="text-[10px] font-bold uppercase text-amber-700 tracking-wider mb-2 flex items-center gap-1.5">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5 shrink-0">
+                              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                            </svg>
+                            Customer Note
+                          </h3>
+                          <p className="text-sm font-semibold text-amber-950 italic leading-relaxed break-words whitespace-pre-wrap">
+                            {String((selectedOrderDetails as any).notes).trim()}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Payment Status */}
+                      <div className="flex justify-between items-center p-5 bg-white rounded-xl shadow-sm border border-accent/5">
+                        <span className="text-sm font-bold text-[#2B2523] uppercase tracking-wide">Payment Status</span>
+                        {(selectedOrderDetails.paid || selectedOrderDetails.paymentStatus === "paid" || selectedOrderDetails.status === "completed" || selectedOrderDetails.status === "delivered") ? (
+                          <span className="px-4 py-1.5 bg-emerald-50 text-emerald-800 font-bold text-xs rounded-full border border-emerald-200 shadow-2xs flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
+                          </span>
+                        ) : selectedOrderDetails.paymentStatus === "failed" ? (
+                          <span className="px-4 py-1.5 bg-rose-50 text-rose-800 font-bold text-xs rounded-full border border-rose-200 shadow-2xs flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-600"></span> Payment Failed
+                          </span>
+                        ) : (
+                          <span className="px-4 py-1.5 bg-rose-50 text-rose-800 font-bold text-xs rounded-full border border-rose-200 shadow-2xs flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-600"></span> Unpaid
+                          </span>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
+          );
+        })()}
 
-            <AdminPanel
-              title="Café Menu Catalog"
-              subtitle={`${menuItems.filter(m => !m.archived).length} menu items`}
-              action={<AdminButton onClick={openAddMenu}>+ Add Menu Item</AdminButton>}
-            >
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">Item Name</th>
-                      <th className="px-4 py-3 font-medium">Category</th>
-                      <th className="px-4 py-3 font-medium">Price</th>
-                      <th className="px-4 py-3 font-medium">Availability Status</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {menuItems.filter(m => !m.archived).map((item) => (
-                      <tr key={item.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
-                        <td className="px-4 py-3 font-medium text-[#800000]">
-                          <p>{item.name}</p>
-                          <p className="text-[10px] text-muted font-normal mt-0.5">{item.description}</p>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted">{getMenuCategoryName(item.categoryId)}</td>
-                        <td className="px-4 py-3 font-semibold">₱{item.price}</td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleToggleAvailability(item)}
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold transition-all cursor-pointer ${
-                              item.available
-                                ? "bg-green-100 text-green-800 border border-green-200"
-                                : "bg-red-100 text-red-800 border border-red-200"
-                            }`}
-                          >
-                            {item.available ? "● Available" : "○ Out of Stock"}
-                          </button>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => openEditMenu(item)}
-                            className="rounded-lg px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent-light transition-colors cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        {activeTab === "menu" && (() => {
+          // Process data
+          const activeMenuItems = menuItems.filter(m => !m.archived);
+          
+          // Summary counts
+          const summary = {
+            total: activeMenuItems.length,
+            available: activeMenuItems.filter(m => m.available).length,
+            unavailable: activeMenuItems.filter(m => !m.available).length,
+            lowStock: activeMenuItems.filter(m => {
+              // Basic check if a stock item name matches item name or is a substring
+              // A real system would use a mapping/recipe
+              const relatedStock = stockItems.find(s => m.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(m.name.toLowerCase()));
+              return relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
+            }).length
+          };
+
+          // Filter & Sort
+          let filteredMenu = activeMenuItems.filter(m => {
+            const matchesSearch = m.name.toLowerCase().includes(menuSearch.toLowerCase()) || 
+                                  m.description.toLowerCase().includes(menuSearch.toLowerCase());
+            const matchesCat = menuCatFilter === "all" || m.categoryId === menuCatFilter;
+            const matchesAvail = menuAvailFilter === "all" || (menuAvailFilter === "available" ? m.available : !m.available);
+            return matchesSearch && matchesCat && matchesAvail;
+          });
+
+          filteredMenu.sort((a, b) => {
+            if (menuSort === "name-asc") return a.name.localeCompare(b.name);
+            if (menuSort === "name-desc") return b.name.localeCompare(a.name);
+            if (menuSort === "price-asc") return a.price - b.price;
+            if (menuSort === "price-desc") return b.price - a.price;
+            return 0;
+          });
+
+          return (
+            <div className="space-y-6">
+              {/* HEADER */}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+                <div>
+                  <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Menu</span>
+                  <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Menu Items</h1>
+                  <p className="text-sm text-muted">Manage your cafeé menu, availability, pricing, and item details.</p>
+                </div>
+                <button 
+                  onClick={openAddMenu}
+                  className="inline-flex items-center justify-center gap-2 bg-[#800000] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#600000] transition-colors shadow-sm"
+                >
+                  <Plus className="h-4 w-4" /> Add Menu Item
+                </button>
               </div>
-            </AdminPanel>
-          </div>
-        )}
+
+              {/* SUMMARY ROW */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: "Total Items", value: summary.total, color: "text-[#800000]" },
+                  { label: "Available", value: summary.available, color: "text-green-700" },
+                  { label: "Unavailable", value: summary.unavailable, color: "text-amber-600" },
+                  { label: "Low Stock", value: summary.lowStock, color: "text-red-600" },
+                ].map(stat => (
+                  <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/40 shadow-sm flex flex-col">
+                    <p className="text-xs font-bold text-muted uppercase tracking-wider">{stat.label}</p>
+                    <p className={`text-2xl font-bold font-serif mt-1 ${stat.color}`}>{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* MENU ITEMS PANEL */}
+              <AdminPanel title="Menu Catalog" subtitle="Active menu items visible to customers">
+                {/* FILTERS TOOLBAR */}
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
+                  <div className="relative w-full lg:w-72 shrink-0">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                    <input 
+                      type="text" 
+                      placeholder="Search menu items..." 
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                      value={menuSearch}
+                      onChange={(e) => setMenuSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full lg:w-auto">
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
+                      value={menuCatFilter}
+                      onChange={(e) => setMenuCatFilter(e.target.value)}
+                    >
+                      <option value="all">All Categories</option>
+                      {menuCategories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
+                      value={menuAvailFilter}
+                      onChange={(e) => setMenuAvailFilter(e.target.value)}
+                    >
+                      <option value="all">All Availability</option>
+                      <option value="available">Available</option>
+                      <option value="unavailable">Unavailable</option>
+                    </select>
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
+                      value={menuSort}
+                      onChange={(e) => setMenuSort(e.target.value)}
+                    >
+                      <option value="name-asc">Name A-Z</option>
+                      <option value="name-desc">Name Z-A</option>
+                      <option value="price-asc">Price Low-High</option>
+                      <option value="price-desc">Price High-Low</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* CONTENT AREA */}
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
+                  {activeMenuItems.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="h-16 w-16 rounded-full bg-accent/5 flex items-center justify-center mb-4">
+                        <Plus className="h-8 w-8 text-accent/40" />
+                      </div>
+                      <p className="text-lg font-bold text-[#800000]">No menu items found.</p>
+                      <p className="text-sm text-muted mt-1 max-w-xs">Start building your menu by adding your first item.</p>
+                      <button 
+                        onClick={openAddMenu}
+                        className="mt-4 px-4 py-2 bg-accent/10 text-accent font-bold text-sm rounded-lg hover:bg-accent/20 transition-colors"
+                      >
+                        Add Menu Item
+                      </button>
+                    </div>
+                  ) : filteredMenu.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <Filter className="h-8 w-8 text-muted/30 mb-3" />
+                      <p className="font-bold text-[#2B2523]">No matching menu items.</p>
+                      <p className="text-sm text-muted mt-1">Try changing your search or filters.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Item</th>
+                              <th className="px-4 py-3 font-medium">Category</th>
+                              <th className="px-4 py-3 font-medium">Price</th>
+                              <th className="px-4 py-3 font-medium">Stock</th>
+                              <th className="px-4 py-3 font-medium">Availability</th>
+                              <th className="px-4 py-3 font-medium text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredMenu.map((item) => {
+                              const relatedStock = stockItems.find(s => item.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(item.name.toLowerCase()));
+                              const isLowStock = relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
+
+                              return (
+                                <tr key={item.id} className="border-b border-accent/5 hover:bg-accent-light/20 transition-colors">
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-3">
+                                      {item.image ? (
+                                        <img src={item.image} alt={item.name} className="h-10 w-10 shrink-0 rounded-lg object-cover border border-accent/10 shadow-sm" />
+                                      ) : (
+                                        <div className="h-10 w-10 shrink-0 rounded-lg bg-accent/5 text-accent flex items-center justify-center font-bold text-sm">
+                                          {item.name.charAt(0)}
+                                        </div>
+                                      )}
+                                      <div>
+                                        <p className="font-bold text-[#2B2523]">{item.name}</p>
+                                        <p className="text-[10px] text-muted font-normal mt-0.5 line-clamp-1 max-w-[200px]">{item.description}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
+                                      {getMenuCategoryName(item.categoryId)}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 font-serif font-bold text-[#800000]">₱{item.price.toFixed(2)}</td>
+                                  <td className="px-4 py-3">
+                                    {isLowStock ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600"><AlertTriangle className="h-3 w-3" /> Low Stock</span>
+                                    ) : relatedStock ? (
+                                      <span className="text-[10px] text-muted">In Stock</span>
+                                    ) : (
+                                      <span className="text-[10px] text-gray-400">-</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {item.available ? (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-green-50 text-green-700 border border-green-200">
+                                        <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Available
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-gray-100 text-gray-600 border border-gray-200">
+                                        <div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Unavailable
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex justify-end items-center gap-2">
+                                      <button
+                                        onClick={() => handleToggleAvailability(item)}
+                                        className="p-1.5 text-muted hover:text-[#2B2523] hover:bg-white rounded-md transition-colors"
+                                        title={item.available ? "Mark Unavailable" : "Mark Available"}
+                                      >
+                                        <Eye className={`h-4 w-4 ${!item.available ? "opacity-40" : ""}`} />
+                                      </button>
+                                      <button
+                                        onClick={() => openEditMenu(item)}
+                                        className="p-1.5 text-accent hover:bg-accent-light rounded-md transition-colors"
+                                        title="Edit Item"
+                                      >
+                                        <Edit3 className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setItemToArchive(item)}
+                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                        title="Archive Item"
+                                      >
+                                        <Archive className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* MOBILE CARDS */}
+                      <div className="md:hidden flex flex-col gap-3 p-2">
+                        {filteredMenu.map((item) => {
+                          const relatedStock = stockItems.find(s => item.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(item.name.toLowerCase()));
+                          const isLowStock = relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
+                          
+                          return (
+                            <div key={item.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 relative overflow-hidden">
+                              {!item.available && <div className="absolute top-0 left-0 w-1 h-full bg-gray-300"></div>}
+                              <div className="flex gap-3">
+                                {item.image ? (
+                                  <img src={item.image} alt={item.name} className="h-16 w-16 shrink-0 rounded-lg object-cover border border-accent/10 shadow-sm" />
+                                ) : (
+                                  <div className="h-16 w-16 shrink-0 rounded-lg bg-accent/5 text-accent flex items-center justify-center font-bold text-xl">
+                                    {item.name.charAt(0)}
+                                  </div>
+                                )}
+                                <div className="flex-1">
+                                  <div className="flex justify-between items-start">
+                                    <h3 className={`font-bold ${item.available ? 'text-[#800000]' : 'text-gray-500'}`}>{item.name}</h3>
+                                  </div>
+                                  <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-100 mt-1">
+                                    {getMenuCategoryName(item.categoryId)}
+                                  </span>
+                                  <p className="text-xs text-muted font-normal mt-1 line-clamp-2">{item.description}</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex justify-between items-center text-sm border-t border-accent/5 pt-3 mt-1">
+                                <div className="flex flex-col">
+                                  {isLowStock && <span className="text-[10px] font-bold text-red-600 mb-0.5">Low Stock</span>}
+                                  {item.available ? (
+                                    <span className="text-[10px] font-bold uppercase text-green-600">Available</span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold uppercase text-gray-500">Unavailable</span>
+                                  )}
+                                </div>
+                                <span className="font-serif font-bold text-lg text-[#2B2523]">₱{item.price.toFixed(2)}</span>
+                              </div>
+
+                              <div className="flex gap-2 mt-1">
+                                <button
+                                  onClick={() => handleToggleAvailability(item)}
+                                  className="flex-1 py-2 bg-gray-50 text-[#2B2523] font-bold text-xs rounded-lg border border-gray-200 shadow-sm"
+                                >
+                                  {item.available ? "Mark Unavailable" : "Mark Available"}
+                                </button>
+                                <button
+                                  onClick={() => openEditMenu(item)}
+                                  className="flex-1 py-2 bg-accent/5 text-accent font-bold text-xs rounded-lg border border-accent/10 shadow-sm"
+                                >
+                                  Edit Item
+                                </button>
+                                <button
+                                  onClick={() => setItemToArchive(item)}
+                                  className="px-3 py-2 bg-red-50 text-red-600 rounded-lg border border-red-100 shadow-sm"
+                                >
+                                  <Archive className="h-4 w-4 mx-auto" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </AdminPanel>
+
+              {/* ARCHIVE CONFIRMATION MODAL */}
+              {itemToArchive && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+                  <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 mb-4">
+                      <AlertTriangle className="h-6 w-6 text-red-600" />
+                    </div>
+                    <h3 className="text-lg font-bold text-[#2B2523] mb-2">Archive Menu Item?</h3>
+                    <p className="text-sm text-muted mb-6">
+                      Are you sure you want to archive <strong>{itemToArchive.name}</strong>? This item will no longer appear in the active menu.
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setItemToArchive(null)}
+                        className="flex-1 py-2.5 bg-gray-100 text-[#2B2523] font-bold text-sm rounded-xl hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          archiveMenuItem(itemToArchive.id);
+                          setItemToArchive(null);
+                        }}
+                        className="flex-1 py-2.5 bg-red-600 text-white font-bold text-sm rounded-xl hover:bg-red-700 transition-colors shadow-sm"
+                      >
+                        Archive Item
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          );
+        })()}
 
         {/* TAB 4: INVENTORY */}
         {activeTab === "inventory" && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Inventory</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Stock Levels</h1>
-              <p className="text-sm text-muted">Monitor and adjust ingredient counts inline.</p>
-            </div>
+          <StaffInventoryTab
+            stockItems={stockItems}
+            stockCategories={stockCategories}
+            getStockCategoryName={getStockCategoryName}
+            addStockItem={addStockItem}
+            updateStockItem={updateStockItem}
+            deleteStockItem={deleteStockItem}
+            staffName={user?.name || "Staff"}
+          />
+        )}
 
-            <AdminPanel title="Raw Ingredients & Stock Items" subtitle="Quantities directly editable">
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">Ingredient</th>
-                      <th className="px-4 py-3 font-medium">Category</th>
-                      <th className="px-4 py-3 font-medium">Alert Level</th>
-                      <th className="px-4 py-3 font-medium text-center">Remaining Quantity</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg text-center">Stock Adjustment</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stockItems.map((item) => {
-                      const isLow = item.quantity <= item.lowStockThreshold;
-                      return (
-                        <tr key={item.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
-                          <td className="px-4 py-3 font-medium text-ink">{item.name}</td>
-                          <td className="px-4 py-3 text-xs text-muted">{getStockCategoryName(item.categoryId)}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
-                              isLow ? "bg-amber-50 text-amber-800 border-amber-200" : "bg-green-50 text-green-800 border-green-200"
-                            }`}>
-                              {isLow ? `Low stock (<=${item.lowStockThreshold})` : "Optimal"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-center font-bold text-sm">
-                            {item.quantity} <span className="text-xs font-normal text-muted">{item.unit}</span>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="inline-flex gap-1.5 justify-center items-center">
-                              <button
-                                onClick={() => handleAdjustStock(item, -1)}
-                                className="h-7 w-7 rounded-lg border border-accent/15 hover:bg-accent-light font-bold text-[#800000] text-sm flex items-center justify-center transition-colors cursor-pointer"
-                              >
-                                -
-                              </button>
-                              <span className="text-xs font-mono font-semibold w-6 text-center">{item.quantity}</span>
-                              <button
-                                onClick={() => handleAdjustStock(item, 1)}
-                                className="h-7 w-7 rounded-lg border border-accent/15 hover:bg-accent-light font-bold text-[#800000] text-sm flex items-center justify-center transition-colors cursor-pointer"
-                              >
-                                +
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </AdminPanel>
-          </div>
+                {/* TAB: ARCHIVE */}
+        {activeTab === "archive" && (
+          <ArchiveTab />
         )}
 
         {/* TAB 5: DELIVERY ORDERS */}
         {activeTab === "delivery" && (
           <div className="space-y-6">
             <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Deliveries</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Delivery Orders</h1>
-              <p className="text-sm text-muted">View delivery addresses, item manifests, and update progress status.</p>
+              <span className="inline-flex rounded-full bg-[#fce7db] px-2.5 py-0.5 text-xs font-semibold capitalize text-[#63131d] border border-[#63131d]/10">
+                Deliveries
+              </span>
+              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#63131d] mt-1.5">
+                Delivery Orders
+              </h1>
+              <p className="text-sm text-stone-500 mt-1">
+                View delivery addresses, item manifests, courier assignments, and update live progress status.
+              </p>
             </div>
 
-            <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring café home-deliveries">
-              <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="admin-table-head text-muted">
-                      <th className="px-4 py-3 font-medium rounded-l-lg">Order ID</th>
-                      <th className="px-4 py-3 font-medium">Customer Details</th>
-                      <th className="px-4 py-3 font-medium">Manifest</th>
-                      <th className="px-4 py-3 font-medium">Total Price</th>
-                      <th className="px-4 py-3 font-medium">Delivery Status</th>
-                      <th className="px-4 py-3 font-medium rounded-r-lg text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deliveryOrders.filter(o => !o.archived).length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="text-center py-8 text-muted">No delivery orders listed.</td>
-                      </tr>
-                    ) : (
-                      deliveryOrders.filter(o => !o.archived).map((order) => (
-                        <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
-                          <td className="px-4 py-3 font-bold text-[#800000]">{order.orderNumber}</td>
-                          <td className="px-4 py-3 text-xs leading-4">
-                            <p className="font-bold text-ink">{order.customerName}</p>
-                            <p className="text-muted">{order.phone}</p>
-                            <p className="text-muted mt-0.5">{order.address}</p>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenChat(order.customerName, order.orderNumber)}
-                              className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent hover:underline cursor-pointer focus:outline-none"
-                            >
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3 w-3">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                              </svg>
-                              Chat with Customer
-                            </button>
-                          </td>
-                          <td className="px-4 py-3 text-xs">{order.items}</td>
-                          <td className="px-4 py-3 font-semibold">₱{order.total}</td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                              order.status === "delivered"
-                                ? "bg-green-50 text-green-800 border-green-200"
-                                : order.status === "cancelled"
-                                ? "bg-gray-50 text-gray-700 border-gray-200"
-                                : "bg-red-50 text-accent border-accent/15"
-                            }`}>
-                              {order.status.replace(/_/g, " ")}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <AdminSelect
-                              value={order.status}
-                              onChange={(e) => updateDeliveryStatus(order.id, e.target.value as DeliveryStatus)}
-                              className="!py-1 !text-xs max-w-32 inline-block"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="confirmed">Confirmed</option>
-                              <option value="preparing">Preparing</option>
-                              <option value="out_for_delivery">Out for Delivery</option>
-                              <option value="delivered">Delivered</option>
-                              <option value="cancelled">Cancelled</option>
-                            </AdminSelect>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </AdminPanel>
+            <DeliveryOrdersTable
+              orders={deliveryOrders}
+              getServiceAreaName={getServiceAreaName}
+              showStatusControl={true}
+              onStatusChange={updateDeliveryStatus}
+              onDeliveryPersonChange={updateDeliveryPerson}
+              onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
+              isAdmin={user?.role === "admin"}
+            />
           </div>
         )}
 
@@ -1246,578 +1989,19 @@ export default function StaffPortalPage() {
           </div>
         )}
 
-        {/* TAB 7: STAFF ATTENDANCE MONITORING (HEAD STAFF & STAFF) */}
-        {activeTab === "attendance" && (user.role === "head_staff" || user.role === "staff") && (
-          <div className="space-y-6">
-            <div>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Attendance</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Staff Attendance</h1>
-              <p className="text-sm text-muted">
-                {user.role === "head_staff"
-                  ? "Manage your personal shift clock and monitor employee attendance records."
-                  : "Clock in, clock out, and monitor your personal attendance history."}
-              </p>
-            </div>
-
-            {/* Sub-tabs for Head Staff only */}
-            {user.role === "head_staff" && (
-              <div className="flex gap-2 border-b border-accent/10 pb-4 mb-2">
-                <button
-                  onClick={() => setAttendanceSubTab("timecard")}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                    attendanceSubTab === "timecard"
-                      ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                      : "text-muted hover:bg-accent-light/10"
-                  }`}
-                >
-                  My Timecard
-                </button>
-                <button
-                  onClick={() => setAttendanceSubTab("monitor")}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                    attendanceSubTab === "monitor"
-                      ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                      : "text-muted hover:bg-accent-light/10"
-                  }`}
-                >
-                  Monitor Team
-                </button>
-              </div>
-            )}
-
-            {/* Standard Staff View OR Head Staff personal Timecard view */}
-            {(user.role === "staff" || (user.role === "head_staff" && attendanceSubTab === "timecard")) && (
-              <div className="space-y-6">
-                {/* Personal Shift Clock Card */}
-                <div className="bg-white rounded-2xl border border-accent/10 p-6 shadow-sm max-w-md">
-                  <div className="text-center space-y-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">Shift Clock</p>
-                    <h2 className="text-4xl font-mono font-bold text-[#800000] tracking-tight">{currentTime || "00:00:00 AM"}</h2>
-                    <p className="text-xs text-muted font-medium">
-                      {new Date().toLocaleDateString("en-US", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                    </p>
-
-                    <div className="border-t border-accent/10 pt-4 flex flex-col items-center gap-3">
-                      {todayRecord ? (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted">Status today:</span>
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                              todayRecord.status === "Present"
-                                ? "bg-green-50 text-green-800 border-green-200"
-                                : todayRecord.status === "Late"
-                                ? "bg-amber-50 text-amber-800 border-amber-200"
-                                : todayRecord.status === "Absent"
-                                ? "bg-red-50 text-red-800 border-red-200"
-                                : "bg-blue-50 text-blue-800 border-blue-200"
-                            }`}>
-                              {todayRecord.status}
-                            </span>
-                          </div>
-
-                          {todayRecord.timeOut ? (
-                            <div className="space-y-1 text-center">
-                              <p className="text-sm text-ink">
-                                Shift Completed: <span className="font-mono font-semibold">{todayRecord.timeIn}</span> to <span className="font-mono font-semibold">{todayRecord.timeOut}</span>
-                              </p>
-                              {todayRecord.totalHours && (
-                                <p className="text-xs font-bold text-[#800000]">
-                                  Total Hours Worked: {todayRecord.totalHours} hrs
-                                </p>
-                              )}
-                            </div>
-                          ) : todayRecord.status === "Absent" || todayRecord.status === "Excused" ? (
-                            <p className="text-sm text-muted italic">
-                              {todayRecord.status === "Absent" ? "Marked as Absent for today." : `Excused Absence: ${todayRecord.reason || ""}`}
-                            </p>
-                          ) : (
-                            <div className="space-y-4 w-full">
-                              <p className="text-sm text-muted">
-                                Clocked In at: <span className="font-mono font-semibold text-ink">{todayRecord.timeIn}</span>
-                              </p>
-                              <button
-                                onClick={() => {
-                                  if (confirm("Are you sure you want to Clock Out?")) {
-                                    clockOut(user.id);
-                                  }
-                                }}
-                                className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-sm transition-all duration-200 hover:shadow cursor-pointer text-sm"
-                              >
-                                Clock Out of Shift
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="space-y-4 w-full">
-                          <p className="text-sm text-muted">You are currently off duty.</p>
-                          <button
-                            onClick={() => {
-                              if (confirm("Are you sure you want to Clock In now?")) {
-                                clockIn(user.id, user.name);
-                              }
-                            }}
-                            className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl shadow-sm transition-all duration-200 hover:shadow cursor-pointer text-sm"
-                          >
-                            Clock In for Shift
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Personal History Logs */}
-                <AdminPanel
-                  title="My Attendance History"
-                  subtitle="Your personal clock-in and clock-out database logs"
-                >
-                  <div className="overflow-x-auto p-2">
-                    <table className="w-full text-left text-sm min-w-[700px]">
-                      <thead>
-                        <tr className="admin-table-head text-muted border-b border-accent/10">
-                          <th className="px-4 py-3 font-medium rounded-l-lg">Date</th>
-                          <th className="px-4 py-3 font-medium">Time In</th>
-                          <th className="px-4 py-3 font-medium">Time Out</th>
-                          <th className="px-4 py-3 font-medium">Total Hours</th>
-                          <th className="px-4 py-3 font-medium">Status</th>
-                          <th className="rounded-r-lg px-4 py-3 font-medium">Excuse / Remarks</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {myFullHistory.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="text-center py-8 text-muted">
-                              No attendance records logged yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          myFullHistory.map((record) => (
-                            <tr key={record.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                              <td className="px-4 py-3 text-muted text-xs font-semibold">{record.date}</td>
-                              <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeIn || "—"}</td>
-                              <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeOut || "—"}</td>
-                              <td className="px-4 py-3 font-semibold text-xs text-ink">{record.totalHours ? `${record.totalHours} hrs` : "—"}</td>
-                              <td className="px-4 py-3">
-                                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                                  record.status === "Present"
-                                    ? "bg-green-50 text-green-800 border-green-200"
-                                    : record.status === "Late"
-                                    ? "bg-amber-50 text-amber-800 border-amber-200"
-                                    : record.status === "Absent"
-                                    ? "bg-red-50 text-red-800 border-red-200"
-                                    : "bg-blue-50 text-blue-800 border-blue-200"
-                                }`}>
-                                  {record.status}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-xs text-muted italic max-w-[200px] truncate" title={record.reason || ""}>
-                                {record.reason || "—"}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </AdminPanel>
-              </div>
-            )}
-
-            {/* Head Staff Team Monitoring View */}
-            {user.role === "head_staff" && attendanceSubTab === "monitor" && (
-              <div className="space-y-6">
-                {/* Attendance Quick Stats */}
-                <section className="grid gap-5 sm:grid-cols-4">
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Present Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-green-600">
-                      {attendanceRecords.filter(r => r.date === todayStr && r.status === "Present").length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Clocked in on time today</p>
-                  </div>
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Late Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-amber-600">
-                      {attendanceRecords.filter(r => r.date === todayStr && r.status === "Late").length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Clocked in past 08:30 AM</p>
-                  </div>
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Excused Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-blue-600">
-                      {attendanceRecords.filter(r => r.date === todayStr && r.status === "Excused").length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Approved absences with reasons</p>
-                  </div>
-                  <div className="admin-stat-card rounded-2xl p-5 pl-6">
-                    <p className="text-xs font-medium text-muted">Absent Today</p>
-                    <p className="mt-3 font-serif text-3xl font-semibold text-red-500">
-                      {activeStaff.filter(s => !attendanceRecords.some(r => r.staffId === s.id && r.date === todayStr)).length}
-                    </p>
-                    <p className="text-[10px] text-muted mt-1">Absent/awaiting clock-in</p>
-                  </div>
-                </section>
-
-                {/* Search and Filters */}
-                <div className="bg-white rounded-2xl border border-accent/10 p-5 shadow-sm space-y-4">
-                  <div className="flex flex-wrap items-end gap-4 justify-between">
-                    <div className="flex flex-wrap gap-4 items-center">
-                      <div className="min-w-[200px]">
-                        <AdminField label="Search Staff Member">
-                          <AdminInput
-                            type="text"
-                            value={searchStaff}
-                            onChange={(e) => setSearchStaff(e.target.value)}
-                            placeholder="Search by name..."
-                          />
-                        </AdminField>
-                      </div>
-                      {viewTab === "daily" && (
-                        <div className="min-w-[150px]">
-                          <AdminField label="Filter Date">
-                            <AdminInput
-                              type="date"
-                              value={filterDate}
-                              onChange={(e) => setFilterDate(e.target.value)}
-                            />
-                          </AdminField>
-                        </div>
-                      )}
-                      {(searchStaff || (viewTab === "daily" && filterDate)) && (
-                        <button
-                          onClick={() => {
-                            setSearchStaff("");
-                            setFilterDate("");
-                          }}
-                          className="mt-6 text-xs text-accent font-semibold hover:underline cursor-pointer"
-                        >
-                          Clear Filters
-                        </button>
-                      )}
-                    </div>
-                    <AdminButton onClick={openCreateAttendance}>
-                      + Record Absence or Presence
-                    </AdminButton>
-                  </div>
-                </div>
-
-                {/* Attendance Logs Table */}
-                <AdminPanel
-                  title="Attendance Records Sheet"
-                  subtitle="Daily shift history database logs & aggregated periods"
-                >
-                  {/* Segmented View Tabs */}
-                  <div className="flex gap-2 border-b border-accent/10 pb-4 mb-4 px-2">
-                    <button
-                      onClick={() => setViewTab("daily")}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                        viewTab === "daily"
-                          ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                          : "text-muted hover:bg-accent-light/10"
-                      }`}
-                    >
-                      Daily Logs
-                    </button>
-                    <button
-                      onClick={() => setViewTab("weekly")}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                        viewTab === "weekly"
-                          ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                          : "text-muted hover:bg-accent-light/10"
-                      }`}
-                    >
-                      Weekly Summary
-                    </button>
-                    <button
-                      onClick={() => setViewTab("monthly")}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer focus:outline-none focus:ring-0 ${
-                        viewTab === "monthly"
-                          ? "bg-[#800000]/10 text-[#800000] border-l-4 border-[#800000] shadow-sm"
-                          : "text-muted hover:bg-accent-light/10"
-                      }`}
-                    >
-                      Monthly Summary
-                    </button>
-                  </div>
-
-                  <div className="overflow-x-auto p-2">
-                    {viewTab === "daily" && (
-                      <table className="w-full text-left text-sm min-w-[800px]">
-                        <thead>
-                          <tr className="admin-table-head text-muted border-b border-accent/10">
-                            <th className="px-4 py-3 font-medium rounded-l-lg">Staff Member</th>
-                            <th className="px-4 py-3 font-medium">Position</th>
-                            <th className="px-4 py-3 font-medium">Date</th>
-                            <th className="px-4 py-3 font-medium">Time In</th>
-                            <th className="px-4 py-3 font-medium">Time Out</th>
-                            <th className="px-4 py-3 font-medium">Total Hours</th>
-                            <th className="px-4 py-3 font-medium">Status</th>
-                            <th className="px-4 py-3 font-medium">Reason</th>
-                            <th className="rounded-r-lg px-4 py-3 font-medium text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const filtered = attendanceRecords
-                              .filter(r => {
-                                const matchesSearch = r.staffName.toLowerCase().includes(searchStaff.toLowerCase());
-                                const matchesDate = filterDate ? r.date === filterDate : true;
-                                return matchesSearch && matchesDate;
-                              })
-                              .sort((a, b) => b.date.localeCompare(a.date) || a.staffName.localeCompare(b.staffName));
-
-                            if (filtered.length === 0) {
-                              return (
-                                <tr>
-                                  <td colSpan={9} className="text-center py-8 text-muted">
-                                    No attendance logs match the active filters.
-                                  </td>
-                                </tr>
-                              );
-                            }
-
-                            return filtered.map((record) => {
-                              const staffAccount = staffAccounts.find(s => s.id === record.staffId);
-                              const position = staffAccount ? (staffAccount.role === "head_staff" ? "Head Staff" : "Staff") : "Staff";
-                              return (
-                                <tr key={record.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                                  <td className="px-4 py-3 font-semibold text-[#800000]">
-                                    {record.staffName}
-                                  </td>
-                                  <td className="px-4 py-3 text-muted text-xs capitalize">{position}</td>
-                                  <td className="px-4 py-3 text-muted text-xs font-medium">{record.date}</td>
-                                  <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeIn || "—"}</td>
-                                  <td className="px-4 py-3 text-muted font-mono text-xs">{record.timeOut || "—"}</td>
-                                  <td className="px-4 py-3 font-semibold text-xs text-ink">
-                                    {record.totalHours ? `${record.totalHours} hrs` : "—"}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                                      record.status === "Present"
-                                        ? "bg-green-50 text-green-800 border-green-200"
-                                        : record.status === "Late"
-                                        ? "bg-amber-50 text-amber-800 border-amber-200"
-                                        : record.status === "Absent"
-                                        ? "bg-red-50 text-red-800 border-red-200"
-                                        : "bg-blue-50 text-blue-800 border-blue-200"
-                                    }`}>
-                                      {record.status}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-xs text-muted italic max-w-[200px] truncate" title={record.reason || ""}>
-                                    {record.reason || "—"}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <div className="flex gap-2 justify-end">
-                                      <button
-                                        onClick={() => openEditAttendance(record)}
-                                        className="rounded-lg px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent-light transition-colors cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteAttendance(record)}
-                                        className="rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            });
-                          })()}
-                        </tbody>
-                      </table>
-                    )}
-
-                    {viewTab === "weekly" && (
-                      <table className="w-full text-left text-sm min-w-[800px]">
-                        <thead>
-                          <tr className="admin-table-head text-muted border-b border-accent/10">
-                            <th className="px-4 py-3 font-medium rounded-l-lg">Staff Member</th>
-                            <th className="px-4 py-3 font-medium">Position</th>
-                            <th className="px-4 py-3 font-medium">Week Period</th>
-                            <th className="px-4 py-3 font-medium text-center">Present</th>
-                            <th className="px-4 py-3 font-medium text-center">Late</th>
-                            <th className="px-4 py-3 font-medium text-center">Excused</th>
-                            <th className="px-4 py-3 font-medium text-center">Absent</th>
-                            <th className="rounded-r-lg px-4 py-3 font-medium text-right">Total Hours</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredWeeklySummaries.length === 0 ? (
-                            <tr>
-                              <td colSpan={8} className="text-center py-8 text-muted">
-                                No weekly summaries found.
-                              </td>
-                            </tr>
-                          ) : (
-                            filteredWeeklySummaries.map((summary) => (
-                              <tr key={`${summary.staffId}_${summary.period}`} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                                <td className="px-4 py-3 font-semibold text-[#800000]">
-                                  {summary.staffName}
-                                </td>
-                                <td className="px-4 py-3 text-muted text-xs capitalize">{summary.position}</td>
-                                <td className="px-4 py-3 text-muted text-xs font-mono">{summary.period}</td>
-                                <td className="px-4 py-3 text-center font-bold text-green-700">{summary.presentCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-amber-600">{summary.lateCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-blue-600">{summary.excusedCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-red-500">{summary.absentCount}</td>
-                                <td className="px-4 py-3 text-right font-bold font-mono text-[#800000]">{summary.totalHours} hrs</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    )}
-
-                    {viewTab === "monthly" && (
-                      <table className="w-full text-left text-sm min-w-[800px]">
-                        <thead>
-                          <tr className="admin-table-head text-muted border-b border-accent/10">
-                            <th className="px-4 py-3 font-medium rounded-l-lg">Staff Member</th>
-                            <th className="px-4 py-3 font-medium">Position</th>
-                            <th className="px-4 py-3 font-medium">Month</th>
-                            <th className="px-4 py-3 font-medium text-center">Present</th>
-                            <th className="px-4 py-3 font-medium text-center">Late</th>
-                            <th className="px-4 py-3 font-medium text-center">Excused</th>
-                            <th className="px-4 py-3 font-medium text-center">Absent</th>
-                            <th className="rounded-r-lg px-4 py-3 font-medium text-right">Total Hours</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredMonthlySummaries.length === 0 ? (
-                            <tr>
-                              <td colSpan={8} className="text-center py-8 text-muted">
-                                No monthly summaries found.
-                              </td>
-                            </tr>
-                          ) : (
-                            filteredMonthlySummaries.map((summary) => (
-                              <tr key={`${summary.staffId}_${summary.period}`} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10 text-ink">
-                                <td className="px-4 py-3 font-semibold text-[#800000]">
-                                  {summary.staffName}
-                                </td>
-                                <td className="px-4 py-3 text-muted text-xs capitalize">{summary.position}</td>
-                                <td className="px-4 py-3 text-muted text-xs font-mono">{summary.period}</td>
-                                <td className="px-4 py-3 text-center font-bold text-green-700">{summary.presentCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-amber-600">{summary.lateCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-blue-600">{summary.excusedCount}</td>
-                                <td className="px-4 py-3 text-center font-bold text-red-500">{summary.absentCount}</td>
-                                <td className="px-4 py-3 text-right font-bold font-mono text-[#800000]">{summary.totalHours} hrs</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </AdminPanel>
-              </div>
-            )}
-          </div>
+        {/* TAB: POS CASHIER */}
+        {activeTab === "pos" && (
+          <POSCashierTab
+            menuItems={menuItems}
+            menuCategories={menuCategories}
+            getMenuCategoryName={getMenuCategoryName}
+            addStoreOrder={addStoreOrder}
+            stockItems={stockItems}
+            updateStockItem={updateStockItem}
+            staffName={user?.name || "Cashier"}
+          />
         )}
       </main>
-
-      {/* MANUAL LOG / EDIT ATTENDANCE MODAL */}
-      <AdminModal
-        open={attendanceModalOpen}
-        title={editingRecord ? "Edit Attendance Record" : "Log Manual Attendance"}
-        onClose={() => setAttendanceModalOpen(false)}
-        footer={
-          <>
-            <AdminButton variant="secondary" onClick={() => setAttendanceModalOpen(false)}>
-              Cancel
-            </AdminButton>
-            <AdminButton onClick={handleAttendanceSubmit}>
-              {editingRecord ? "Save Changes" : "Create Record"}
-            </AdminButton>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <AdminField label="Staff Member">
-            <AdminSelect
-              value={attendanceForm.staffId}
-              onChange={(e) => setAttendanceForm({ ...attendanceForm, staffId: e.target.value })}
-              disabled={!!editingRecord}
-            >
-              {activeStaff.map((staff) => (
-                <option key={staff.id} value={staff.id}>
-                  {staff.name} (@{staff.username})
-                </option>
-              ))}
-            </AdminSelect>
-          </AdminField>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <AdminField label="Date">
-              <AdminInput
-                type="date"
-                value={attendanceForm.date}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, date: e.target.value })}
-              />
-            </AdminField>
-            <AdminField label="Attendance Status">
-              <AdminSelect
-                value={attendanceForm.status}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, status: e.target.value as AttendanceStatus })}
-              >
-                <option value="Present">Present</option>
-                <option value="Late">Late</option>
-                <option value="Absent">Absent</option>
-                <option value="Excused">Excused Absence</option>
-              </AdminSelect>
-            </AdminField>
-          </div>
-
-          {(attendanceForm.status === "Present" || attendanceForm.status === "Late") && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <AdminField label="Time In">
-                <AdminInput
-                  type="text"
-                  value={attendanceForm.timeIn}
-                  onChange={(e) => setAttendanceForm({ ...attendanceForm, timeIn: e.target.value })}
-                  placeholder="e.g. 08:30 AM"
-                />
-              </AdminField>
-              <AdminField label="Time Out (optional if currently on shift)">
-                <AdminInput
-                  type="text"
-                  value={attendanceForm.timeOut}
-                  onChange={(e) => setAttendanceForm({ ...attendanceForm, timeOut: e.target.value })}
-                  placeholder="e.g. 05:30 PM"
-                />
-              </AdminField>
-            </div>
-          )}
-
-          {attendanceForm.status === "Excused" && (
-            <AdminField label="Absence Excuse Reason / Remarks">
-              <AdminTextarea
-                value={attendanceForm.reason}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, reason: e.target.value })}
-                placeholder="e.g. Medical appointment, family leave approval"
-                required
-              />
-            </AdminField>
-          )}
-
-          {editingRecord && (attendanceForm.status === "Present" || attendanceForm.status === "Late") && (
-            <AdminField label="Total Hours Worked (override - optional)">
-              <AdminInput
-                type="number"
-                step="0.01"
-                value={attendanceForm.totalHours || ""}
-                onChange={(e) => setAttendanceForm({ ...attendanceForm, totalHours: e.target.value ? Number(e.target.value) : undefined })}
-                placeholder="Leave blank for auto-calculation"
-              />
-            </AdminField>
-          )}
-        </div>
-      </AdminModal>
 
       {/* ADD/EDIT MENU ITEM MODAL */}
       <AdminModal
@@ -1874,6 +2058,44 @@ export default function StaffPortalPage() {
               />
             </AdminField>
           </div>
+          <AdminField label="Item Picture">
+            <div className="mt-1 flex items-center gap-4">
+              {menuForm.image ? (
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-accent/15">
+                  <img src={menuForm.image} alt="Preview" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setMenuForm({ ...menuForm, image: "" })}
+                    className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 hover:opacity-100 transition-opacity text-xs font-semibold cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-accent/25 bg-accent-light/10 text-accent">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><circle cx="12" cy="13" r="3" /></svg>
+                </div>
+              )}
+              <div className="flex-1">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setMenuForm(prev => ({ ...prev, image: reader.result as string }));
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-accent hover:file:bg-accent/20 cursor-pointer"
+                />
+                <p className="mt-1 text-[10px] text-muted">PNG, JPG, or GIF. Max size 2MB.</p>
+              </div>
+            </div>
+          </AdminField>
         </div>
       </AdminModal>
 
@@ -1883,6 +2105,14 @@ export default function StaffPortalPage() {
           onClose={() => setChatOpen(false)}
           customerName={activeChatOrder.customerName}
           orderId={activeChatOrder.orderNumber}
+        />
+      )}
+
+      {paymentModalOrder && (
+        <PaymentDetailsModal
+          open={!!paymentModalOrder}
+          onClose={() => setPaymentModalOrder(null)}
+          order={paymentModalOrder}
         />
       )}
     </div>

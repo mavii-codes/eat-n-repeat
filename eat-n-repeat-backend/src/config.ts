@@ -17,4 +17,14 @@ export const config = {
     password: process.env.DB_PASSWORD ?? "",
     name: required("DB_NAME", "eat_n_repeat"),
   },
+  xendit: {
+    secretKey: required("XENDIT_SECRET_KEY", "dummy_xendit_secret_key"),
+    webhookToken: process.env.XENDIT_WEBHOOK_TOKEN ?? "",
+  },
+  smtp: {
+    host: process.env.SMTP_HOST || "",
+    port: Number(process.env.SMTP_PORT || 587),
+    user: process.env.SMTP_USER || "",
+    pass: process.env.SMTP_PASS || "",
+  }
 };

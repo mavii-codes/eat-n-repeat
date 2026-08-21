@@ -5,13 +5,16 @@ type StatCardProps = {
   value: string;
   subtitle: string;
   icon: ReactNode;
-  tone?: "red" | "wine" | "rose";
+  tone?: "red" | "wine" | "rose" | "amber" | "emerald";
+  subtitleColor?: string;
 };
 
 const toneStyles = {
   red: "from-[#c41e3a] to-[#9b1530]",
   wine: "from-[#800000] to-[#5c0000]",
   rose: "from-[#e85d75] to-[#c41e3a]",
+  amber: "from-[#d97706] to-[#b45309]",
+  emerald: "from-[#059669] to-[#047857]",
 };
 
 export function StatCard({
@@ -20,30 +23,34 @@ export function StatCard({
   subtitle,
   icon,
   tone = "red",
+  subtitleColor,
 }: StatCardProps) {
   return (
     <div className="admin-stat-card rounded-2xl p-5 pl-6">
-      <div className="mb-5 flex items-start justify-between">
-        <p className="text-sm font-medium text-muted">{title}</p>
+      <div className="mb-4 flex items-start justify-between">
+        <p className="text-xs font-bold uppercase tracking-wider text-muted">{title}</p>
         <div
           className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${toneStyles[tone]} text-white shadow-lg shadow-accent/20`}
         >
           {icon}
         </div>
       </div>
-      <p className="font-serif text-3xl font-semibold text-[#800000]">{value}</p>
-      <p className="mt-2 text-xs font-medium text-success">{subtitle}</p>
+      <p className="font-serif text-3xl font-bold text-[#800000]">{value}</p>
+      <p className={`mt-2 text-xs font-semibold ${subtitleColor || (subtitle.startsWith("+") ? "text-emerald-700" : subtitle.startsWith("-") ? "text-rose-700" : "text-stone-600")}`}>
+        {subtitle}
+      </p>
     </div>
   );
 }
 
-export function DollarIcon() {
+export function PesoIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden>
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
+    <span className="font-bold text-lg leading-none font-serif select-none">₱</span>
   );
+}
+
+export function DollarIcon() {
+  return <PesoIcon />;
 }
 
 export function ClipboardIcon() {
