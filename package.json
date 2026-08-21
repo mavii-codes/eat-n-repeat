@@ -1,0 +1,9 @@
+{
+  "name": "eat-n-repeat-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "cd eat-n-repeat-backend && npm install && npm run build",
+    "start": "cd eat-n-repeat-backend && npm run start"
+  }
+}
