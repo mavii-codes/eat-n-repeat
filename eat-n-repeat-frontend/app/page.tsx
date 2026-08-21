@@ -11,7 +11,7 @@ export default function Home() {
   useEffect(() => {
     if (!loading) {
       if (!user) {
-        router.replace("/login");
+        router.replace("/customer");
       } else if (user.role === "admin") {
         router.replace("/admin");
       } else {
