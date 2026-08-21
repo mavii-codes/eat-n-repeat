@@ -164,9 +164,52 @@ router.post("/login", async (req, res) => {
   }
 });
 
-async function sendResetEmail(email: string, token: string) {
-  let transporter;
+async function sendPasswordResetEmail(email: string, token: string) {
+  const resetUrl = `${config.clientOrigin}/customer/reset-password?token=${token}`;
+  const subject = "Password Reset Request - Eat n RepEat";
+  const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #fef3c7; border-radius: 16px; background-color: #FFF8F0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #451a03; margin: 0; font-size: 28px; font-weight: 900;">Eat n RepEat</h1>
+        </div>
+        <div style="background-color: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;">
+          <h2 style="color: #1c1917; font-size: 22px; margin-top: 0; font-weight: 900;">Reset Your Password</h2>
+          <p style="color: #57534e; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+            We received a request to reset the password for your Eat n RepEat account. Click the button below to choose a new password.
+          </p>
+          <a href="${resetUrl}" style="background-color: #B91C1C; color: white; padding: 14px 32px; text-decoration: none; border-radius: 50px; font-weight: 800; font-size: 16px; display: inline-block;">
+            Reset Password
+          </a>
+          <p style="color: #a8a29e; font-size: 13px; margin-top: 30px; margin-bottom: 0;">
+            This link will expire in 30 minutes. If you did not request this, you can safely ignore this email.
+          </p>
+        </div>
+      </div>
+    `;
 
+  if (config.smtp.host === "smtp.resend.com") {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.smtp.pass}`,
+      },
+      body: JSON.stringify({
+        from: config.smtp.from,
+        to: email,
+        subject,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+    }
+    console.log("Password reset email successfully sent to (via Resend REST API):", email);
+    return;
+  }
+
+  let transporter;
   if (config.smtp.host && config.smtp.user) {
     transporter = nodemailer.createTransport({
       host: config.smtp.host,
@@ -191,31 +234,11 @@ async function sendResetEmail(email: string, token: string) {
     });
   }
 
-  const resetUrl = `${config.clientOrigin}/customer/reset-password?token=${token}`;
   const info = await transporter.sendMail({
     from: config.smtp.from,
     to: email,
-    subject: "Password Reset Request - Eat n RepEat",
-    text: `You requested a password reset. Click the link to reset your password: ${resetUrl}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #fef3c7; border-radius: 16px; background-color: #FFF8F0;">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <h1 style="color: #451a03; margin: 0; font-size: 28px; font-weight: 900;">Eat n RepEat</h1>
-        </div>
-        <div style="background-color: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;">
-          <h2 style="color: #1c1917; font-size: 22px; margin-top: 0; font-weight: 900;">Reset Your Password</h2>
-          <p style="color: #57534e; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-            We received a request to reset the password for your Eat n RepEat account. Click the button below to choose a new password.
-          </p>
-          <a href="${resetUrl}" style="background-color: #B91C1C; color: white; padding: 14px 32px; text-decoration: none; border-radius: 50px; font-weight: 800; font-size: 16px; display: inline-block;">
-            Reset Password
-          </a>
-          <p style="color: #a8a29e; font-size: 13px; margin-top: 30px; margin-bottom: 0;">
-            This link will expire in 30 minutes. If you did not request this, you can safely ignore this email.
-          </p>
-        </div>
-      </div>
-    `
+    subject,
+    html
   });
 
   if (!config.smtp.host) {
@@ -226,8 +249,53 @@ async function sendResetEmail(email: string, token: string) {
 }
 
 async function sendVerificationEmail(email: string, token: string) {
-  let transporter;
+  const verifyUrl = `${config.clientOrigin}/customer/verify-email?token=${token}`;
+  const subject = "Verify Your Email - Eat n RepEat";
+  const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #fef3c7; border-radius: 16px; background-color: #FFF8F0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #451a03; margin: 0; font-size: 28px; font-weight: 900;">Eat n RepEat</h1>
+        </div>
+        <div style="background-color: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;">
+          <h2 style="color: #1c1917; font-size: 22px; margin-top: 0; font-weight: 900;">Verify Your Email</h2>
+          <p style="color: #57534e; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+            Welcome to Eat n RepEat! To finish activating your account and start ordering, please verify your email address by clicking the button below.
+          </p>
+          <a href="${verifyUrl}" style="background-color: #B91C1C; color: white; padding: 14px 32px; text-decoration: none; border-radius: 50px; font-weight: 800; font-size: 16px; display: inline-block;">
+            Verify Email Address
+          </a>
+          <p style="color: #a8a29e; font-size: 13px; margin-top: 30px; margin-bottom: 0;">
+            If you did not create this account, you can safely ignore this email.
+          </p>
+        </div>
+      </div>
+    `;
 
+  if (config.smtp.host === "smtp.resend.com") {
+    // Use Resend REST API to bypass SMTP networking bugs
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.smtp.pass}`,
+      },
+      body: JSON.stringify({
+        from: config.smtp.from,
+        to: email,
+        subject,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+    }
+    console.log("Verification email successfully sent to (via Resend REST API):", email);
+    return;
+  }
+
+  // Fallback to Nodemailer SMTP
+  let transporter;
   if (config.smtp.host && config.smtp.user) {
     transporter = nodemailer.createTransport({
       host: config.smtp.host,
@@ -251,31 +319,11 @@ async function sendVerificationEmail(email: string, token: string) {
     });
   }
 
-  const verifyUrl = `${config.clientOrigin}/customer/verify-email?token=${token}`;
   const info = await transporter.sendMail({
     from: config.smtp.from,
     to: email,
-    subject: "Verify Your Email - Eat n RepEat",
-    text: `Please verify your email address. Click the link to verify: ${verifyUrl}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #fef3c7; border-radius: 16px; background-color: #FFF8F0;">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <h1 style="color: #451a03; margin: 0; font-size: 28px; font-weight: 900;">Eat n RepEat</h1>
-        </div>
-        <div style="background-color: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); text-align: center;">
-          <h2 style="color: #1c1917; font-size: 22px; margin-top: 0; font-weight: 900;">Verify Your Email</h2>
-          <p style="color: #57534e; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-            Welcome to Eat n RepEat! To finish activating your account and start ordering, please verify your email address by clicking the button below.
-          </p>
-          <a href="${verifyUrl}" style="background-color: #B91C1C; color: white; padding: 14px 32px; text-decoration: none; border-radius: 50px; font-weight: 800; font-size: 16px; display: inline-block;">
-            Verify Email Address
-          </a>
-          <p style="color: #a8a29e; font-size: 13px; margin-top: 30px; margin-bottom: 0;">
-            If you did not create this account, you can safely ignore this email.
-          </p>
-        </div>
-      </div>
-    `
+    subject,
+    html
   });
 
   if (!config.smtp.host) {
