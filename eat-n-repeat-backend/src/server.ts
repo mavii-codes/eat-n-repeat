@@ -23,7 +23,7 @@ import { startSyncWorker } from "./services/syncWorker.js";
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: config.clientOrigin }));
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
