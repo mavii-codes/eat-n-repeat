@@ -164,7 +164,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-async function sendPasswordResetEmail(email: string, token: string) {
+async function sendResetEmail(email: string, token: string) {
   const resetUrl = `${config.clientOrigin}/customer/reset-password?token=${token}`;
   const subject = "Password Reset Request - Eat n RepEat";
   const html = `
