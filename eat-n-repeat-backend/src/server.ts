@@ -1,4 +1,7 @@
 import cors from "cors";
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 import express from "express";
 import helmet from "helmet";
 import { config } from "./config.js";
