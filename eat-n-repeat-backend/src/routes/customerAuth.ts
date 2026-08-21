@@ -79,8 +79,8 @@ router.post("/register", async (req, res) => {
     const id = `cust-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 
     await pool.execute(
-      "INSERT INTO customers (id, name, email, phone, password_hash, status) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, name, email.toLowerCase(), phone || null, passwordHash, "active"]
+      "INSERT INTO customers (id, name, email, phone, password_hash) VALUES (?, ?, ?, ?, ?)",
+      [id, name, email.toLowerCase(), phone || null, passwordHash]
     );
 
     const verifyToken = crypto.randomBytes(32).toString("hex");
@@ -135,6 +135,10 @@ router.post("/login", async (req, res) => {
       const newCount = (attempts?.count || 0) + 1;
       loginAttempts.set(attemptKey, { count: newCount, timestamp: Date.now() });
       return res.status(401).json({ message: "Invalid email or password." });
+    }
+
+    if (user.status === "pending_verification") {
+      return res.status(403).json({ message: "unverified_email" });
     }
 
     if (user.status !== "active") {
@@ -496,6 +500,10 @@ router.post("/change-email", async (req, res) => {
 
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ message: "Invalid email or password." });
+    }
+
+    if (user.status !== "pending_verification") {
+      return res.status(400).json({ message: "Account is already verified or disabled." });
     }
 
     // Check if new email is taken
