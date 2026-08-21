@@ -282,9 +282,9 @@ export default function AdminDashboardPage() {
       </section>
 
       {/* 2. MAIN TWO-COLUMN DASHBOARD GRID */}
-      <div className="grid gap-6 lg:grid-cols-3 mb-6">
+      <div className="grid gap-6 lg:grid-cols-3 mb-6 w-full max-w-full">
         {/* LEFT COLUMN: ORDERS & SALES (2 COLS) */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-6 min-w-0 w-full">
           {/* TODAY'S ORDERS OVERVIEW TABLE */}
           <div className="admin-panel rounded-2xl p-5 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 border-b border-stone-200/60 pb-3">
@@ -446,7 +446,7 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* RIGHT COLUMN: NOTIFICATIONS & INVENTORY ALERTS (1 COL) */}
-        <div className="space-y-6">
+        <div className="space-y-6 min-w-0 w-full">
           {/* NOTIFICATIONS PANEL */}
           <div className="admin-panel rounded-2xl p-5 shadow-sm">
             <div className="flex justify-between items-center mb-4 border-b border-stone-200/60 pb-3">
