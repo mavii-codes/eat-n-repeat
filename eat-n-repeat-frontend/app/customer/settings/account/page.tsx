@@ -11,12 +11,13 @@ import { getApiUrl } from "@/lib/config";
 const API_BASE = `${getApiUrl()}/api`;
 
 export default function AccountSettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const userId = session?.user?.id;
   const accessToken = (session as any)?.accessToken as string | undefined;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -26,30 +27,51 @@ export default function AccountSettingsPage() {
   });
 
   useEffect(() => {
-    if (!userId) return;
+    if (status === 'loading') return;
+    if (status === 'unauthenticated' || !userId) {
+      setLoading(false);
+      setError("Please log in to view your account information.");
+      return;
+    }
+
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 10000); // 10s timeout
+
     const fetchSettings = async () => {
       try {
         const res = await fetch(`${API_BASE}/customer-settings`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+          signal: abortController.signal
         });
-        if (res.ok) {
-          const data = await res.json();
-          setProfile({
-            name: data.name || '',
-            email: data.email || '',
-            phone: data.phone || '',
-            avatar_url: data.avatar_url || '',
-            notification_preferences: data.notification_preferences || {}
-          });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+          throw new Error(`Failed to fetch: ${res.status}`);
         }
+        
+        const data = await res.json();
+        setProfile({
+          name: data.name || '',
+          email: data.email || '',
+          phone: data.phone || '',
+          avatar_url: data.avatar_url || '',
+          notification_preferences: data.notification_preferences || {}
+        });
+        setError(null);
       } catch (e) {
-        console.error(e);
+        console.error("Error fetching account settings:", e);
+        setError("Unable to load account information. Please try again.");
       } finally {
         setLoading(false);
       }
     };
     fetchSettings();
-  }, [userId]);
+
+    return () => {
+      clearTimeout(timeoutId);
+      abortController.abort();
+    };
+  }, [userId, status, accessToken]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +98,21 @@ export default function AccountSettingsPage() {
 
   if (loading) return (
     <CustomerAccountLayout>
-      <div className="flex items-center justify-center py-20 text-stone-500 font-bold">Loading...</div>
+      <div className="flex items-center justify-center py-20 text-stone-500 font-bold">Loading account information...</div>
+    </CustomerAccountLayout>
+  );
+
+  if (error) return (
+    <CustomerAccountLayout>
+      <div className="flex flex-col items-center justify-center py-20 max-w-md mx-auto text-center px-4">
+        <p className="text-[#B91C1C] font-bold mb-4">{error}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="px-6 py-2.5 bg-[#B91C1C] hover:bg-[#991B1B] text-white font-extrabold rounded-xl transition shadow-sm"
+        >
+          Try Again
+        </button>
+      </div>
     </CustomerAccountLayout>
   );
 
