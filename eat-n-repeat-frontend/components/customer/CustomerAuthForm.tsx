@@ -22,7 +22,6 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -42,12 +41,6 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
         }
         if (password.length < 6) {
           setError('Password must be at least 6 characters.');
-          setLoading(false);
-          return;
-        }
-
-        if (!agreeTerms) {
-          setError('You must agree to the Terms & Conditions.');
           setLoading(false);
           return;
         }
@@ -239,22 +232,6 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
                   placeholder="Re-enter password"
                   className="w-full px-4 py-3 rounded-2xl border border-amber-200/90 bg-[#FFF8F0] text-sm text-stone-800 placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition"
                 />
-              </div>
-            )}
-
-            {isSignUp && (
-              <div className="pt-2 pb-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={agreeTerms}
-                    onChange={(e) => setAgreeTerms(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-stone-300 text-[#B91C1C] focus:ring-[#B91C1C]"
-                  />
-                  <span className="text-[11px] font-bold text-stone-600">
-                    I agree to the <Link href="/customer/terms" className="text-[#B91C1C] hover:underline">Terms & Conditions</Link>
-                  </span>
-                </label>
               </div>
             )}
 

@@ -96,9 +96,13 @@ router.post("/register", async (req, res) => {
     await sendVerificationEmail(email, verifyToken);
 
     return res.status(201).json({ message: "Account created successfully. Please verify your email." });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Register Error:", error);
-    res.status(500).json({ message: "Internal server error." });
+    if (error.message === "Email sending failed" || error.message === "Missing SMTP configuration") {
+      res.status(500).json({ message: "Account created, but we failed to send the verification email. Please try logging in to resend." });
+    } else {
+      res.status(500).json({ message: "Internal server error." });
+    }
   }
 });
 
@@ -188,63 +192,78 @@ async function sendResetEmail(email: string, token: string) {
     `;
 
   if (config.smtp.host === "smtp.resend.com") {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.smtp.pass}`,
-      },
-      body: JSON.stringify({
-        from: config.smtp.from,
-        to: email,
-        subject,
-        html,
-      }),
-    });
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.smtp.pass}`,
+        },
+        body: JSON.stringify({
+          from: config.smtp.from,
+          to: email,
+          subject,
+          html,
+        }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+      }
+      console.log("Password reset email successfully sent to (via Resend REST API):", email);
+      return;
+    } catch (error) {
+      console.error("Failed to send reset email via Resend API:", error);
+      throw new Error("Email sending failed");
     }
-    console.log("Password reset email successfully sent to (via Resend REST API):", email);
-    return;
   }
 
-  let transporter;
-  if (config.smtp.host && config.smtp.user) {
-    transporter = nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port,
-      secure: config.smtp.port === 465,
-      auth: {
-        user: config.smtp.user,
-        pass: config.smtp.pass,
-      },
-    });
-  } else {
-    // Fallback to ethereal for testing
-    let testAccount = await nodemailer.createTestAccount();
-    transporter = nodemailer.createTransport({
-      host: testAccount.smtp.host,
-      port: testAccount.smtp.port,
-      secure: testAccount.smtp.secure,
-      auth: {
-        user: testAccount.user,
-        pass: testAccount.pass,
-      },
-    });
+  if (!config.smtp.host && process.env.NODE_ENV === "production") {
+    console.error("Missing SMTP configuration in production environment.");
+    throw new Error("Missing SMTP configuration");
   }
 
-  const info = await transporter.sendMail({
-    from: config.smtp.from,
-    to: email,
-    subject,
-    html
-  });
+  try {
+    let transporter;
+    if (config.smtp.host && config.smtp.user) {
+      transporter = nodemailer.createTransport({
+        host: config.smtp.host,
+        port: config.smtp.port,
+        secure: config.smtp.port === 465,
+        auth: {
+          user: config.smtp.user,
+          pass: config.smtp.pass,
+        },
+      });
+    } else {
+      // Fallback to ethereal for testing
+      let testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: testAccount.smtp.host,
+        port: testAccount.smtp.port,
+        secure: testAccount.smtp.secure,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+    }
 
-  if (!config.smtp.host) {
-    console.log("Password reset email sent! Preview URL: %s", nodemailer.getTestMessageUrl(info));
-  } else {
-    console.log("Password reset email successfully sent to:", email);
+    const info = await transporter.sendMail({
+      from: config.smtp.from,
+      to: email,
+      subject,
+      html
+    });
+
+    if (!config.smtp.host) {
+      console.log("Password reset email sent! Preview URL: %s", nodemailer.getTestMessageUrl(info));
+    } else {
+      console.log("Password reset email successfully sent to:", email);
+    }
+  } catch (error) {
+    console.error("Failed to send reset email via SMTP:", error);
+    throw new Error("Email sending failed");
   }
 }
 
@@ -272,64 +291,79 @@ async function sendVerificationEmail(email: string, token: string) {
     `;
 
   if (config.smtp.host === "smtp.resend.com") {
-    // Use Resend REST API to bypass SMTP networking bugs
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.smtp.pass}`,
-      },
-      body: JSON.stringify({
-        from: config.smtp.from,
-        to: email,
-        subject,
-        html,
-      }),
-    });
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+    try {
+      // Use Resend REST API to bypass SMTP networking bugs
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.smtp.pass}`,
+        },
+        body: JSON.stringify({
+          from: config.smtp.from,
+          to: email,
+          subject,
+          html,
+        }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+      }
+      console.log("Verification email successfully sent to (via Resend REST API):", email);
+      return;
+    } catch (error) {
+      console.error("Failed to send verification email via Resend API:", error);
+      throw new Error("Email sending failed");
     }
-    console.log("Verification email successfully sent to (via Resend REST API):", email);
-    return;
   }
 
-  // Fallback to Nodemailer SMTP
-  let transporter;
-  if (config.smtp.host && config.smtp.user) {
-    transporter = nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port,
-      secure: config.smtp.port === 465,
-      auth: {
-        user: config.smtp.user,
-        pass: config.smtp.pass,
-      },
-    });
-  } else {
-    let testAccount = await nodemailer.createTestAccount();
-    transporter = nodemailer.createTransport({
-      host: testAccount.smtp.host,
-      port: testAccount.smtp.port,
-      secure: testAccount.smtp.secure,
-      auth: {
-        user: testAccount.user,
-        pass: testAccount.pass,
-      },
-    });
+  if (!config.smtp.host && process.env.NODE_ENV === "production") {
+    console.error("Missing SMTP configuration in production environment.");
+    throw new Error("Missing SMTP configuration");
   }
 
-  const info = await transporter.sendMail({
-    from: config.smtp.from,
-    to: email,
-    subject,
-    html
-  });
+  try {
+    // Fallback to Nodemailer SMTP
+    let transporter;
+    if (config.smtp.host && config.smtp.user) {
+      transporter = nodemailer.createTransport({
+        host: config.smtp.host,
+        port: config.smtp.port,
+        secure: config.smtp.port === 465,
+        auth: {
+          user: config.smtp.user,
+          pass: config.smtp.pass,
+        },
+      });
+    } else {
+      let testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: testAccount.smtp.host,
+        port: testAccount.smtp.port,
+        secure: testAccount.smtp.secure,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+    }
 
-  if (!config.smtp.host) {
-    console.log("Verification email sent! Preview URL: %s", nodemailer.getTestMessageUrl(info));
-  } else {
-    console.log("Verification email successfully sent to:", email);
+    const info = await transporter.sendMail({
+      from: config.smtp.from,
+      to: email,
+      subject,
+      html
+    });
+
+    if (!config.smtp.host) {
+      console.log("Verification email sent! Preview URL: %s", nodemailer.getTestMessageUrl(info));
+    } else {
+      console.log("Verification email successfully sent to:", email);
+    }
+  } catch (error) {
+    console.error("Failed to send verification email via SMTP:", error);
+    throw new Error("Email sending failed");
   }
 }
 
@@ -363,9 +397,13 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     return res.json({ message: "If an account exists, a reset link has been sent to your email." });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Forgot Password Error:", error);
-    res.status(500).json({ message: "Internal server error." });
+    if (error.message === "Email sending failed" || error.message === "Missing SMTP configuration") {
+      res.status(500).json({ message: "Failed to send password reset email. Please contact support or try again later." });
+    } else {
+      res.status(500).json({ message: "Internal server error." });
+    }
   }
 });
 
@@ -478,9 +516,13 @@ router.post("/resend-verification", async (req, res) => {
     }
 
     return res.json({ message: "If an unverified account exists, a new link has been sent." });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Resend Verification Error:", error);
-    res.status(500).json({ message: "Internal server error." });
+    if (error.message === "Email sending failed" || error.message === "Missing SMTP configuration") {
+      res.status(500).json({ message: "Failed to send verification email. Please contact support or try again later." });
+    } else {
+      res.status(500).json({ message: "Internal server error." });
+    }
   }
 });
 
@@ -536,9 +578,13 @@ router.post("/change-email", async (req, res) => {
     await sendVerificationEmail(newEmail, verifyToken);
 
     return res.json({ message: "Email address updated and a new verification link sent." });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Change Email Error:", error);
-    res.status(500).json({ message: "Internal server error." });
+    if (error.message === "Email sending failed" || error.message === "Missing SMTP configuration") {
+      res.status(500).json({ message: "Email updated, but we failed to send the verification email. Please try logging in to resend." });
+    } else {
+      res.status(500).json({ message: "Internal server error." });
+    }
   }
 });
 

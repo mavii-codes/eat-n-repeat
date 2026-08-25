@@ -16,6 +16,7 @@ export default function SecuritySettingsPage() {
   const accessToken = (session as any)?.accessToken as string | undefined;
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState({ status: 'active' });
   const [passwords, setPasswords] = useState({
@@ -25,7 +26,12 @@ export default function SecuritySettingsPage() {
   });
 
   useEffect(() => {
-    if (!userId) return;
+    if (session === undefined) return; // Loading session
+    if (!userId) {
+      setLoading(false);
+      setError("Please log in to view your security settings.");
+      return;
+    }
     const fetchSettings = async () => {
       try {
         const res = await fetch(`${API_BASE}/customer-settings`, {
@@ -34,15 +40,18 @@ export default function SecuritySettingsPage() {
         if (res.ok) {
           const data = await res.json();
           setProfile({ status: data.status || 'unverified' });
+        } else {
+          setError("Failed to load security settings.");
         }
       } catch (e) {
         console.error(e);
+        setError("Unable to connect to the server.");
       } finally {
         setLoading(false);
       }
     };
     fetchSettings();
-  }, [userId]);
+  }, [userId, session, accessToken]);
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,6 +100,17 @@ export default function SecuritySettingsPage() {
   if (loading) return (
     <CustomerAccountLayout>
       <div className="flex items-center justify-center py-20 text-stone-500 font-bold">Loading...</div>
+    </CustomerAccountLayout>
+  );
+
+  if (error) return (
+    <CustomerAccountLayout>
+      <div className="flex flex-col items-center justify-center py-20 max-w-md mx-auto text-center px-4">
+        <p className="text-[#B91C1C] font-bold mb-4">{error}</p>
+        <Link href="/customer/login" className="px-6 py-2.5 bg-[#B91C1C] hover:bg-[#991B1B] text-white font-extrabold rounded-xl transition shadow-sm">
+          Go to Login
+        </Link>
+      </div>
     </CustomerAccountLayout>
   );
 

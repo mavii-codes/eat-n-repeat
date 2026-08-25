@@ -16,6 +16,7 @@ export default function NotificationsSettingsPage() {
   const accessToken = (session as any)?.accessToken as string | undefined;
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<any>({});
   const [preferences, setPreferences] = useState({
@@ -26,7 +27,12 @@ export default function NotificationsSettingsPage() {
   });
 
   useEffect(() => {
-    if (!userId) return;
+    if (session === undefined) return; // Loading session
+    if (!userId) {
+      setLoading(false);
+      setError("Please log in to view your notification settings.");
+      return;
+    }
     const fetchSettings = async () => {
       try {
         const res = await fetch(`${API_BASE}/customer-settings`, {
@@ -38,15 +44,18 @@ export default function NotificationsSettingsPage() {
           if (data.notification_preferences) {
             setPreferences(data.notification_preferences);
           }
+        } else {
+          setError("Failed to load notification settings.");
         }
       } catch (e) {
         console.error(e);
+        setError("Unable to connect to the server.");
       } finally {
         setLoading(false);
       }
     };
     fetchSettings();
-  }, [userId]);
+  }, [userId, session, accessToken]);
 
   const handleSavePreferences = async () => {
     if (!userId) return;
@@ -71,6 +80,17 @@ export default function NotificationsSettingsPage() {
   if (loading) return (
     <CustomerAccountLayout>
       <div className="flex items-center justify-center py-20 text-stone-500 font-bold">Loading...</div>
+    </CustomerAccountLayout>
+  );
+
+  if (error) return (
+    <CustomerAccountLayout>
+      <div className="flex flex-col items-center justify-center py-20 max-w-md mx-auto text-center px-4">
+        <p className="text-[#B91C1C] font-bold mb-4">{error}</p>
+        <Link href="/customer/login" className="px-6 py-2.5 bg-[#B91C1C] hover:bg-[#991B1B] text-white font-extrabold rounded-xl transition shadow-sm">
+          Go to Login
+        </Link>
+      </div>
     </CustomerAccountLayout>
   );
 

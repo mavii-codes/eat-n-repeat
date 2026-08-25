@@ -195,7 +195,7 @@ export default function MenuPage() {
   const totalCartSubtotal = cartItems.reduce((acc, ci) => acc + ci.menuItem.price * ci.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col justify-between">
+    <div className="min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col justify-between w-full max-w-[100vw]">
       <CustomerHeader
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -207,7 +207,7 @@ export default function MenuPage() {
         favoritesCount={favorites.length}
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
+      <main className="max-w-7xl w-full min-w-0 mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
         {/* Hero Section & Search Bar */}
         <div className="relative overflow-hidden bg-gradient-to-r from-[#451a03] to-[#782c06] text-white rounded-[2.5rem] p-8 sm:p-12 shadow-xl border border-[#451a03]/50">
           <div className="relative z-10 max-w-2xl">

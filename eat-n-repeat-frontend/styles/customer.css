@@ -149,3 +149,7 @@ img[data-loaded="false"] {
 img[data-loaded="true"] {
   filter: blur(0);
 }
+
+html, body {
+  overflow-x: hidden;
+}
