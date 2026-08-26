@@ -237,7 +237,59 @@ async function sendResetEmail(email: string, token: string) {
     }
   }
 
-  // Priority 2: SMTP via Nodemailer (fallback)
+  // Priority 2: Gmail API via HTTPS (Bypasses Render's SMTP port 587 block)
+  if (config.gmailApi.clientId && config.gmailApi.refreshToken) {
+    try {
+      // 1. Get Access Token
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: config.gmailApi.clientId,
+          client_secret: config.gmailApi.clientSecret,
+          refresh_token: config.gmailApi.refreshToken,
+          grant_type: "refresh_token",
+        }),
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenData.access_token) throw new Error("Failed to get Gmail access token");
+
+      // 2. Construct raw email (MIME)
+      const fromEmail = config.gmailApi.user || config.smtp.user;
+      const message = [
+        `From: "Eat n RepEat Cafe" <${fromEmail}>`,
+        `To: ${email}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/html; charset="UTF-8"`,
+        "",
+        html
+      ].join("\r\n");
+      
+      const encodedMessage = Buffer.from(message).toString("base64").replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+      // 3. Send Email
+      const sendRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ raw: encodedMessage }),
+      });
+
+      if (!sendRes.ok) {
+        const err = await sendRes.json();
+        throw new Error(`Gmail API error: ${JSON.stringify(err)}`);
+      }
+      console.log("Password reset email sent via Gmail API (HTTPS) to:", email);
+      return;
+    } catch (error) {
+      console.error("Failed to send reset email via Gmail API:", error);
+      throw new Error("Email sending failed");
+    }
+  }
+
+  // Priority 3: SMTP via Nodemailer (fallback)
   if (!config.smtp.host && process.env.NODE_ENV === "production") {
     console.error("Missing email configuration: neither RESEND_API_KEY nor SMTP_HOST is set.");
     throw new Error("Missing SMTP configuration");
@@ -356,7 +408,59 @@ async function sendVerificationEmail(email: string, token: string) {
     }
   }
 
-  // Priority 2: SMTP via Nodemailer (fallback)
+  // Priority 2: Gmail API via HTTPS (Bypasses Render's SMTP port 587 block)
+  if (config.gmailApi.clientId && config.gmailApi.refreshToken) {
+    try {
+      // 1. Get Access Token
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: config.gmailApi.clientId,
+          client_secret: config.gmailApi.clientSecret,
+          refresh_token: config.gmailApi.refreshToken,
+          grant_type: "refresh_token",
+        }),
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenData.access_token) throw new Error("Failed to get Gmail access token");
+
+      // 2. Construct raw email (MIME)
+      const fromEmail = config.gmailApi.user || config.smtp.user;
+      const message = [
+        `From: "Eat n RepEat Cafe" <${fromEmail}>`,
+        `To: ${email}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/html; charset="UTF-8"`,
+        "",
+        html
+      ].join("\r\n");
+      
+      const encodedMessage = Buffer.from(message).toString("base64").replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+      // 3. Send Email
+      const sendRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ raw: encodedMessage }),
+      });
+
+      if (!sendRes.ok) {
+        const err = await sendRes.json();
+        throw new Error(`Gmail API error: ${JSON.stringify(err)}`);
+      }
+      console.log("Verification email sent via Gmail API (HTTPS) to:", email);
+      return;
+    } catch (error) {
+      console.error("Failed to send verification email via Gmail API:", error);
+      throw new Error("Email sending failed");
+    }
+  }
+
+  // Priority 3: SMTP via Nodemailer (fallback)
   if (!config.smtp.host && process.env.NODE_ENV === "production") {
     console.error("Missing email configuration: neither RESEND_API_KEY nor SMTP_HOST is set.");
     throw new Error("Missing SMTP configuration");

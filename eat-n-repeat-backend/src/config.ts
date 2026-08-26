@@ -38,6 +38,12 @@ export const config = {
     apiKey: process.env.RESEND_API_KEY || "",
     from: process.env.RESEND_FROM || '"Eat n RepEat Cafe" <onboarding@resend.dev>',
   },
+  gmailApi: {
+    clientId: process.env.GMAIL_CLIENT_ID || "",
+    clientSecret: process.env.GMAIL_CLIENT_SECRET || "",
+    refreshToken: process.env.GMAIL_REFRESH_TOKEN || "",
+    user: process.env.SMTP_USER || "", // reusing the email address
+  },
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: Number(process.env.SMTP_PORT || 587),
