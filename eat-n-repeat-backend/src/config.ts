@@ -34,11 +34,15 @@ export const config = {
     secretKey: required("XENDIT_SECRET_KEY", "dummy_xendit_secret_key"),
     webhookToken: process.env.XENDIT_WEBHOOK_TOKEN ?? "",
   },
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || "",
+    from: process.env.RESEND_FROM || '"Eat n RepEat Cafe" <onboarding@resend.dev>',
+  },
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: Number(process.env.SMTP_PORT || 587),
     user: process.env.SMTP_USER || "",
     pass: process.env.SMTP_PASS || "",
-    from: process.env.SMTP_FROM || '"Eat n RepEat Cafe" <onboarding@resend.dev>',
+    from: process.env.SMTP_FROM || (process.env.SMTP_USER ? `"Eat n RepEat Cafe" <${process.env.SMTP_USER}>` : '"Eat n RepEat Cafe" <onboarding@resend.dev>'),
   }
 };

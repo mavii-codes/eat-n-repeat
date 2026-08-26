@@ -191,35 +191,55 @@ async function sendResetEmail(email: string, token: string) {
       </div>
     `;
 
-  if (config.smtp.host === "smtp.resend.com") {
+  // Priority 1: Resend API (if RESEND_API_KEY is configured)
+  if (config.resend.apiKey) {
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${config.smtp.pass}`,
+          Authorization: `Bearer ${config.resend.apiKey}`,
         },
         body: JSON.stringify({
-          from: config.smtp.from,
+          from: config.resend.from,
           to: email,
           subject,
           html,
         }),
       });
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+        const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
+        const statusCode = res.status;
+        const errorMsg = errorData?.message || errorData?.name || JSON.stringify(errorData);
+
+        if (statusCode === 401) {
+          console.error("Resend email failed: Invalid API key");
+        } else if (statusCode === 403) {
+          console.error("Resend email failed: Domain not verified or sender not allowed. Details:", errorMsg);
+        } else if (statusCode === 422) {
+          console.error("Resend email failed: Invalid request (check sender/recipient). Details:", errorMsg);
+        } else if (statusCode === 429) {
+          console.error("Resend email failed: Rate limit exceeded");
+        } else {
+          console.error(`Resend email failed (HTTP ${statusCode}):`, errorMsg);
+        }
+        throw new Error("Email sending failed");
       }
-      console.log("Password reset email successfully sent to (via Resend REST API):", email);
+
+      const responseData = await res.json().catch(() => null);
+      console.log("Password reset email sent via Resend API to:", email, responseData?.id ? `(id: ${responseData.id})` : "");
       return;
-    } catch (error) {
-      console.error("Failed to send reset email via Resend API:", error);
+    } catch (error: any) {
+      if (error.message === "Email sending failed") throw error;
+      console.error("Failed to send reset email via Resend API:", error.message || error);
       throw new Error("Email sending failed");
     }
   }
 
+  // Priority 2: SMTP via Nodemailer (fallback)
   if (!config.smtp.host && process.env.NODE_ENV === "production") {
-    console.error("Missing SMTP configuration in production environment.");
+    console.error("Missing email configuration: neither RESEND_API_KEY nor SMTP_HOST is set.");
     throw new Error("Missing SMTP configuration");
   }
 
@@ -236,7 +256,7 @@ async function sendResetEmail(email: string, token: string) {
         },
       });
     } else {
-      // Fallback to ethereal for testing
+      // Fallback to ethereal for local dev testing
       let testAccount = await nodemailer.createTestAccount();
       transporter = nodemailer.createTransport({
         host: testAccount.smtp.host,
@@ -290,41 +310,59 @@ async function sendVerificationEmail(email: string, token: string) {
       </div>
     `;
 
-  if (config.smtp.host === "smtp.resend.com") {
+  // Priority 1: Resend API (if RESEND_API_KEY is configured)
+  if (config.resend.apiKey) {
     try {
-      // Use Resend REST API to bypass SMTP networking bugs
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${config.smtp.pass}`,
+          Authorization: `Bearer ${config.resend.apiKey}`,
         },
         body: JSON.stringify({
-          from: config.smtp.from,
+          from: config.resend.from,
           to: email,
           subject,
           html,
         }),
       });
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(`Resend API Error: ${JSON.stringify(errorData)}`);
+        const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
+        const statusCode = res.status;
+        const errorMsg = errorData?.message || errorData?.name || JSON.stringify(errorData);
+
+        if (statusCode === 401) {
+          console.error("Resend email failed: Invalid API key");
+        } else if (statusCode === 403) {
+          console.error("Resend email failed: Domain not verified or sender not allowed. Details:", errorMsg);
+        } else if (statusCode === 422) {
+          console.error("Resend email failed: Invalid request (check sender/recipient). Details:", errorMsg);
+        } else if (statusCode === 429) {
+          console.error("Resend email failed: Rate limit exceeded");
+        } else {
+          console.error(`Resend email failed (HTTP ${statusCode}):`, errorMsg);
+        }
+        throw new Error("Email sending failed");
       }
-      console.log("Verification email successfully sent to (via Resend REST API):", email);
+
+      const responseData = await res.json().catch(() => null);
+      console.log("Verification email sent via Resend API to:", email, responseData?.id ? `(id: ${responseData.id})` : "");
       return;
-    } catch (error) {
-      console.error("Failed to send verification email via Resend API:", error);
+    } catch (error: any) {
+      if (error.message === "Email sending failed") throw error;
+      console.error("Failed to send verification email via Resend API:", error.message || error);
       throw new Error("Email sending failed");
     }
   }
 
+  // Priority 2: SMTP via Nodemailer (fallback)
   if (!config.smtp.host && process.env.NODE_ENV === "production") {
-    console.error("Missing SMTP configuration in production environment.");
+    console.error("Missing email configuration: neither RESEND_API_KEY nor SMTP_HOST is set.");
     throw new Error("Missing SMTP configuration");
   }
 
   try {
-    // Fallback to Nodemailer SMTP
     let transporter;
     if (config.smtp.host && config.smtp.user) {
       transporter = nodemailer.createTransport({
@@ -337,6 +375,7 @@ async function sendVerificationEmail(email: string, token: string) {
         },
       });
     } else {
+      // Fallback to ethereal for local dev testing
       let testAccount = await nodemailer.createTestAccount();
       transporter = nodemailer.createTransport({
         host: testAccount.smtp.host,
@@ -382,21 +421,27 @@ router.post("/forgot-password", async (req, res) => {
     );
     const user = rows[0];
 
-    if (user && user.status === "active") {
-      const resetToken = crypto.randomBytes(32).toString("hex");
-      const tokenHash = await bcrypt.hash(resetToken, 10);
-      const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
-      const tokenId = `rt-${Date.now()}`;
-
-      await pool.execute(
-        "INSERT INTO password_reset_tokens (id, customer_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
-        [tokenId, user.id, tokenHash, expiresAt]
-      );
-
-      await sendResetEmail(email, resetToken);
+    if (!user) {
+      return res.status(404).json({ message: "No account was found with this email address. Please check your email or create an account." });
     }
 
-    return res.json({ message: "If an account exists, a reset link has been sent to your email." });
+    if (user.status !== "active") {
+      return res.status(400).json({ message: "This account cannot be reset at this time. Please contact support." });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = await bcrypt.hash(resetToken, 10);
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+    const tokenId = `rt-${Date.now()}`;
+
+    await pool.execute(
+      "INSERT INTO password_reset_tokens (id, customer_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
+      [tokenId, user.id, tokenHash, expiresAt]
+    );
+
+    await sendResetEmail(email, resetToken);
+
+    return res.json({ message: "A reset link has been sent to your email." });
   } catch (error: any) {
     console.error("Forgot Password Error:", error);
     if (error.message === "Email sending failed" || error.message === "Missing SMTP configuration") {
