@@ -215,8 +215,11 @@ export type CashTransaction = {
   id: string;
   shift_id: string;
   order_id?: string;
-  type: 'sale' | 'refund' | 'float_adjustment';
+  type: 'sale' | 'refund' | 'float_adjustment' | 'float_addition';
   amount: number | string;
+  admin_id?: string;
+  admin_name?: string;
+  reason?: string;
   timestamp: string;
 };
 
