@@ -144,9 +144,83 @@ function OrdersPageContent() {
     }
   }, [status, router]);
 
-  const { deliveryOrders, updateDeliveryStatus, menuItems } = useAdminData();
+  const { updateDeliveryStatus, menuItems } = useAdminData();
+  const [liveOrders, setLiveOrders] = useState<OrderCardProps[]>([]);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(true);
 
-  if (status === 'loading' || status === 'unauthenticated') {
+  // Fetch real customer orders from the backend
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+
+    let mounted = true;
+    const fetchOrders = async () => {
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const accessToken = (session as any)?.accessToken as string | undefined;
+        
+        const response = await fetch(`${getApiUrl()}/api/customer-orders`, {
+          headers: {
+            ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.orders) {
+            // Map backend orders to OrderCardProps
+            const mappedOrders: OrderCardProps[] = data.orders.map((o: any) => {
+              const isCompleted = o.status === 'delivered' || o.status === 'completed';
+              const isCancel = o.status === 'cancelled';
+              const isPending = o.status === 'pending_payment' || o.status === 'pending';
+              const isConfirmed = o.status === 'assigned';
+              const isPreparing = o.status === 'preparing';
+
+              let mappedStatus: OrderCardProps['status'] = 'preparing';
+              if (isCompleted) mappedStatus = 'delivered';
+              else if (isCancel) mappedStatus = 'cancelled';
+              else if (isPending) mappedStatus = 'pending';
+              else if (isConfirmed) mappedStatus = 'preparing';
+              else if (isPreparing) mappedStatus = 'preparing';
+              else if (o.status === 'out_for_delivery') mappedStatus = 'out_for_delivery';
+
+              return {
+                id: o.id,
+                orderNumber: o.orderNumber,
+                date: new Date(o.orderedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }),
+                status: mappedStatus,
+                subtotal: o.subtotal,
+                deliveryFee: o.deliveryFee,
+                total: o.total,
+                paymentMethod: o.paymentMethod || 'Unknown',
+                customerName: o.customerName || 'Valued Customer',
+                customerPhone: o.phone || '',
+                customerAddress: o.address || '',
+                items: o.items ? JSON.parse(o.items) : [],
+                deliveryType: o.type === 'dine-in' ? 'dine-in' : o.type === 'pickup' ? 'pickup' : 'delivery',
+              };
+            });
+            if (mounted) {
+              setLiveOrders(mappedOrders);
+              setIsLoadingOrders(false);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch orders:', error);
+        if (mounted) setIsLoadingOrders(false);
+      }
+    };
+
+    fetchOrders();
+    // Refresh orders every 10 seconds to keep tracking updated
+    const interval = setInterval(fetchOrders, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [status, session]);
+
+  if (status === 'loading' || status === 'unauthenticated' || isLoadingOrders) {
     return (
       <div className="min-h-screen bg-[#FFF8F0] flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-[#B91C1C]/30 border-t-[#B91C1C] rounded-full animate-spin"></div>
@@ -154,42 +228,7 @@ function OrdersPageContent() {
     );
   }
 
-  // Map live orders from AdminDataContext if present
-  const liveMappedOrders: OrderCardProps[] = deliveryOrders.map((o) => {
-    const isCompleted = o.status === 'delivered';
-    const isCancel = o.status === 'cancelled';
-    const isPending = o.status === 'pending';
-    const isConfirmed = o.status === 'assigned';
-    const isPreparing = o.status === 'preparing';
-
-    let mappedStatus: OrderCardProps['status'] = 'preparing';
-    if (isCompleted) mappedStatus = 'delivered';
-    else if (isCancel) mappedStatus = 'cancelled';
-    else if (isPending) mappedStatus = 'pending';
-    else if (isConfirmed) mappedStatus = 'preparing';
-    else if (isPreparing) mappedStatus = 'preparing';
-    else if (o.status === 'out_for_delivery') mappedStatus = 'out_for_delivery';
-
-    return {
-      id: o.id || o.orderNumber,
-      orderNumber: o.orderNumber,
-      date: new Date(o.orderedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }),
-      status: mappedStatus,
-      subtotal: o.subtotal || o.total,
-      deliveryFee: o.deliveryFee || 0,
-      total: o.total,
-      paymentMethod: 'Cash on Delivery',
-      customerName: o.customerName || 'Valued Customer',
-      customerPhone: o.phone || '(032) 492-0000',
-      customerAddress: o.address || 'Cordova, Cebu',
-      items: [
-        { name: o.items || 'Signature Menu Items', quantity: 1, price: o.subtotal || o.total },
-      ],
-      deliveryType: 'delivery',
-    };
-  });
-
-  const allOrdersList = liveMappedOrders.length > 0 ? liveMappedOrders : fallbackOrders;
+  const allOrdersList = liveOrders.length > 0 ? liveOrders : fallbackOrders;
 
   const filteredOrders = allOrdersList.filter((order) => {
     if (selectedStatus === 'all') return true;

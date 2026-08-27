@@ -20,6 +20,8 @@ import staffNotificationsRouter from "./routes/staffNotifications.js";
 import addonsRouter from "./routes/addons.js";
 import customerFavoritesRouter from "./routes/customerFavorites.js";
 
+import customerOrdersRouter from "./routes/customerOrders.js";
+
 import { syncRouter } from "./routes/sync.js";
 import { startSyncWorker } from "./services/syncWorker.js";
 
@@ -39,6 +41,7 @@ app.use("/api/customer-auth", customerAuthRouter);
 app.use("/api/customer-settings", customerSettingsRouter);
 app.use("/api/customer-notifications", customerNotificationsRouter);
 app.use("/api/customer-addresses", customerAddressesRouter);
+app.use("/api/customer-orders", customerOrdersRouter);
 app.use("/api/delivery", deliveryRouter);
 app.use("/api/staff-notifications", staffNotificationsRouter);
 app.use("/api/addons", addonsRouter);
