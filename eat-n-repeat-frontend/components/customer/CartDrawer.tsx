@@ -128,9 +128,12 @@ export function CartDrawer({
     }
   };
 
-  const handleCheckout = (e: React.FormEvent) => {
+  const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cartItems.length === 0) return;
+
+    // Prevent duplicate submissions
+    if (isSubmitting) return;
 
     if (!customerName.trim()) {
       alert('Please enter your name');
@@ -155,50 +158,95 @@ export function CartDrawer({
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const accessToken = (session as any)?.accessToken as string | undefined;
+
       const orderItemsSummary = cartItems
         .map((ci) => `${ci.quantity}x ${ci.menuItem.name}${ci.selectedSize ? ` (${ci.selectedSize.name})` : ''}`)
         .join(', ');
 
-      const formattedItems = cartItems.map((ci) => ({
-        menuItemId: ci.menuItem.id,
-        name: ci.menuItem.name,
-        quantity: ci.quantity,
-        unitPrice: ci.menuItem.price,
-      }));
+      const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const newOrderId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+      const orderDetails = {
+        orderNumber,
+        customerName: customerName.trim(),
+        phone: phone.trim() || '09170000000',
+        address: fulfillmentType === 'dine-in' ? (tableNumber || 'Counter') : (address.trim() || null),
+        serviceAreaId: fulfillmentType === 'delivery' ? selectedServiceAreaId : null,
+        type: fulfillmentType,
+        items: orderItemsSummary,
+        subtotal,
+        deliveryFee,
+        total,
+        notes: cartItems.filter(ci => ci.notes).map(ci => `${ci.menuItem.name}: ${ci.notes}`).join('; ') || null,
+        selectedAddons: [],
+      };
 
+      // Map frontend payment method to backend-expected values
+      const backendPaymentMethod = paymentMethod === 'gcash' ? 'GCash' : 'Cash';
+
+      const response = await fetch(`${getApiUrl()}/api/payments/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to process checkout');
+      }
+
+      if (paymentMethod === 'gcash' && data.invoiceUrl) {
+        // GCash: Redirect to Xendit payment page. Do NOT show success screen yet.
+        // Cart is cleared so the user doesn't re-submit on return.
+        onClearCart();
+        window.location.href = data.invoiceUrl;
+        // Keep isSubmitting=true to prevent any further interaction while redirecting
+        return;
+      }
+
+      // Cash: order created successfully on backend
+      // Also update local admin context for staff dashboard real-time display
       if (fulfillmentType === 'delivery') {
         addDeliveryOrder({
-          orderNumber: newOrderId,
+          orderNumber: data.orderNumber || orderNumber,
           customerName: customerName.trim(),
           phone: phone.trim() || '09170000000',
           address: address.trim(),
-          serviceAreaId: 'sa-1',
+          serviceAreaId: selectedServiceAreaId || 'sa-1',
           items: orderItemsSummary,
-          subtotal: subtotal,
-          deliveryFee: deliveryFee,
-          total: total,
+          subtotal,
+          deliveryFee,
+          total,
           status: 'pending',
           orderedAt: new Date().toISOString(),
         });
       } else {
         addStoreOrder({
-          orderId: newOrderId,
+          orderId: data.orderNumber || orderNumber,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           items: `${customerName.trim()} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up'}): ${orderItemsSummary}`,
-          total: total,
+          total,
           status: 'pending',
-          paid: paymentMethod !== 'cod',
+          paid: false,
         });
       }
 
       setIsSubmitting(false);
-      setCompletedOrderId(newOrderId);
+      setCompletedOrderId(data.orderNumber || orderNumber);
       onClearCart();
-    }, 800);
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+      setIsSubmitting(false);
+      alert(error.message || 'Something went wrong. Please try again.');
+    }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm transition-opacity animate-fade-in">
@@ -618,10 +666,25 @@ export function CartDrawer({
                 <button
                   type="submit"
                   form="checkout-form"
-                  className="w-full py-3.5 px-4 bg-[#B91C1C] text-white rounded-xl font-black text-sm shadow-md hover:bg-[#991B1B] active:scale-[0.99] transition flex items-center justify-center gap-2"
+                  disabled={isSubmitting}
+                  className={`w-full py-3.5 px-4 text-white rounded-xl font-black text-sm shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2 ${
+                    isSubmitting 
+                      ? 'bg-stone-400 cursor-not-allowed' 
+                      : 'bg-[#B91C1C] hover:bg-[#991B1B]'
+                  }`}
                 >
-                  Place Order - ₱{total.toFixed(2)}
+                  {isSubmitting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processing...
+                    </>
+                  ) : paymentMethod === 'gcash' ? (
+                    `Pay with GCash - ₱${total.toFixed(2)}`
+                  ) : (
+                    `Place Order - ₱${total.toFixed(2)}`
+                  )}
                 </button>
+
               ) : (
                 <button
                   type="button"

@@ -61,13 +61,26 @@ router.post("/xendit", async (req, res) => {
           const updatedOrder = orders[0];
           
           if (status === 'PAID') {
+            // Full notification for GCash-paid orders (deferred from order creation)
+            const typeLabel = updatedOrder.type === "dine-in" ? "Dine-in" : (updatedOrder.type === "pickup" ? "Pickup" : "Delivery");
+            let paidMessage = `Order #${updatedOrder.order_number} — Payment Received!\nCustomer: ${updatedOrder.customer_name}\nAmount: ₱${Number(updatedOrder.total).toFixed(2)}\nType: ${typeLabel}`;
+            if (updatedOrder.type === "delivery" && updatedOrder.address) {
+              paidMessage += `\nAddress: ${updatedOrder.address}`;
+            } else if (updatedOrder.type === "dine-in" && updatedOrder.address) {
+              paidMessage += `\nTable: ${updatedOrder.address}`;
+            }
+            if (updatedOrder.notes) {
+              paidMessage += `\nNotes: ${updatedOrder.notes}`;
+            }
+
             await notifyAllStaff(
-              'payment',
-              'Payment Received',
-              `Order #${updatedOrder.order_number} has been paid through Xendit.\nAmount: ₱${Number(payment.amount).toFixed(2)}`,
+              updatedOrder.type || 'payment',
+              `New ${typeLabel} Order — GCash Paid`,
+              paidMessage,
               updatedOrder.id
             );
           }
+
 
           // Emit Server-Sent Event to connected clients
           emitPaymentEvent({

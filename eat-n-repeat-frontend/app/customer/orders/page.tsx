@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
 import { OrderCard, type OrderCardProps } from '@/components/customer/OrderCard';
 import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
-import { Package, Bike } from 'lucide-react';
+import { Package, Bike, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 
 // Realistic sample orders for Cordova branch customer portal
 const fallbackOrders: OrderCardProps[] = [
@@ -76,13 +76,67 @@ const fallbackOrders: OrderCardProps[] = [
 
 type OrderFilterStatus = 'all' | 'active' | 'completed' | 'cancelled';
 
-export default function OrdersPage() {
+function OrdersPageContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedStatus, setSelectedStatus] = useState<OrderFilterStatus>('all');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
+
+  // Payment redirect banner state
+  const [paymentBanner, setPaymentBanner] = useState<{
+    type: 'success' | 'failed';
+    orderNumber: string;
+  } | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  // Detect Xendit redirect query params (?success=true/false&order=ORD-XXXX)
+  useEffect(() => {
+    const success = searchParams.get('success');
+    const orderNumber = searchParams.get('order');
+    if (success && orderNumber) {
+      setPaymentBanner({
+        type: success === 'true' ? 'success' : 'failed',
+        orderNumber,
+      });
+      // Clean the URL so refreshing doesn't re-show the banner
+      window.history.replaceState({}, '', '/customer/orders');
+    }
+  }, [searchParams]);
+
+  // Retry failed GCash payment
+  const handleRetryPayment = async (orderNumber: string) => {
+    setIsRetrying(true);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const accessToken = (session as any)?.accessToken as string | undefined;
+
+      const response = await fetch(`${getApiUrl()}/api/payments/retry/${orderNumber}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create retry payment');
+      }
+
+      if (data.invoiceUrl) {
+        window.location.href = data.invoiceUrl;
+        return;
+      }
+    } catch (error: any) {
+      console.error('Payment retry error:', error);
+      alert(error.message || 'Failed to retry payment. Please try again.');
+    }
+    setIsRetrying(false);
+  };
   
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -248,6 +302,66 @@ export default function OrdersPage() {
             </div>
           </div>
 
+          {/* Payment Status Banner from Xendit redirect */}
+          {paymentBanner && (
+            <div className={`rounded-2xl p-5 sm:p-6 mb-8 border shadow-sm flex flex-col sm:flex-row items-start sm:items-center gap-4 ${
+              paymentBanner.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              <div className="flex items-center gap-3 flex-1">
+                {paymentBanner.type === 'success' ? (
+                  <CheckCircle2 className="w-8 h-8 text-emerald-600 shrink-0" />
+                ) : (
+                  <XCircle className="w-8 h-8 text-rose-600 shrink-0" />
+                )}
+                <div>
+                  <h3 className="text-sm sm:text-base font-black">
+                    {paymentBanner.type === 'success'
+                      ? `Payment Successful!`
+                      : `Payment Failed / Cancelled`}
+                  </h3>
+                  <p className="text-xs sm:text-sm font-medium opacity-80 mt-0.5">
+                    {paymentBanner.type === 'success'
+                      ? `Your GCash payment for Order #${paymentBanner.orderNumber} has been received. Your order is now being prepared!`
+                      : `The payment for Order #${paymentBanner.orderNumber} was not completed. You can retry the payment below.`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                {paymentBanner.type === 'failed' && (
+                  <button
+                    onClick={() => handleRetryPayment(paymentBanner.orderNumber)}
+                    disabled={isRetrying}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-2 transition ${
+                      isRetrying
+                        ? 'bg-stone-300 text-stone-500 cursor-not-allowed'
+                        : 'bg-rose-600 text-white hover:bg-rose-700'
+                    }`}
+                  >
+                    {isRetrying ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Retrying...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Retry Payment
+                      </>
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={() => setPaymentBanner(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white/60 hover:bg-white border border-current/10 transition"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8">
             <div className="p-6 rounded-3xl bg-white border border-amber-200/80 shadow-2xs">
@@ -331,5 +445,18 @@ export default function OrdersPage() {
         setFulfillmentType={setFulfillmentType}
       />
     </div>
+  );
+}
+
+// Wrap in Suspense boundary — required by Next.js when using useSearchParams()
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#FFF8F0] flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-[#B91C1C]/30 border-t-[#B91C1C] rounded-full animate-spin"></div>
+      </div>
+    }>
+      <OrdersPageContent />
+    </Suspense>
   );
 }

@@ -84,7 +84,17 @@ export default function ForgotPasswordPage() {
 
           {error && (
             <div role="alert" className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">
-              {error}
+              <p>{error}</p>
+              {error === "No account was found with this email address. Please check your email or create an account." && (
+                <div className="mt-3">
+                  <Link 
+                    href="/customer/register" 
+                    className="inline-block px-4 py-2 bg-[#B91C1C] text-white rounded-full text-xs font-extrabold hover:bg-[#991B1B] transition-colors shadow-sm"
+                  >
+                    Sign Up Now
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 
