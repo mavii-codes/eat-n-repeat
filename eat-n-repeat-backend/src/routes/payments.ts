@@ -90,7 +90,7 @@ router.post("/checkout", requireAuth, async (req: AuthenticatedRequest, res) => 
 
       await notifyAllStaff(
         orderDetails.type || 'delivery',
-        `New ${typeLabel} Order`,
+        `NEW ${typeLabel.toUpperCase()} ORDER`,
         messageText,
         orderId
       );

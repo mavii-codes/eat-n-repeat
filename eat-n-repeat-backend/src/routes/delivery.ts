@@ -194,7 +194,7 @@ router.post("/orders", requireAuth, async (req: AuthenticatedRequest, res) => {
   const notesText = notes ? `\nNote: ${notes}` : "";
   await notifyAllStaff(
     "delivery",
-    "New Delivery Order",
+    "NEW DELIVERY ORDER",
     `Order #${orderNumber}\nCustomer: ${customerName}\nAddress: ${address}\nTotal: ₱${total.toFixed(2)}\nFee: ₱${deliveryFee.toFixed(2)}${notesText}`,
     id
   );

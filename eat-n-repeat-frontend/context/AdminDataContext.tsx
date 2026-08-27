@@ -248,11 +248,15 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
                   id: o.id,
                   orderId: o.orderNumber,
                   time: new Date(o.orderedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  items: `${o.customerName} (${o.type === 'dine-in' ? 'Dine-In' : 'Pick-Up'}): ${o.items}`,
+                  items: o.items,
                   total: o.total,
                   status: o.status === 'pending' || o.status === 'preparing' ? 'pending' : (o.status === 'delivered' || o.status === 'completed' ? 'completed' : 'cancelled'),
                   paid: o.paymentStatus === 'paid',
-                  archived: o.archived
+                  archived: o.archived,
+                  customerName: o.customerName,
+                  orderType: o.type === 'dine-in' ? 'dine-in' : 'takeout',
+                  tableNumber: o.type === 'dine-in' ? o.address : undefined,
+                  paymentStatus: o.paymentStatus
                 });
               }
             });

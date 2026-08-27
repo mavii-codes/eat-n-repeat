@@ -75,7 +75,7 @@ router.post("/xendit", async (req, res) => {
 
             await notifyAllStaff(
               updatedOrder.type || 'payment',
-              `New ${typeLabel} Order — GCash Paid`,
+              `NEW ${typeLabel.toUpperCase()} ORDER`,
               paidMessage,
               updatedOrder.id
             );
