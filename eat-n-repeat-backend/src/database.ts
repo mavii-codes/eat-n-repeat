@@ -282,11 +282,19 @@ export async function initializeDatabase() {
       ADD COLUMN assigned_at TIMESTAMP NULL DEFAULT NULL,
       ADD COLUMN estimated_delivery_time VARCHAR(50) DEFAULT '15–25 min',
       ADD COLUMN cancelled_by VARCHAR(50) DEFAULT NULL,
-      ADD COLUMN cancelled_at TIMESTAMP NULL DEFAULT NULL,
-      ADD COLUMN customer_id VARCHAR(64) DEFAULT NULL
+      ADD COLUMN cancelled_at TIMESTAMP NULL DEFAULT NULL
     `);
   } catch (err) {
     // Columns may already exist
+  }
+
+  try {
+    await pool.query(`
+      ALTER TABLE orders 
+      ADD COLUMN customer_id VARCHAR(64) DEFAULT NULL
+    `);
+  } catch (err) {
+    // Column may already exist
   }
 
   try {
