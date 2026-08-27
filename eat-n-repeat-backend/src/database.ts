@@ -387,6 +387,35 @@ export async function initializeDatabase() {
     // Columns may already exist
   }
 
+  // Cash Float & Reconciliation tables
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cash_shifts (
+      id VARCHAR(64) PRIMARY KEY,
+      staff_id VARCHAR(64) NOT NULL,
+      staff_name VARCHAR(120) NOT NULL,
+      start_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      end_time TIMESTAMP NULL DEFAULT NULL,
+      starting_float DECIMAL(10,2) NOT NULL,
+      expected_cash DECIMAL(10,2) NOT NULL,
+      actual_cash DECIMAL(10,2) DEFAULT NULL,
+      difference DECIMAL(10,2) DEFAULT NULL,
+      status ENUM('open', 'matched', 'short', 'over') NOT NULL DEFAULT 'open',
+      FOREIGN KEY (staff_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cash_transactions (
+      id VARCHAR(64) PRIMARY KEY,
+      shift_id VARCHAR(64) NOT NULL,
+      order_id VARCHAR(64) DEFAULT NULL,
+      type ENUM('sale', 'refund', 'float_adjustment') NOT NULL DEFAULT 'sale',
+      amount DECIMAL(10,2) NOT NULL,
+      timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (shift_id) REFERENCES cash_shifts(id) ON DELETE CASCADE
+    )
+  `);
+
   const [addons] = await pool.query<mysql.RowDataPacket[]>("SELECT id FROM addons");
   if (addons.length === 0) {
     await pool.execute(
