@@ -304,9 +304,6 @@ export function POSCashierTab({
             <span className="inline-flex items-center gap-1 rounded-full bg-[#63131d]/10 px-2.5 py-0.5 text-xs font-bold text-[#63131d] border border-[#63131d]/20 uppercase tracking-wider">
               <Store className="w-3 h-3" /> Walk-in Sales
             </span>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${isOffline ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isOffline ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`} /> {isOffline ? 'OFFLINE' : 'ONLINE'}
-            </span>
           </div>
           <h1 className="font-serif text-3xl font-bold tracking-tight text-[#63131d] mt-1.5">
             POS Cashier
