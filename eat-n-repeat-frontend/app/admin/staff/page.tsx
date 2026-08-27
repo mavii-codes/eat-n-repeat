@@ -240,7 +240,7 @@ export default function StaffPage() {
             </p>
           </div>
           <p className="mt-4 text-[10px] text-stone-400 font-medium">
-            Admin: {roleCounts.admin} &bull; Staff: {roleCounts.staff} &bull; Rider: {roleCounts.delivery_rider}
+            Admin: {roleCounts.admin} &bull; Staff: {roleCounts.staff}
           </p>
         </div>
         <div className="admin-stat-card rounded-2xl p-5 pl-6 flex flex-col justify-between border-l-4 border-l-green-500">
@@ -574,8 +574,6 @@ export default function StaffPage() {
                 }
               >
                 <option value="staff">Staff</option>
-                <option value="head_staff">Head Staff</option>
-                <option value="delivery_rider">Delivery Rider</option>
                 {/* Prevent normal staff from creating admins */}
                 {(currentRole === "admin" || editing?.role === "admin") && (
                   <option value="admin">Admin / Owner</option>
