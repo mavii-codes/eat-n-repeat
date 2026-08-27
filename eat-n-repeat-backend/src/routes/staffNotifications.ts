@@ -38,19 +38,31 @@ export async function notifyAllStaff(
 }
 
 /**
- * Fetch notifications for the currently logged in staff member.
+ * Helper to fetch the primary admin user ID for global notifications
  */
-router.get("/", requireAuth, async (req: AuthenticatedRequest, res) => {
+async function getAdminUserId(): Promise<string | null> {
+  const pool = getPool();
+  const [adminUsers] = await pool.execute<any[]>(
+    "SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1"
+  );
+  return adminUsers.length > 0 ? adminUsers[0].id : null;
+}
+
+/**
+ * Fetch notifications globally for the Staff Portal.
+ * Uses the primary admin's notification stream since all staff receive identical notifications.
+ */
+router.get("/", async (req, res) => {
   try {
-    const userId = req.auth?.userId;
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    const adminId = await getAdminUserId();
+    if (!adminId) {
+      return res.json({ success: true, notifications: [] });
     }
 
     const pool = getPool();
     const [rows] = await pool.execute<any[]>(
       "SELECT * FROM staff_notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
-      [userId]
+      [adminId]
     );
 
     res.json({ success: true, notifications: rows });
@@ -63,19 +75,18 @@ router.get("/", requireAuth, async (req: AuthenticatedRequest, res) => {
 /**
  * Mark a single notification as read.
  */
-router.post("/:id/read", requireAuth, async (req: AuthenticatedRequest, res) => {
+router.post("/:id/read", async (req, res) => {
   try {
-    const userId = req.auth?.userId;
     const notificationId = req.params.id;
-
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    const adminId = await getAdminUserId();
+    if (!adminId) {
+      return res.status(400).json({ success: false, message: "No admin user found" });
     }
 
     const pool = getPool();
     await pool.execute(
       "UPDATE staff_notifications SET is_read = TRUE WHERE id = ? AND user_id = ?",
-      [notificationId, userId]
+      [notificationId, adminId]
     );
 
     res.json({ success: true });
@@ -86,19 +97,19 @@ router.post("/:id/read", requireAuth, async (req: AuthenticatedRequest, res) => 
 });
 
 /**
- * Mark all notifications as read for the current user.
+ * Mark all notifications as read for the current stream.
  */
-router.post("/read-all", requireAuth, async (req: AuthenticatedRequest, res) => {
+router.post("/read-all", async (req, res) => {
   try {
-    const userId = req.auth?.userId;
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    const adminId = await getAdminUserId();
+    if (!adminId) {
+      return res.status(400).json({ success: false, message: "No admin user found" });
     }
 
     const pool = getPool();
     await pool.execute(
       "UPDATE staff_notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE",
-      [userId]
+      [adminId]
     );
 
     res.json({ success: true });
