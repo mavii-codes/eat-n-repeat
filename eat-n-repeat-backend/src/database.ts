@@ -377,11 +377,24 @@ export async function initializeDatabase() {
       id VARCHAR(64) PRIMARY KEY,
       shift_id VARCHAR(64) NOT NULL,
       order_id VARCHAR(64) DEFAULT NULL,
-      type ENUM('sale', 'refund', 'float_adjustment') NOT NULL DEFAULT 'sale',
+      type ENUM('sale', 'refund', 'float_adjustment', 'float_addition') NOT NULL DEFAULT 'sale',
       amount DECIMAL(10,2) NOT NULL,
+      admin_id VARCHAR(64) DEFAULT NULL,
+      admin_name VARCHAR(120) DEFAULT NULL,
+      reason VARCHAR(255) DEFAULT NULL,
       timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  try {
+    // Migration: Update existing cash_transactions table
+    await pool.query(`ALTER TABLE cash_transactions MODIFY COLUMN type ENUM('sale', 'refund', 'float_adjustment', 'float_addition') NOT NULL DEFAULT 'sale'`);
+    await pool.query(`ALTER TABLE cash_transactions ADD COLUMN admin_id VARCHAR(64) DEFAULT NULL, ADD COLUMN admin_name VARCHAR(120) DEFAULT NULL, ADD COLUMN reason VARCHAR(255) DEFAULT NULL`);
+  } catch (e: any) {
+    if (e.code !== 'ER_DUP_FIELDNAME') {
+      console.warn("Migration warning for cash_transactions:", e.message);
+    }
+  }
 
   const [addons] = await pool.query<mysql.RowDataPacket[]>("SELECT id FROM addons");
   if (addons.length === 0) {

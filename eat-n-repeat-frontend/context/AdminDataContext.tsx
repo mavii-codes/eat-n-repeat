@@ -701,6 +701,18 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { console.error("Error fetching cash shift", e); }
   }, []);
 
+  // Poll for active cash shift updates every 10 seconds
+  useEffect(() => {
+    let mounted = true;
+    const interval = setInterval(() => {
+      if (mounted) fetchActiveCashShift();
+    }, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [fetchActiveCashShift]);
+
 const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
     setData((prev) => ({
       ...prev,

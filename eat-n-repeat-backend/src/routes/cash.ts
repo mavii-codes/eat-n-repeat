@@ -166,4 +166,61 @@ router.get("/shifts/:id", authenticate, async (req: any, res) => {
   }
 });
 
+// Admin: Add cash to float
+router.post("/shifts/:id/add-float", authenticate, async (req: any, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+
+    const { amount, reason } = req.body;
+    if (typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid amount" });
+    }
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, message: "Reason is required" });
+    }
+
+    const pool = getPool();
+    
+    // Check if shift is open
+    const [shifts] = await pool.execute<mysql.RowDataPacket[]>(
+      "SELECT * FROM cash_shifts WHERE id = ?",
+      [req.params.id]
+    );
+
+    if (shifts.length === 0) {
+      return res.status(404).json({ success: false, message: "Shift not found" });
+    }
+
+    const shift = shifts[0];
+    if (shift.status !== 'open') {
+      return res.status(400).json({ success: false, message: "Cannot add float to a closed shift" });
+    }
+
+    // Get admin details
+    const [users] = await pool.execute<mysql.RowDataPacket[]>("SELECT name FROM users WHERE id = ?", [req.user.id]);
+    const adminName = users[0]?.name || "Admin";
+
+    // Update shift expected cash
+    await pool.execute(
+      "UPDATE cash_shifts SET expected_cash = expected_cash + ? WHERE id = ?",
+      [amount, req.params.id]
+    );
+
+    // Record float addition transaction
+    const txId = `tx-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    await pool.execute(
+      `INSERT INTO cash_transactions (id, shift_id, type, amount, admin_id, admin_name, reason)
+       VALUES (?, ?, 'float_addition', ?, ?, ?, ?)`,
+      [txId, req.params.id, amount, req.user.id, adminName, reason]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error adding float:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 export default router;

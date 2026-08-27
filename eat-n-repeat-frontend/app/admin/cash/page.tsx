@@ -127,6 +127,10 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
   const [shift, setShift] = useState<CashShift | null>(null);
   const [transactions, setTransactions] = useState<CashTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [addingFloat, setAddingFloat] = useState(false);
+  const [floatAmount, setFloatAmount] = useState("");
+  const [floatReason, setFloatReason] = useState("");
+  const [submitLoading, setSubmitLoading] = useState(false);
 
   useEffect(() => {
     fetchDetails();
@@ -147,6 +151,41 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
+  const handleAddFloat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(floatAmount);
+    if (isNaN(amount) || amount <= 0) return alert("Please enter a valid positive amount.");
+    if (!floatReason.trim()) return alert("Please provide a reason.");
+    
+    setSubmitLoading(true);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-admin-token') || localStorage.getItem('eat-n-repeat-staff-token');
+      const res = await fetch(`${getApiUrl()}/api/cash/shifts/${shiftId}/add-float`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ amount, reason: floatReason })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAddingFloat(false);
+        setFloatAmount("");
+        setFloatReason("");
+        await fetchDetails();
+      } else {
+        alert(data.message || "Failed to add float.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Network error.");
+    } finally {
+      setSubmitLoading(false);
+    }
+  };
+
   if (!shift && !loading) return null;
 
   return (
@@ -154,12 +193,27 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
       <div className="bg-white max-w-2xl w-full rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center p-5 border-b border-stone-100">
           <div>
-            <h2 className="text-xl font-bold text-stone-900">Shift Details</h2>
+            <h2 className="text-xl font-bold text-stone-900 flex items-center gap-2">
+              Shift Details
+              {shift?.status === 'open' && (
+                <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-bold uppercase rounded border border-amber-200">Open Shift</span>
+              )}
+            </h2>
             <p className="text-xs text-stone-500 font-mono mt-0.5">{shiftId}</p>
           </div>
-          <button onClick={onClose} className="p-2 text-stone-400 hover:text-stone-700 bg-stone-50 hover:bg-stone-100 rounded-full transition-colors">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-3">
+            {shift?.status === 'open' && !addingFloat && (
+              <button 
+                onClick={() => setAddingFloat(true)}
+                className="px-3 py-1.5 bg-[#800000] text-white text-xs font-bold rounded-lg hover:bg-red-900 transition-colors"
+              >
+                + Add Cash to Float
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 text-stone-400 hover:text-stone-700 bg-stone-50 hover:bg-stone-100 rounded-full transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -176,6 +230,42 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
                 <p className="font-bold text-lg capitalize text-stone-800">{shift.status}</p>
               </div>
             </div>
+
+            {addingFloat && (
+              <form onSubmit={handleAddFloat} className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
+                <h3 className="font-bold text-blue-900 mb-3 text-sm flex items-center gap-2">
+                  <PhilippinePeso className="w-4 h-4" /> Add Cash to Float
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-blue-700 mb-1">Amount (₱)</label>
+                    <input 
+                      type="number" step="0.01" min="0.01" required
+                      className="w-full text-sm border-blue-200 rounded-lg p-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                      value={floatAmount} onChange={e => setFloatAmount(e.target.value)}
+                      placeholder="e.g. 500"
+                      disabled={submitLoading}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold uppercase text-blue-700 mb-1">Reason</label>
+                    <input 
+                      type="text" required
+                      className="w-full text-sm border-blue-200 rounded-lg p-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                      value={floatReason} onChange={e => setFloatReason(e.target.value)}
+                      placeholder="e.g. Additional change money"
+                      disabled={submitLoading}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setAddingFloat(false)} className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg" disabled={submitLoading}>Cancel</button>
+                  <button type="submit" className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg" disabled={submitLoading}>
+                    {submitLoading ? 'Adding...' : 'Confirm Addition'}
+                  </button>
+                </div>
+              </form>
+            )}
 
             <div className="border border-stone-200 rounded-xl overflow-hidden">
               <div className="p-3 bg-stone-50 border-b border-stone-200 flex items-center gap-2 text-stone-600 font-bold text-sm">
@@ -226,7 +316,17 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
                       {transactions.map(t => (
                         <tr key={t.id} className="hover:bg-stone-50">
                           <td className="px-3 py-2 text-stone-500">{new Date(t.timestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</td>
-                          <td className="px-3 py-2 capitalize font-medium text-stone-700">{t.type}</td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${t.type === 'float_addition' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-stone-100 text-stone-600 border border-stone-200'}`}>
+                              {t.type.replace('_', ' ')}
+                            </span>
+                            {t.type === 'float_addition' && t.reason && (
+                              <div className="text-[10px] text-stone-500 mt-1">
+                                By: {t.admin_name || 'Admin'} <br/>
+                                <span className="italic">"{t.reason}"</span>
+                              </div>
+                            )}
+                          </td>
                           <td className="px-3 py-2 font-mono text-stone-400">{t.order_id || "-"}</td>
                           <td className="px-3 py-2 text-right font-bold text-stone-900">₱{parseFloat(t.amount as string).toFixed(2)}</td>
                         </tr>
