@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
-import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle } from "lucide-react";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Calculator } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { DeliveryOrdersTable } from "@/components/admin/DeliveryOrdersTable";
@@ -749,6 +749,43 @@ export default function StaffPortalPage() {
               </div>
             </header>
 
+            {/* ACTIVE CASH SHIFT */}
+            {activeCashShift && (
+              <section className="rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-4 sm:p-5 shadow-sm backdrop-blur-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                  <Calculator className="w-24 h-24 text-emerald-900" />
+                </div>
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> OPEN SHIFT
+                    </span>
+                    <h2 className="text-sm font-bold text-emerald-950">Active Cash Float</h2>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Staff</p>
+                      <p className="font-medium text-emerald-950 truncate">{user?.name} <span className="text-emerald-700/60 text-xs">({activeCashShift.staff_id})</span></p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Shift ID</p>
+                      <p className="font-mono text-xs font-medium text-emerald-950">{activeCashShift.id.split('-').slice(0, 2).join('-')}...</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Started</p>
+                      <p className="font-medium text-emerald-950">
+                        {new Date(activeCashShift.start_time).toLocaleDateString()} at {new Date(activeCashShift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Starting Float</p>
+                      <p className="font-bold text-emerald-900 text-lg">₱{Number(activeCashShift.starting_float).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* KPI CARDS */}
             <section className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4">
               {[
@@ -1019,6 +1056,23 @@ export default function StaffPortalPage() {
 
               {/* ACTIVE ORDERS PANEL */}
               <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
+                {/* TABS FOR DELIVERY / PICKUP / DINE-IN */}
+                <div className="flex border-b border-accent/10 bg-white/60">
+                  {['all', 'delivery', 'takeout', 'dine-in'].map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setOrderTypeFilter(type)}
+                      className={`flex-1 py-3 text-sm font-bold capitalize transition-colors border-b-2 ${
+                        orderTypeFilter === type 
+                          ? 'border-accent text-accent bg-white' 
+                          : 'border-transparent text-muted hover:text-stone-800 hover:bg-white/50'
+                      }`}
+                    >
+                      {type === 'all' ? 'All Orders' : type === 'takeout' ? 'Pick-up' : type}
+                    </button>
+                  ))}
+                </div>
+
                 {/* FILTERS */}
                 <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">
@@ -1032,16 +1086,6 @@ export default function StaffPortalPage() {
                     />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                    <select 
-                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
-                      value={orderTypeFilter}
-                      onChange={(e) => setOrderTypeFilter(e.target.value)}
-                    >
-                      <option value="all">All Types</option>
-                      <option value="dine-in">Dine-in</option>
-                      <option value="takeout">Takeout</option>
-                      <option value="delivery">Delivery</option>
-                    </select>
                     <select 
                       className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
                       value={orderStatusFilter}

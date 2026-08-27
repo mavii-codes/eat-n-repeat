@@ -95,6 +95,38 @@ export function CustomerChatBot() {
     const text = userText.toLowerCase();
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    if (text.includes('order') || text.includes('cart') || text.includes('my items') || text.includes('what') && text.includes('in') && (text.includes('cart') || text.includes('order'))) {
+      try {
+        const savedCart = window.localStorage.getItem('eat-n-repeat-cart');
+        if (savedCart) {
+          const cartItems = JSON.parse(savedCart);
+          if (cartItems.length > 0) {
+            let total = 0;
+            const itemsList = cartItems.map((item: any) => {
+              const itemTotal = item.menuItem.price * item.quantity;
+              total += itemTotal;
+              return `* ${item.menuItem.name} × ${item.quantity}`;
+            }).join('\n');
+            
+            return {
+              id: Date.now().toString(),
+              sender: 'bot',
+              text: `Your current order contains:\n\n${itemsList}\n\nTotal: ₱${total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`,
+              timestamp: now,
+            };
+          }
+        }
+      } catch (e) {
+        // Fallback to default message if localStorage fails or is empty
+      }
+      return {
+        id: Date.now().toString(),
+        sender: 'bot',
+        text: "Your cart is currently empty. Want me to recommend some of our best sellers?",
+        timestamp: now,
+      };
+    }
+
     if (text.includes('coffee') || text.includes('drink') || text.includes('latte') || text.includes('brew')) {
       return {
         id: Date.now().toString(),
