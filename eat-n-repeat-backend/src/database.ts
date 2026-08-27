@@ -337,37 +337,6 @@ export async function initializeDatabase() {
     )
   `);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS cash_shifts (
-      id VARCHAR(64) PRIMARY KEY,
-      staff_id VARCHAR(64) NOT NULL,
-      staff_name VARCHAR(120) NOT NULL,
-      start_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      end_time TIMESTAMP NULL DEFAULT NULL,
-      starting_float DECIMAL(10,2) NOT NULL,
-      expected_cash DECIMAL(10,2) NOT NULL,
-      actual_cash DECIMAL(10,2) DEFAULT NULL,
-      difference DECIMAL(10,2) DEFAULT NULL,
-      status ENUM('open', 'matched', 'short', 'over') NOT NULL DEFAULT 'open',
-      CONSTRAINT cash_shifts_staff_fk
-        FOREIGN KEY (staff_id) REFERENCES users(id)
-        ON DELETE CASCADE
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS cash_transactions (
-      id VARCHAR(64) PRIMARY KEY,
-      shift_id VARCHAR(64) NOT NULL,
-      order_id VARCHAR(64) DEFAULT NULL,
-      type ENUM('sale', 'refund', 'float_adjustment') NOT NULL DEFAULT 'sale',
-      amount DECIMAL(10,2) NOT NULL,
-      timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT cash_tx_shift_fk
-        FOREIGN KEY (shift_id) REFERENCES cash_shifts(id)
-        ON DELETE CASCADE
-    )
-  `);
 
   try {
     // Add sync_status for Local-to-Cloud synchronization
@@ -399,8 +368,7 @@ export async function initializeDatabase() {
       expected_cash DECIMAL(10,2) NOT NULL,
       actual_cash DECIMAL(10,2) DEFAULT NULL,
       difference DECIMAL(10,2) DEFAULT NULL,
-      status ENUM('open', 'matched', 'short', 'over') NOT NULL DEFAULT 'open',
-      FOREIGN KEY (staff_id) REFERENCES users(id) ON DELETE CASCADE
+      status ENUM('open', 'matched', 'short', 'over') NOT NULL DEFAULT 'open'
     )
   `);
 
@@ -411,8 +379,7 @@ export async function initializeDatabase() {
       order_id VARCHAR(64) DEFAULT NULL,
       type ENUM('sale', 'refund', 'float_adjustment') NOT NULL DEFAULT 'sale',
       amount DECIMAL(10,2) NOT NULL,
-      timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (shift_id) REFERENCES cash_shifts(id) ON DELETE CASCADE
+      timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
