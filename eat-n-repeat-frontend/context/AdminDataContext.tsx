@@ -204,6 +204,77 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
+  // Poll live orders from the database
+  useEffect(() => {
+    let mounted = true;
+    const fetchOrders = async () => {
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const token = localStorage.getItem('eat-n-repeat-staff-token');
+        const response = await fetch(`${getApiUrl()}/api/admin-orders`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.success && result.orders && mounted) {
+          setData(prev => {
+            const liveDeliveryOrders = [];
+            const liveStoreOrders = [];
+
+            result.orders.forEach((o) => {
+              if (o.type === 'delivery') {
+                liveDeliveryOrders.push({
+                  id: o.id,
+                  orderNumber: o.orderNumber,
+                  customerName: o.customerName,
+                  phone: o.phone,
+                  address: o.address,
+                  serviceAreaId: o.serviceAreaId,
+                  items: o.items,
+                  subtotal: o.subtotal,
+                  deliveryFee: o.deliveryFee,
+                  total: o.total,
+                  status: o.status,
+                  deliveryPerson: o.deliveryPerson,
+                  assignedRole: o.assignedRole,
+                  orderedAt: o.orderedAt,
+                  archived: o.archived,
+                  paymentStatus: o.paymentStatus,
+                  paid: o.paymentStatus === 'paid'
+                });
+              } else {
+                liveStoreOrders.push({
+                  id: o.id,
+                  orderId: o.orderNumber,
+                  time: new Date(o.orderedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  items: `${o.customerName} (${o.type === 'dine-in' ? 'Dine-In' : 'Pick-Up'}): ${o.items}`,
+                  total: o.total,
+                  status: o.status === 'pending' || o.status === 'preparing' ? 'pending' : (o.status === 'delivered' || o.status === 'completed' ? 'completed' : 'cancelled'),
+                  paid: o.paymentStatus === 'paid',
+                  archived: o.archived
+                });
+              }
+            });
+
+            return {
+              ...prev,
+              deliveryOrders: liveDeliveryOrders,
+              storeOrders: liveStoreOrders
+            };
+          });
+        }
+      } catch (e) {}
+    };
+
+    fetchOrders();
+    const interval = setInterval(fetchOrders, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
@@ -463,7 +534,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateDeliveryStatus = useCallback(
-    (id: string, status: DeliveryStatus) => {
+    async (id: string, status: DeliveryStatus) => {
       setData((prev) => ({
         ...prev,
         deliveryOrders: prev.deliveryOrders.map((order) =>
@@ -479,6 +550,19 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             : order,
         ),
       }));
+
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const token = localStorage.getItem('eat-n-repeat-staff-token');
+        await fetch(`${getApiUrl()}/api/admin-orders/${id}/status`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ status })
+        });
+      } catch (e) { console.error(e); }
     },
     [],
   );
@@ -544,22 +628,47 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const updateStoreOrderStatus = useCallback((id: string, status: "pending" | "completed" | "cancelled") => {
+  const updateStoreOrderStatus = useCallback(async (id: string, status: "pending" | "completed" | "cancelled") => {
     setData((prev) => ({
       ...prev,
       storeOrders: prev.storeOrders.map((order) =>
         order.id === id ? { ...order, status } : order
       ),
     }));
+
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/admin-orders/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ status })
+      });
+    } catch (e) { console.error(e); }
   }, []);
 
-  const confirmStoreOrderPayment = useCallback((id: string) => {
+  const confirmStoreOrderPayment = useCallback(async (id: string) => {
     setData((prev) => ({
       ...prev,
       storeOrders: prev.storeOrders.map((order) =>
         order.id === id ? { ...order, paid: true } : order
       ),
     }));
+
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/admin-orders/${id}/payment`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+    } catch (e) { console.error(e); }
   }, []);
 
   const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
