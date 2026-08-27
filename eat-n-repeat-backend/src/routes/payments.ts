@@ -122,9 +122,18 @@ router.post("/checkout", requireAuth, async (req: AuthenticatedRequest, res) => 
     } else {
       return res.json({ success: true, orderId: orderId, orderNumber: orderNumber });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating checkout:", error);
-    res.status(500).json({ success: false, error: "Failed to process checkout" });
+    
+    // Extract Xendit-specific error details if present
+    let errorMsg = error.message || "Failed to process checkout";
+    if (error.response && error.response.data) {
+      errorMsg = JSON.stringify(error.response.data);
+    } else if (error.stack) {
+      errorMsg = String(error);
+    }
+
+    res.status(500).json({ success: false, error: errorMsg });
   }
 });
 
