@@ -456,4 +456,5 @@ export const initialAdminData: AdminDataState = {
   ],
   deliveryTeam: [],
   stockRequests: [],
+  activeCashShift: null,
 };

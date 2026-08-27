@@ -35,6 +35,7 @@ import type {
   StockRequestInput,
   StockHistoryLog,
   SystemSettings,
+  CashShift,
 } from "@/lib/admin/types";
 
 const STORAGE_KEY = "eat-n-repeat-admin-data";
@@ -103,7 +104,8 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
   };
 }
 
-type AdminDataContextValue = AdminDataState & {  addMenuItem: (input: MenuItemInput) => void;
+type AdminDataContextValue = AdminDataState & {  fetchActiveCashShift: () => Promise<void>;
+  addMenuItem: (input: MenuItemInput) => void;
   updateMenuItem: (id: string, input: MenuItemInput) => void;
   deleteMenuItem: (id: string) => void;
   archiveMenuItem: (id: string) => void;
@@ -144,7 +146,7 @@ type AdminDataContextValue = AdminDataState & {  addMenuItem: (input: MenuItemI
   archiveStoreOrder: (id: string) => void;
   restoreStoreOrder: (id: string) => void;
   updateStoreOrderStatus: (id: string, status: "completed" | "cancelled") => void;
-  confirmStoreOrderPayment: (id: string) => void;
+  confirmStoreOrderPayment: (id: string, cashReceived?: number) => void;
   addStoreOrder: (input: any) => void;
   addServiceArea: (input: ServiceAreaInput) => void;
   updateServiceArea: (id: string, input: ServiceAreaInput) => void;
@@ -219,10 +221,10 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         const result = await response.json();
         if (result.success && result.orders && mounted) {
           setData(prev => {
-            const liveDeliveryOrders = [];
-            const liveStoreOrders = [];
+            const liveDeliveryOrders: any[] = [];
+            const liveStoreOrders: any[] = [];
 
-            result.orders.forEach((o) => {
+            result.orders.forEach((o: any) => {
               if (o.type === 'delivery') {
                 liveDeliveryOrders.push({
                   id: o.id,
@@ -654,28 +656,52 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { console.error(e); }
   }, []);
 
-  const confirmStoreOrderPayment = useCallback(async (id: string) => {
-    setData((prev) => ({
-      ...prev,
-      storeOrders: prev.storeOrders.map((order) =>
-        order.id === id ? { ...order, paid: true } : order
-      ),
-    }));
-
+  const confirmStoreOrderPayment = useCallback(async (id: string, cashReceived?: number) => {
     try {
       const { getApiUrl } = await import('@/lib/config');
       const token = localStorage.getItem('eat-n-repeat-staff-token');
-      await fetch(`${getApiUrl()}/api/admin-orders/${id}/payment`, {
+      const response = await fetch(`${getApiUrl()}/api/admin-orders/${id}/payment`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
+        },
+        body: JSON.stringify({ method: 'Cash', cashReceived })
       });
-    } catch (e) { console.error(e); }
+      const data = await response.json();
+      
+      if (data.success) {
+        setData((prev) => ({
+          ...prev,
+          storeOrders: prev.storeOrders.map((order) =>
+            order.id === id ? { ...order, paid: true, paymentStatus: 'paid' } : order
+          ),
+        }));
+      }
+      return data;
+    } catch (e) { 
+      console.error(e); 
+      return { success: false, message: "Network error" };
+    }
   }, []);
 
-  const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
+  
+  const fetchActiveCashShift = useCallback(async () => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      if (!token) return;
+      const res = await fetch(`${getApiUrl()}/api/cash/shift/current`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setData(prev => ({ ...prev, activeCashShift: data.shift }));
+      }
+    } catch (e) { console.error("Error fetching cash shift", e); }
+  }, []);
+
+const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
     setData((prev) => ({
       ...prev,
       storeOrders: [
@@ -893,6 +919,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
       addStoreOrder,
+      fetchActiveCashShift,
       addServiceArea,
       updateServiceArea,
       deleteServiceArea,

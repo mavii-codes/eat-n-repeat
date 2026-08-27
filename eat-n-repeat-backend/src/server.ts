@@ -24,6 +24,7 @@ import customerOrdersRouter from "./routes/customerOrders.js";
 
 import { syncRouter } from "./routes/sync.js";
 import adminOrdersRouter from "./routes/adminOrders.js";
+import cashRouter from "./routes/cash.js";
 import { startSyncWorker } from "./services/syncWorker.js";
 
 const app = express();
@@ -49,6 +50,7 @@ app.use("/api/admin-orders", adminOrdersRouter);
 app.use("/api/addons", addonsRouter);
 app.use("/api/customer-favorites", customerFavoritesRouter);
 app.use("/api/sync", syncRouter);
+app.use("/api/cash", cashRouter);
 
 app.use((_req, res) => res.status(404).json({ message: "Route not found." }));
 

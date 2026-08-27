@@ -197,7 +197,31 @@ export type SystemSettings = {
   orderNotifications: boolean;
 };
 
+
+export type CashShift = {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  start_time: string;
+  end_time?: string;
+  starting_float: number | string;
+  expected_cash: number | string;
+  actual_cash?: number | string;
+  difference?: number | string;
+  status: 'open' | 'matched' | 'short' | 'over';
+};
+
+export type CashTransaction = {
+  id: string;
+  shift_id: string;
+  order_id?: string;
+  type: 'sale' | 'refund' | 'float_adjustment';
+  amount: number | string;
+  timestamp: string;
+};
+
 export type AdminDataState = {
+  activeCashShift: CashShift | null;
   menuCategories: MenuCategory[];
   menuItems: MenuItem[];
   stockCategories: StockCategory[];

@@ -3,6 +3,7 @@ import { getPool } from "../database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import type mysql from "mysql2/promise";
 import { z } from "zod";
+import crypto from "crypto";
 
 const router = Router();
 
@@ -138,7 +139,7 @@ router.patch("/:id/status", async (req, res) => {
 
 /* ── PATCH /api/admin-orders/:id/payment ── */
 // Mark order as paid manually
-router.patch("/:id/payment", async (req, res) => {
+router.patch("/:id/payment", requireAuth, async (req: any, res) => {
   try {
     const pool = getPool();
     const [existingRows] = await pool.execute<mysql.RowDataPacket[]>(
@@ -162,12 +163,60 @@ router.patch("/:id/payment", async (req, res) => {
       );
     }
     
+    const { method, cashReceived } = req.body;
+    const isPhysicalCash = method === 'Cash' || !method; // default to cash if manual
+    const totalAmount = parseFloat(existingRows[0].total);
+
+    let change = 0;
+
+    if (isPhysicalCash) {
+      if (typeof cashReceived !== 'number' || cashReceived < totalAmount) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Insufficient payment. Need ₱${(totalAmount - (cashReceived || 0)).toFixed(2)} more.` 
+        });
+      }
+      
+      change = cashReceived - totalAmount;
+      const userId = req.user?.id;
+
+      // Validate active cash shift
+      if (userId) {
+        const [openShifts] = await pool.execute<mysql.RowDataPacket[]>(
+          "SELECT * FROM cash_shifts WHERE staff_id = ? AND status = 'open' LIMIT 1",
+          [userId]
+        );
+
+        if (openShifts.length === 0) {
+          return res.status(403).json({ 
+            success: false, 
+            message: "Please start your cash shift before processing cash payments." 
+          });
+        }
+
+        const shiftId = openShifts[0].id;
+        const currentExpected = parseFloat(openShifts[0].expected_cash);
+
+        // Update shift expected cash
+        await pool.execute(
+          "UPDATE cash_shifts SET expected_cash = ? WHERE id = ?",
+          [currentExpected + totalAmount, shiftId]
+        );
+
+        // Record cash transaction
+        await pool.execute(
+          "INSERT INTO cash_transactions (id, shift_id, order_id, type, amount) VALUES (?, ?, ?, 'sale', ?)",
+          [`cashtx-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`, shiftId, orderId, totalAmount]
+        );
+      }
+    }
+
     // If order was pending_payment, make it pending
     if (existingRows[0].status === 'pending_payment') {
         await pool.execute("UPDATE orders SET status = 'pending' WHERE id = ?", [orderId]);
     }
 
-    res.json({ success: true, message: "Order marked as paid" });
+    res.json({ success: true, message: "Order marked as paid", change });
   } catch (error) {
     console.error("Error marking order as paid:", error);
     res.status(500).json({ success: false, message: "Server error" });

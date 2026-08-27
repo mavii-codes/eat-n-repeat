@@ -22,6 +22,7 @@ import {
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { PaymentDetailsModal } from "@/components/admin/PaymentDetailsModal";
+import { StartShiftModal, EndShiftModal, CashPaymentModal } from "@/components/staff/CashModals";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
@@ -126,6 +127,12 @@ export default function StaffPortalPage() {
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
   const [paymentModalOrder, setPaymentModalOrder] = useState<any | null>(null);
 
+  // Cash Register States
+  const { activeCashShift, fetchActiveCashShift } = useAdminData();
+  const [startShiftOpen, setStartShiftOpen] = useState(false);
+  const [endShiftOpen, setEndShiftOpen] = useState(false);
+  const [cashPaymentOrder, setCashPaymentOrder] = useState<any | null>(null);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Form states for adding/editing menu items
@@ -196,6 +203,7 @@ export default function StaffPortalPage() {
   const [currentTime, setCurrentTime] = useState("");
 
   useEffect(() => {
+    fetchActiveCashShift();
     setCurrentTime(
       new Date().toLocaleTimeString("en-US", {
         hour: "2-digit",
@@ -399,6 +407,40 @@ export default function StaffPortalPage() {
   }
 
   // Profile Edit Submission
+  const handleStartShift = async (float: number) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/cash/shift/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ startingFloat: float })
+      });
+      await fetchActiveCashShift();
+      setStartShiftOpen(false);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleEndShift = async (cash: number) => {
+    try {
+      if (!activeCashShift) return;
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/cash/shift/end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ shiftId: activeCashShift.id, actualCash: cash })
+      });
+      await fetchActiveCashShift();
+      setEndShiftOpen(false);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleConfirmCashPayment = async (cashReceived: number) => {
+    if (!cashPaymentOrder) return { success: false, message: "No order selected" };
+    return await confirmStoreOrderPayment(cashPaymentOrder.id, cashReceived);
+  };
+
   function handleProfileUpdate(e: React.FormEvent) {
     e.preventDefault();
     setProfileError(null);
@@ -790,8 +832,6 @@ export default function StaffPortalPage() {
                       </tbody>
                     </table>
                   </div>
-                
-                )}
               </AdminPanel>
 
                 <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
@@ -942,7 +982,21 @@ export default function StaffPortalPage() {
               {/* HEADER */}
               <div>
                 <span className="inline-flex rounded-full bg-[#fce7db] px-2.5 py-0.5 text-xs font-semibold capitalize text-[#63131d] border border-[#63131d]/10">Operations</span>
-                <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Orders Dashboard</h1>
+                <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5 flex justify-between items-center">
+                  Orders Dashboard
+                  {!activeCashShift ? (
+                    <button onClick={() => setStartShiftOpen(true)} className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-xl hover:bg-emerald-700 shadow-md">
+                      Start Cash Shift
+                    </button>
+                  ) : (
+                    <div className="flex gap-3 items-center">
+                      <span className="text-sm font-medium text-stone-600 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">Float: ₱{Number(activeCashShift.starting_float).toFixed(2)}</span>
+                      <button onClick={() => setEndShiftOpen(true)} className="px-4 py-2 bg-stone-800 text-white text-sm rounded-xl hover:bg-black shadow-md">
+                        End Cash Shift
+                      </button>
+                    </div>
+                  )}
+                </h1>
                 <p className="text-sm text-muted">Manage customer orders, update workflow status, and confirm payments.</p>
               </div>
 
@@ -1151,8 +1205,8 @@ export default function StaffPortalPage() {
                               <div>
                                 <h3 className="font-bold text-[#63131d]">{order.orderId}</h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
-                                {order.orderType === 'dine-in' && order.tableNumber && (
-                                  <p className="text-[10px] text-stone-500 font-bold mt-0.5">Table: {order.tableNumber}</p>
+                                {order.orderType === 'dine-in' && (order as any).tableNumber && (
+                                  <p className="text-[10px] text-stone-500 font-bold mt-0.5">Table: {(order as any).tableNumber}</p>
                                 )}
                               </div>
                               <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
@@ -1230,6 +1284,7 @@ export default function StaffPortalPage() {
                     </>
                   )}
                 </div>
+              )}
               </AdminPanel>
 
               {/* ORDER HISTORY */}
@@ -1484,6 +1539,23 @@ export default function StaffPortalPage() {
                           </span>
                         )}
                       </div>
+
+                      {(!selectedOrderDetails.paid && selectedOrderDetails.paymentStatus !== "paid" && selectedOrderDetails.status !== "completed" && selectedOrderDetails.status !== "delivered") && (
+                        <div className="mt-4 pt-4 border-t border-accent/10">
+                          <button
+                            onClick={() => {
+                              if (!activeCashShift) {
+                                setStartShiftOpen(true);
+                              } else {
+                                setCashPaymentOrder(selectedOrderDetails);
+                              }
+                            }}
+                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-md"
+                          >
+                            Receive Cash Payment
+                          </button>
+                        </div>
+                      )}
 
                     </div>
                   </div>
@@ -1846,7 +1918,193 @@ export default function StaffPortalPage() {
           <ArchiveTab />
         )}
 
-        
+        {/* TAB 5: DELIVERY ORDERS */}
+        {activeTab === "delivery" && (
+          <div className="space-y-6">
+            <div>
+              <span className="inline-flex rounded-full bg-[#fce7db] px-2.5 py-0.5 text-xs font-semibold capitalize text-[#63131d] border border-[#63131d]/10">
+                Deliveries
+              </span>
+              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#63131d] mt-1.5">
+                Delivery Orders
+              </h1>
+              <p className="text-sm text-stone-500 mt-1">
+                View delivery addresses, item manifests, courier assignments, and update live progress status.
+              </p>
+            </div>
+
+            <DeliveryOrdersTable
+              orders={deliveryOrders}
+              getServiceAreaName={getServiceAreaName}
+              showStatusControl={true}
+              onStatusChange={updateDeliveryStatus}
+              onDeliveryPersonChange={updateDeliveryPerson}
+              onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
+              isAdmin={user?.role === "admin"}
+            />
+          </div>
+        )}
+
+        {/* TAB 6: PROFILE */}
+        {activeTab === "profile" && (
+          <div className="space-y-6">
+            <div>
+              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Profile</span>
+              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">My Account Settings</h1>
+              <p className="text-sm text-muted">Update your staff profile credentials and password.</p>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+              <AdminPanel title="Profile Details" subtitle="Full Name and contact details">
+                <form onSubmit={handleProfileUpdate} className="space-y-4 px-6 py-5">
+                  {profileError && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-800">
+                      {profileError}
+                    </div>
+                  )}
+                  {profileSuccess && (
+                    <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-xs font-semibold text-green-800">
+                      {profileSuccess}
+                    </div>
+                  )}
+                  <AdminField label="Full Name">
+                    <AdminInput
+                      value={profileName}
+                      onChange={(e) => {
+                        setProfileName(e.target.value);
+                        setProfileError(null);
+                        setProfileSuccess(null);
+                      }}
+                      placeholder="e.g. Maria Santos"
+                      required
+                    />
+                  </AdminField>
+                  <AdminField label="Username">
+                    <AdminInput
+                      value={profileUsername}
+                      onChange={(e) => {
+                        setProfileUsername(e.target.value.toLowerCase().replace(/\s+/g, ""));
+                        setProfileError(null);
+                        setProfileSuccess(null);
+                      }}
+                      placeholder="e.g. maria"
+                      required
+                    />
+                  </AdminField>
+                  <AdminField label="Email Address">
+                    <AdminInput
+                      type="email"
+                      value={profileEmail}
+                      onChange={(e) => {
+                        setProfileEmail(e.target.value);
+                        setProfileError(null);
+                        setProfileSuccess(null);
+                      }}
+                      placeholder="e.g. maria@eatnrepeat.com"
+                      required
+                    />
+                  </AdminField>
+                  <div className="pt-2 flex justify-end">
+                    <AdminButton type="submit">Update Profile</AdminButton>
+                  </div>
+                </form>
+              </AdminPanel>
+
+              <AdminPanel title="Security Settings" subtitle="Change account password">
+                <form onSubmit={handlePasswordUpdate} className="space-y-4 px-6 py-5">
+                  {pwdError && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-800">
+                      {pwdError}
+                    </div>
+                  )}
+                  {pwdSuccess && (
+                    <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-xs font-semibold text-green-800">
+                      {pwdSuccess}
+                    </div>
+                  )}
+                  <AdminField label="Current Password">
+                    <AdminInput
+                      type="password"
+                      value={currentPwd}
+                      onChange={(e) => {
+                        setCurrentPwd(e.target.value);
+                        setPwdError(null);
+                        setPwdSuccess(null);
+                      }}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </AdminField>
+                  <AdminField label="New Password">
+                    <AdminInput
+                      type="password"
+                      value={newPwd}
+                      onChange={(e) => {
+                        setNewPwd(e.target.value);
+                        setPwdError(null);
+                        setPwdSuccess(null);
+                      }}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </AdminField>
+                  <AdminField label="Confirm New Password">
+                    <AdminInput
+                      type="password"
+                      value={confirmNewPwd}
+                      onChange={(e) => {
+                        setConfirmNewPwd(e.target.value);
+                        setPwdError(null);
+                        setPwdSuccess(null);
+                      }}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </AdminField>
+                  <div className="pt-2 flex justify-end">
+                    <AdminButton type="submit">Update Password</AdminButton>
+                  </div>
+                </form>
+              </AdminPanel>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: POS CASHIER */}
+        {activeTab === "pos" && (
+          <POSCashierTab
+            menuItems={menuItems}
+            menuCategories={menuCategories}
+            getMenuCategoryName={getMenuCategoryName}
+            addStoreOrder={addStoreOrder}
+            stockItems={stockItems}
+            updateStockItem={updateStockItem}
+            staffName={user?.name || "Cashier"}
+          />
+        )}
+      </main>
+
+      {/* ADD/EDIT MENU ITEM MODAL */}
+      <AdminModal
+        open={menuModalOpen}
+        title={editingMenuItem ? "Edit Menu Item" : "Add Menu Item"}
+        onClose={() => setMenuModalOpen(false)}
+        footer={
+          <>
+            <AdminButton variant="secondary" onClick={() => setMenuModalOpen(false)}>
+              Cancel
+            </AdminButton>
+            <AdminButton onClick={handleMenuSubmit}>
+              {editingMenuItem ? "Save Changes" : "Add Item"}
+            </AdminButton>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <AdminField label="Item Name">
+            <AdminInput
+              value={menuForm.name}
+              onChange={(e) => setMenuForm({ ...menuForm, name: e.target.value })}
               placeholder="e.g. Mocha Latte"
               required
             />
@@ -1938,6 +2196,10 @@ export default function StaffPortalPage() {
           order={paymentModalOrder}
         />
       )}
+
+      <StartShiftModal open={startShiftOpen} onStart={handleStartShift} />
+      <EndShiftModal open={endShiftOpen} shift={activeCashShift} onEnd={handleEndShift} onClose={() => setEndShiftOpen(false)} />
+      <CashPaymentModal open={!!cashPaymentOrder} order={cashPaymentOrder} onConfirm={handleConfirmCashPayment} onClose={() => { setCashPaymentOrder(null); setSelectedOrderDetails(null); }} />
     </div>
   );
 }

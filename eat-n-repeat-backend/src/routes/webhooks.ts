@@ -32,6 +32,13 @@ router.post("/xendit", async (req, res) => {
       if (payments.length > 0) {
         const payment = payments[0];
         
+        // Fetch current order status first to check if it was cancelled
+        const [existingOrders] = await pool.execute<any[]>(
+          "SELECT status FROM orders WHERE id = ?",
+          [payment.order_id]
+        );
+        const wasCancelled = existingOrders.length > 0 && existingOrders[0].status === 'cancelled';
+
         // Update payment status
         await pool.execute(
           "UPDATE payments SET status = ?, paid_at = ? WHERE id = ?",
@@ -61,9 +68,18 @@ router.post("/xendit", async (req, res) => {
           const updatedOrder = orders[0];
           
           if (status === 'PAID') {
-            // Full notification for GCash-paid orders (deferred from order creation)
+            // Full notification for GCash-paid orders
             const typeLabel = updatedOrder.type === "dine-in" ? "Dine-in" : (updatedOrder.type === "pickup" ? "Pickup" : "Delivery");
+            
+            // Highlight if it's a late payment after expiry
+            const titlePrefix = wasCancelled ? "LATE PAYMENT RECEIVED" : `NEW ${typeLabel.toUpperCase()} ORDER`;
+            
             let paidMessage = `Order #${updatedOrder.order_number} — Payment Received!\nCustomer: ${updatedOrder.customer_name}\nAmount: ₱${Number(updatedOrder.total).toFixed(2)}\nType: ${typeLabel}`;
+            
+            if (wasCancelled) {
+              paidMessage = `⚠️ PAID AFTER EXPIRY\n${paidMessage}\nStaff: Please verify and prepare this order as payment was successful.`;
+            }
+
             if (updatedOrder.type === "delivery" && updatedOrder.address) {
               paidMessage += `\nAddress: ${updatedOrder.address}`;
             } else if (updatedOrder.type === "dine-in" && updatedOrder.address) {
@@ -75,7 +91,7 @@ router.post("/xendit", async (req, res) => {
 
             await notifyAllStaff(
               updatedOrder.type || 'payment',
-              `NEW ${typeLabel.toUpperCase()} ORDER`,
+              titlePrefix,
               paidMessage,
               updatedOrder.id
             );
