@@ -195,7 +195,7 @@ function OrdersPageContent() {
                 customerName: o.customerName || 'Valued Customer',
                 customerPhone: o.phone || '',
                 customerAddress: o.address || '',
-                items: o.items ? JSON.parse(o.items) : [],
+                items: [{ name: o.items ? o.items.replace(/^,\s*/, '') : 'Signature Menu Items', quantity: 1, price: o.subtotal }],
                 deliveryType: o.type === 'dine-in' ? 'dine-in' : o.type === 'pickup' ? 'pickup' : 'delivery',
               };
             });

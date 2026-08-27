@@ -38,31 +38,18 @@ export async function notifyAllStaff(
 }
 
 /**
- * Helper to fetch the primary admin user ID for global notifications
- */
-async function getAdminUserId(): Promise<string | null> {
-  const pool = getPool();
-  const [adminUsers] = await pool.execute<any[]>(
-    "SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1"
-  );
-  return adminUsers.length > 0 ? adminUsers[0].id : null;
-}
-
-/**
  * Fetch notifications globally for the Staff Portal.
- * Uses the primary admin's notification stream since all staff receive identical notifications.
+ * Uses a generic approach since all staff receive identical notifications.
  */
 router.get("/", async (req, res) => {
   try {
-    const adminId = await getAdminUserId();
-    if (!adminId) {
-      return res.json({ success: true, notifications: [] });
-    }
-
     const pool = getPool();
+    // Fetch unique notifications based on title and message (since each user gets a copy)
     const [rows] = await pool.execute<any[]>(
-      "SELECT * FROM staff_notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
-      [adminId]
+      `SELECT MIN(id) as id, type, title, message, related_order_id, MIN(is_read) as is_read, MAX(created_at) as created_at
+       FROM staff_notifications
+       GROUP BY type, title, message, related_order_id
+       ORDER BY MAX(created_at) DESC LIMIT 50`
     );
 
     res.json({ success: true, notifications: rows });
@@ -73,21 +60,27 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * Mark a single notification as read.
+ * Mark a single notification as read across all copies.
  */
 router.post("/:id/read", async (req, res) => {
   try {
     const notificationId = req.params.id;
-    const adminId = await getAdminUserId();
-    if (!adminId) {
-      return res.status(400).json({ success: false, message: "No admin user found" });
-    }
-
     const pool = getPool();
-    await pool.execute(
-      "UPDATE staff_notifications SET is_read = TRUE WHERE id = ? AND user_id = ?",
-      [notificationId, adminId]
+    
+    // First find the notification to match its title/message
+    const [notifs] = await pool.execute<any[]>(
+      "SELECT title, message FROM staff_notifications WHERE id = ?",
+      [notificationId]
     );
+
+    if (notifs.length > 0) {
+      await pool.execute(
+        "UPDATE staff_notifications SET is_read = TRUE WHERE title = ? AND message = ?",
+        [notifs[0].title, notifs[0].message]
+      );
+    } else {
+      await pool.execute("UPDATE staff_notifications SET is_read = TRUE WHERE id = ?", [notificationId]);
+    }
 
     res.json({ success: true });
   } catch (error) {
@@ -97,21 +90,12 @@ router.post("/:id/read", async (req, res) => {
 });
 
 /**
- * Mark all notifications as read for the current stream.
+ * Mark all notifications as read globally.
  */
 router.post("/read-all", async (req, res) => {
   try {
-    const adminId = await getAdminUserId();
-    if (!adminId) {
-      return res.status(400).json({ success: false, message: "No admin user found" });
-    }
-
     const pool = getPool();
-    await pool.execute(
-      "UPDATE staff_notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE",
-      [adminId]
-    );
-
+    await pool.execute("UPDATE staff_notifications SET is_read = TRUE WHERE is_read = FALSE");
     res.json({ success: true });
   } catch (error) {
     console.error("Error marking all staff notifications as read:", error);
