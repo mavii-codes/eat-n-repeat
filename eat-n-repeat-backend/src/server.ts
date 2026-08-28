@@ -17,6 +17,7 @@ import customerNotificationsRouter from "./routes/customerNotifications.js";
 import customerAddressesRouter from "./routes/customerAddresses.js";
 import deliveryRouter from "./routes/delivery.js";
 import staffNotificationsRouter from "./routes/staffNotifications.js";
+import staffRouter from "./routes/staff.js";
 import addonsRouter from "./routes/addons.js";
 import customerFavoritesRouter from "./routes/customerFavorites.js";
 
@@ -45,6 +46,7 @@ app.use("/api/customer-notifications", customerNotificationsRouter);
 app.use("/api/customer-addresses", customerAddressesRouter);
 app.use("/api/customer-orders", customerOrdersRouter);
 app.use("/api/delivery", deliveryRouter);
+app.use("/api/staff", staffRouter);
 app.use("/api/staff-notifications", staffNotificationsRouter);
 app.use("/api/admin-orders", adminOrdersRouter);
 app.use("/api/addons", addonsRouter);

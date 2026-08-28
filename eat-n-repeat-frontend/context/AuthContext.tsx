@@ -34,66 +34,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { staffAccounts, updateStaffAccount } = useAdminData();
   const router = useRouter();
 
-  // Load session from local storage on mount
+  // Load session from local storage and verify with backend
   useEffect(() => {
-    const storedSession = localStorage.getItem(SESSION_KEY);
-    if (storedSession) {
-      try {
-        const parsedUser = JSON.parse(storedSession) as StaffAccount;
-        // Verify user still exists, is active, and is not archived in the master admin list
-        const activeStaff = staffAccounts.find(
-          (acc) => acc.id === parsedUser.id && !acc.archived && acc.status === "active"
-        );
-        if (activeStaff) {
-          setUser(activeStaff);
-        } else {
+    let mounted = true;
+    const checkSession = async () => {
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      const storedSession = localStorage.getItem(SESSION_KEY);
+      
+      if (!token) {
+        if (storedSession) {
           localStorage.removeItem(SESSION_KEY);
         }
-      } catch {
-        localStorage.removeItem(SESSION_KEY);
+        if (mounted) setLoading(false);
+        return;
       }
-    }
-    setLoading(false);
-  }, [staffAccounts]);
+
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const res = await fetch(`${getApiUrl()}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (mounted) {
+            setUser(data.user);
+            localStorage.setItem(SESSION_KEY, JSON.stringify(data.user));
+          }
+        } else {
+          localStorage.removeItem('eat-n-repeat-staff-token');
+          localStorage.removeItem(SESSION_KEY);
+          if (mounted) setUser(null);
+        }
+      } catch (e) {
+        // Network error, fallback to local session if exists
+        if (storedSession && mounted) {
+          try {
+            setUser(JSON.parse(storedSession));
+          } catch {}
+        }
+      }
+      if (mounted) setLoading(false);
+    };
+    checkSession();
+    return () => { mounted = false; };
+  }, []);
 
   const clearError = () => setError(null);
 
   const login = async (usernameOrEmail: string, passwordInput: string): Promise<boolean> => {
     setError(null);
-    console.log("LOGIN ATTEMPT:", { usernameOrEmail, passwordInput, staffAccounts });
-    // Find account
-    const matchedAccount = staffAccounts.find(
-      (acc) =>
-        (acc.username?.toLowerCase() === usernameOrEmail.trim().toLowerCase() ||
-          acc.email?.toLowerCase() === usernameOrEmail.trim().toLowerCase()) &&
-        !acc.archived
-    );
-
-    if (!matchedAccount) {
-      setError("Invalid credentials or unauthorized account.");
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const res = await fetch(`${getApiUrl()}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: usernameOrEmail.trim(), password: passwordInput })
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        setError(data.message || "Invalid credentials.");
+        return false;
+      }
+      
+      setUser(data.user);
+      localStorage.setItem('eat-n-repeat-staff-token', data.token);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(data.user));
+      return true;
+    } catch (e) {
+      console.error("Login error:", e);
+      setError("Network error. Please try again.");
       return false;
     }
-
-    if (matchedAccount.status !== "active") {
-      setError("Invalid credentials or unauthorized account.");
-      return false;
-    }
-
-    // Verify password
-    if (matchedAccount.password !== passwordInput) {
-      setError("Invalid credentials or unauthorized account.");
-      return false;
-    }
-
-    // Set user
-    setUser(matchedAccount);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(matchedAccount));
-    return true;
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem('eat-n-repeat-staff-token');
     router.push("/login");
   };
 

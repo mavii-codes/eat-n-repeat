@@ -10,8 +10,9 @@ export type DatabaseUser = {
   username: string;
   email: string;
   password_hash: string;
-  role: "admin" | "head_staff" | "staff";
+  role: "admin" | "head_staff" | "staff" | "delivery_rider";
   status: "active" | "inactive";
+  archived: boolean;
 };
 
 export type DatabaseCustomer = {
@@ -86,11 +87,30 @@ export async function initializeDatabase() {
       username VARCHAR(80) NOT NULL UNIQUE,
       email VARCHAR(255) NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
-      role ENUM('admin', 'head_staff', 'staff') NOT NULL,
+      role ENUM('admin', 'head_staff', 'staff', 'delivery_rider') NOT NULL,
       status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+      archived BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  try {
+    await pool.query(`
+      ALTER TABLE users 
+      ADD COLUMN archived BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+  } catch (err) {
+    console.log("Could not add archived column to users, it may already exist");
+  }
+
+  try {
+    await pool.query(`
+      ALTER TABLE users 
+      MODIFY COLUMN role ENUM('admin', 'head_staff', 'staff', 'delivery_rider') NOT NULL
+    `);
+  } catch (err) {
+    console.log("Could not modify role enum in users");
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS stock_categories (
@@ -228,6 +248,20 @@ export async function initializeDatabase() {
       CONSTRAINT stock_items_category_fk
         FOREIGN KEY (category_id) REFERENCES stock_categories(id)
         ON DELETE RESTRICT
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS offline_stock_transactions (
+      id VARCHAR(64) PRIMARY KEY,
+      stock_item_id VARCHAR(64) NOT NULL,
+      quantity_deducted DECIMAL(10, 2) NOT NULL,
+      order_id VARCHAR(64) NOT NULL,
+      staff_id VARCHAR(64) NOT NULL,
+      transaction_date TIMESTAMP NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT stock_transactions_item_fk
+        FOREIGN KEY (stock_item_id) REFERENCES stock_items(id)
     )
   `);
 
@@ -439,4 +473,46 @@ export async function findUserById(id: string) {
 export function getPool() {
   if (!pool) throw new Error("Database has not been initialized.");
   return pool;
+}
+
+export async function createUser(user: DatabaseUser) {
+  await pool.execute(
+    `INSERT INTO users (id, name, username, email, password_hash, role, status, archived)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [user.id, user.name, user.username, user.email, user.password_hash, user.role, user.status, user.archived]
+  );
+}
+
+export async function updateUser(id: string, user: Partial<DatabaseUser>) {
+  const fields = [];
+  const values = [];
+  
+  for (const [key, value] of Object.entries(user)) {
+    if (key !== 'id') {
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+  }
+  
+  if (fields.length === 0) return;
+  
+  values.push(id);
+  await pool.execute(
+    `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
+    values
+  );
+}
+
+export async function archiveUser(id: string) {
+  await pool.execute(
+    `UPDATE users SET archived = TRUE, status = 'inactive' WHERE id = ?`,
+    [id]
+  );
+}
+
+export async function getAllUsers() {
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    "SELECT * FROM users"
+  );
+  return rows as DatabaseUser[];
 }

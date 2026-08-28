@@ -18,6 +18,7 @@ import type { StockItem } from "@/lib/admin/types";
 import { useAdminData } from "@/context/AdminDataContext";
 import { useAuth } from "@/context/AuthContext";
 import { AdminPanel } from "@/components/admin/AdminForm";
+import { getPendingStockTransactions } from "@/lib/offlineSync";
 
 /* ── Types ──────────────────────────────────────── */
 type Toast = {
@@ -54,6 +55,36 @@ export function StaffInventoryTab({
 
   // Toast Notifications
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  // Pending Offline Syncs
+  const [pendingSyncItemIds, setPendingSyncItemIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkPendingSync() {
+      try {
+        const txs = await getPendingStockTransactions();
+        if (mounted) {
+          const ids = new Set(txs.map((tx: any) => tx.stockItemId));
+          setPendingSyncItemIds(ids);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    
+    checkPendingSync();
+    
+    // Listen for online to refresh when synced
+    const handleOnline = () => {
+      setTimeout(checkPendingSync, 2000); // give it time to sync
+    };
+    window.addEventListener('online', handleOnline);
+    return () => {
+      mounted = false;
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
 
   /* ── Toast Helper ────────────────── */
   function showToast(title: string, message: string, type: "success" | "error" | "info" = "success") {
@@ -532,6 +563,11 @@ export function StaffInventoryTab({
                           <span className="font-black text-stone-900 text-sm tracking-wide uppercase">
                             {item.quantity} {item.unit}
                           </span>
+                          {pendingSyncItemIds.has(item.id) && (
+                            <span className="text-[10px] text-amber-600 font-bold mt-0.5 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending Sync
+                            </span>
+                          )}
                           <div className="w-28 sm:w-36 h-2 bg-stone-200/70 rounded-full overflow-hidden mt-1.5">
                             <div
                               className={`h-full rounded-full transition-all duration-300 ${
@@ -672,11 +708,18 @@ export function StaffInventoryTab({
 
                   {/* Quantity & Progress */}
                   <div className="space-y-1 pt-1">
-                    <div className="flex justify-between text-xs font-bold">
+                    <div className="flex justify-between items-center text-xs font-bold">
                       <span className="text-stone-500">Remaining</span>
-                      <span className="text-stone-900 uppercase">
-                        {item.quantity} {item.unit}
-                      </span>
+                      <div className="flex flex-col items-end">
+                        <span className="text-stone-900 uppercase">
+                          {item.quantity} {item.unit}
+                        </span>
+                        {pendingSyncItemIds.has(item.id) && (
+                          <span className="text-[9px] text-amber-600 font-bold mt-0.5 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending Sync
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="w-full h-2 bg-stone-200/70 rounded-full overflow-hidden">
                       <div

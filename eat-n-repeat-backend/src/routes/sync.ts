@@ -77,4 +77,60 @@ router.post("/push", async (req, res) => {
   }
 });
 
+// Endpoint to sync offline stock transactions and offline orders
+router.post("/offline", async (req, res) => {
+  const { offline_orders, offline_stock_transactions } = req.body;
+  const pool = getPool();
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    // Sync Offline Orders (Insert only)
+    if (offline_orders && offline_orders.length > 0) {
+      for (const order of offline_orders) {
+        await connection.execute(
+          `INSERT IGNORE INTO orders (id, order_number, type, items, total, status, payment_method, archived, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [order.id, order.id, 'dine-in', order.items, order.total, order.status, 'Cash', 0, order.timestamp || new Date()]
+        );
+      }
+    }
+
+    // Sync Offline Stock Deductions idempotently
+    if (offline_stock_transactions && offline_stock_transactions.length > 0) {
+      for (const tx of offline_stock_transactions) {
+        try {
+          // Attempt to insert the transaction
+          const [result] = await connection.execute(
+            `INSERT INTO offline_stock_transactions (id, stock_item_id, quantity_deducted, order_id, staff_id, transaction_date)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [tx.id, tx.stockItemId, tx.quantityDeducted, tx.orderId, tx.staffId, tx.timestamp || new Date()]
+          );
+          
+          // If insert succeeds, deduct the stock
+          await connection.execute(
+            `UPDATE stock_items SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`,
+            [tx.quantityDeducted, tx.stockItemId]
+          );
+        } catch (e: any) {
+          // If ER_DUP_ENTRY, it means we already synced this transaction, so we ignore and don't double deduct.
+          if (e.code !== 'ER_DUP_ENTRY') {
+            throw e;
+          }
+        }
+      }
+    }
+
+    await connection.commit();
+    connection.release();
+    return res.json({ success: true, message: "Offline Sync successful" });
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error("Offline Sync Error:", err);
+    return res.status(500).json({ success: false, error: "Offline Sync failed" });
+  }
+});
+
 export const syncRouter = router;

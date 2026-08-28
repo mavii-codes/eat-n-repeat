@@ -148,6 +148,7 @@ type AdminDataContextValue = AdminDataState & {  fetchActiveCashShift: () => Pr
   updateStoreOrderStatus: (id: string, status: "completed" | "cancelled") => void;
   confirmStoreOrderPayment: (id: string, cashReceived?: number) => void;
   addStoreOrder: (input: any) => void;
+  processOfflineStoreOrder: (order: any, deductions: {stockItemId: string, qty: number}[]) => Promise<void>;
   addServiceArea: (input: ServiceAreaInput) => void;
   updateServiceArea: (id: string, input: ServiceAreaInput) => void;
   deleteServiceArea: (id: string) => void;
@@ -270,6 +271,33 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             };
           });
         }
+        
+        const staffRes = await fetch(`${getApiUrl()}/api/staff`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (staffRes.ok) {
+          const staffResult = await staffRes.json();
+          if (staffResult.users && mounted) {
+            setData(prev => ({
+              ...prev,
+              staffAccounts: staffResult.users.map((u: any) => ({
+                id: u.id,
+                name: u.name,
+                username: u.username,
+                email: u.email,
+                role: u.role === 'cashier' ? 'staff' : u.role,
+                status: u.status,
+                archived: u.archived,
+                // frontend required fields:
+                availability: "Offline", 
+                contactNumber: "",
+                createdAt: u.created_at || new Date().toISOString(),
+                lastActive: "Never",
+              }))
+            }));
+          }
+        }
+
       } catch (e) {}
     };
 
@@ -284,6 +312,61 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
+
+  // Sync Offline Data
+  const syncOfflineData = useCallback(async () => {
+    try {
+      const { getPendingOfflineOrders, getPendingStockTransactions, markOrdersSynced, markStockTransactionsSynced } = await import('@/lib/offlineSync');
+      const pendingOrders = await getPendingOfflineOrders();
+      const pendingTxs = await getPendingStockTransactions();
+      
+      if (pendingOrders.length === 0 && pendingTxs.length === 0) return;
+      
+      const { getApiUrl } = await import('@/lib/config');
+      const res = await fetch(`${getApiUrl()}/api/sync/offline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offline_orders: pendingOrders,
+          offline_stock_transactions: pendingTxs
+        })
+      });
+      
+      if (res.ok) {
+        await markOrdersSynced(pendingOrders.map(o => o.id));
+        await markStockTransactionsSynced(pendingTxs.map(t => t.id));
+      }
+    } catch (e) {
+      console.error("Offline sync failed:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    
+    // Attempt sync on mount
+    syncOfflineData();
+
+    // Listen for online events
+    const handleOnline = () => {
+      if (mounted) syncOfflineData();
+    };
+    
+    window.addEventListener('online', handleOnline);
+    
+    // Also try periodically in case online event missed
+    const interval = setInterval(() => {
+      if (mounted && navigator.onLine) {
+        syncOfflineData();
+      }
+    }, 15000);
+    
+    return () => {
+      mounted = false;
+      window.removeEventListener('online', handleOnline);
+      clearInterval(interval);
+    };
+  }, [syncOfflineData]);
 
   const addMenuItem = useCallback((input: MenuItemInput) => {
     setData((prev) => ({
@@ -456,55 +539,112 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     return deleted;
   }, []);
 
-  const addStaffAccount = useCallback((input: StaffAccountInput) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: [
-        ...prev.staffAccounts,
-        { ...input, id: createId("sf"), archived: false },
-      ],
-    }));
+  const addStaffAccount = useCallback(async (input: StaffAccountInput) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      const res = await fetch(`${getApiUrl()}/api/staff`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(input)
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setData((prev) => ({
+          ...prev,
+          staffAccounts: [
+            ...prev.staffAccounts,
+            { ...input, id: result.user.id, archived: result.user.archived },
+          ],
+        }));
+      }
+    } catch (e) { console.error(e); }
   }, []);
 
   const updateStaffAccount = useCallback(
-    (id: string, input: StaffAccountInput) => {
-      setData((prev) => ({
-        ...prev,
-        staffAccounts: prev.staffAccounts.map((account) =>
-          account.id === id ? { ...account, ...input, id } : account,
-        ),
-      }));
+    async (id: string, input: StaffAccountInput) => {
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const token = localStorage.getItem('eat-n-repeat-staff-token');
+        const res = await fetch(`${getApiUrl()}/api/staff/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(input)
+        });
+        if (res.ok) {
+          setData((prev) => ({
+            ...prev,
+            staffAccounts: prev.staffAccounts.map((account) =>
+              account.id === id ? { ...account, ...input, id } : account,
+            ),
+          }));
+        }
+      } catch (e) { console.error(e); }
     },
     [],
   );
 
-  const deleteStaffAccount = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: prev.staffAccounts.filter((account) => account.id !== id),
-    }));
+  const deleteStaffAccount = useCallback(async (id: string) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/staff/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      setData((prev) => ({
+        ...prev,
+        staffAccounts: prev.staffAccounts.filter((account) => account.id !== id),
+      }));
+    } catch (e) { console.error(e); }
   }, []);
 
-  const archiveStaffAccount = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: prev.staffAccounts.map((account) =>
-        account.id === id
-          ? { ...account, archived: true, archivedAt: archiveTimestamp() }
-          : account,
-      ),
-    }));
+  const archiveStaffAccount = useCallback(async (id: string) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/staff/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      setData((prev) => ({
+        ...prev,
+        staffAccounts: prev.staffAccounts.map((account) =>
+          account.id === id
+            ? { ...account, archived: true, archivedAt: archiveTimestamp(), status: 'inactive' }
+            : account,
+        ),
+      }));
+    } catch (e) { console.error(e); }
   }, []);
 
-  const restoreStaffAccount = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: prev.staffAccounts.map((account) =>
-        account.id === id
-          ? { ...account, archived: false, archivedAt: undefined }
-          : account,
-      ),
-    }));
+  const restoreStaffAccount = useCallback(async (id: string) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/staff/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ status: 'active', archived: false })
+      });
+      setData((prev) => ({
+        ...prev,
+        staffAccounts: prev.staffAccounts.map((account) =>
+          account.id === id
+            ? { ...account, archived: false, archivedAt: undefined, status: 'active' }
+            : account,
+        ),
+      }));
+    } catch (e) { console.error(e); }
   }, []);
 
   const updateSystemSettings = useCallback((settings: SystemSettings) => {
@@ -723,6 +863,55 @@ const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | 
     }));
   }, []);
 
+  const processOfflineStoreOrder = useCallback(async (order: any, deductions: {stockItemId: string, qty: number}[]) => {
+    const { saveOfflineOrder, saveOfflineStockTransaction } = await import('@/lib/offlineSync');
+    const createTxId = () => `tx-${Math.random().toString(36).substring(2, 9)}-${Date.now()}`;
+    
+    // 1. Save to IDB
+    await saveOfflineOrder({
+      id: order.orderId,
+      time: order.time,
+      items: order.items,
+      total: order.total,
+      status: order.status,
+      paid: order.paid,
+      notes: order.notes,
+    });
+
+    for (const d of deductions) {
+      await saveOfflineStockTransaction({
+        id: createTxId(),
+        stockItemId: d.stockItemId,
+        quantityDeducted: d.qty,
+        orderId: order.orderId,
+        staffId: 'sf-1', // Fallback or current user
+      });
+    }
+    
+    // 2. Update Local State Immediately
+    setData((prev) => {
+      let newStock = [...prev.stockItems];
+      deductions.forEach(d => {
+        newStock = newStock.map(si => 
+          si.id === d.stockItemId ? { ...si, quantity: Math.max(0, si.quantity - d.qty) } : si
+        );
+      });
+      return {
+        ...prev,
+        storeOrders: [
+          ...prev.storeOrders,
+          { ...order, id: order.orderId, archived: false },
+        ],
+        stockItems: newStock
+      };
+    });
+    
+    // 3. Try to sync in background
+    if (navigator.onLine) {
+      setTimeout(syncOfflineData, 100);
+    }
+  }, [syncOfflineData]);
+
   const addServiceArea = useCallback((input: ServiceAreaInput) => {
     setData((prev) => ({
       ...prev,
@@ -931,6 +1120,7 @@ const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | 
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
       addStoreOrder,
+      processOfflineStoreOrder,
       fetchActiveCashShift,
       addServiceArea,
       updateServiceArea,

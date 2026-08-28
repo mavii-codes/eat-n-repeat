@@ -106,6 +106,7 @@ export default function StaffPortalPage() {
     addStockItem,
     updateStockItem,
     deleteStockItem,
+    processOfflineStoreOrder,
   } = useAdminData();
 
   const router = useRouter();
@@ -2124,6 +2125,7 @@ export default function StaffPortalPage() {
             stockItems={stockItems}
             updateStockItem={updateStockItem}
             staffName={user?.name || "Cashier"}
+            processOfflineStoreOrder={processOfflineStoreOrder}
           />
         )}
       </main>

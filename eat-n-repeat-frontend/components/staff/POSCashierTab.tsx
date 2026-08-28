@@ -82,6 +82,7 @@ type POSCashierTabProps = {
   stockItems?: StockItem[];
   updateStockItem?: (id: string, input: StockItemInput) => void;
   staffName: string;
+  processOfflineStoreOrder?: (order: any, deductions: {stockItemId: string, qty: number}[]) => Promise<void>;
 };
 
 import { useNetworkStatus } from "@/context/NetworkStatusContext";
@@ -94,6 +95,7 @@ export function POSCashierTab({
   stockItems = [],
   updateStockItem,
   staffName,
+  processOfflineStoreOrder,
 }: POSCashierTabProps) {
   const { isOffline } = useNetworkStatus();
   
@@ -231,7 +233,7 @@ export function POSCashierTab({
     const receiptNo = `POS-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${shortId}`;
 
     // Add to Store Orders in Admin Context (Dashboard & History)
-    addStoreOrder({
+    const orderData = {
       orderId: `POS-${shortId}`,
       time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
       items: cart
@@ -242,26 +244,40 @@ export function POSCashierTab({
       status: "completed",
       paid: true,
       notes: orderNote ? `${orderType.toUpperCase()} - ${orderNote}` : orderType.toUpperCase(),
-    });
+    };
 
-    // Optional Inventory Ingredient Deduction Connection
-    if (updateStockItem && stockItems.length > 0) {
-      cart.forEach((cartItem) => {
+    // Calculate deductions and validate negative stock
+    const deductions: { stockItemId: string; qty: number }[] = [];
+    if (stockItems && stockItems.length > 0) {
+      for (const cartItem of cart) {
         const matchingStock = stockItems.find((s) =>
-          s.name.toLowerCase().includes(cartItem.item.name.toLowerCase()) ||
+          s.name.toLowerCase().includes(cartItem.item.name.toLowerCase().split(" ")[0]) ||
           cartItem.item.name.toLowerCase().includes(s.name.toLowerCase())
         );
         if (matchingStock) {
-          const newQty = Math.max(0, matchingStock.quantity - cartItem.qty);
-          updateStockItem(matchingStock.id, {
-            name: matchingStock.name,
-            categoryId: matchingStock.categoryId,
-            quantity: newQty,
-            unit: matchingStock.unit,
-            lowStockThreshold: matchingStock.lowStockThreshold,
-          });
+          if (matchingStock.quantity - cartItem.qty < 0) {
+            alert(`Insufficient stock for ${matchingStock.name}. Only ${matchingStock.quantity} available.`);
+            setIsProcessing(false);
+            return;
+          }
+          deductions.push({ stockItemId: matchingStock.id, qty: cartItem.qty });
         }
-      });
+      }
+    }
+
+    if (processOfflineStoreOrder) {
+      await processOfflineStoreOrder(orderData, deductions);
+    } else {
+      // Fallback if not provided
+      addStoreOrder(orderData);
+      if (updateStockItem && stockItems.length > 0) {
+        deductions.forEach(d => {
+          const matchingStock = stockItems.find(s => s.id === d.stockItemId);
+          if (matchingStock) {
+            updateStockItem(matchingStock.id, { ...matchingStock, quantity: Math.max(0, matchingStock.quantity - d.qty) });
+          }
+        });
+      }
     }
 
     // Set Receipt Data & Open Receipt Confirmation Modal
