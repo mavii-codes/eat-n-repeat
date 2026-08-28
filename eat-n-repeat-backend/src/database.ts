@@ -254,14 +254,12 @@ export async function initializeDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS offline_stock_transactions (
       id VARCHAR(64) PRIMARY KEY,
-      stock_item_id VARCHAR(64) NOT NULL,
+      stock_item_id VARCHAR(255) NOT NULL,
       quantity_deducted DECIMAL(10, 2) NOT NULL,
       order_id VARCHAR(64) NOT NULL,
       staff_id VARCHAR(64) NOT NULL,
       transaction_date TIMESTAMP NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT stock_transactions_item_fk
-        FOREIGN KEY (stock_item_id) REFERENCES stock_items(id)
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
