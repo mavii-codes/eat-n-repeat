@@ -80,6 +80,7 @@ const quickAccessLinks = [
 
 const statusStyles: Record<string, { label: string; bg: string }> = {
   pending: { label: "Pending", bg: "bg-amber-50 text-amber-800 border-amber-200" },
+  awaiting_payment: { label: "Awaiting Payment", bg: "bg-yellow-50 text-yellow-800 border-yellow-200" },
   confirmed: { label: "Confirmed", bg: "bg-blue-50 text-blue-800 border-blue-200" },
   preparing: { label: "Preparing", bg: "bg-purple-50 text-purple-800 border-purple-200" },
   ready: { label: "Ready", bg: "bg-teal-50 text-teal-800 border-teal-200" },
@@ -140,7 +141,7 @@ export default function AdminDashboardPage() {
   );
 
   const pendingOrdersList = useMemo(
-    () => allCombinedOrders.filter((o) => o.status === "pending" || o.status === "confirmed"),
+    () => allCombinedOrders.filter((o) => o.status === "pending" || o.status === "awaiting_payment" || o.status === "confirmed"),
     [allCombinedOrders]
   );
 

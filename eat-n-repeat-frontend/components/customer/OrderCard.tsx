@@ -7,11 +7,11 @@ import { useReviews } from '@/context/ReviewsContext';
 import { 
   Hourglass, Check, ChefHat, CheckCheck, Bike, BadgeCheck, 
   XCircle, PartyPopper, Utensils, Zap, FileText, Lock, 
-  Bell, Receipt, RefreshCw, Star, ChevronUp, ChevronDown 
+  Bell, Receipt, RefreshCw, Star, ChevronUp, ChevronDown, Banknote
 } from 'lucide-react';
-
 export type OrderStatus =
   | 'pending'
+  | 'awaiting_payment'
   | 'confirmed'
   | 'preparing'
   | 'ready'
@@ -61,6 +61,13 @@ const statusConfig: Record<
     label: 'Order Pending',
     progress: 15,
     estWait: '~30-40 mins',
+  },
+  awaiting_payment: {
+    color: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+    icon: <Hourglass className="w-3.5 h-3.5" />,
+    label: 'Awaiting Payment',
+    progress: 5,
+    estWait: 'Pending Payment',
   },
   confirmed: {
     color: 'bg-blue-100 text-blue-800 border-blue-300',
@@ -117,6 +124,7 @@ const timelineStages = [
 function getStageIndex(status: OrderStatus): number {
   switch (status) {
     case 'pending':
+    case 'awaiting_payment':
       return 0;
     case 'confirmed':
       return 1;
@@ -163,6 +171,7 @@ export function OrderCard({
   const config = statusConfig[status] || statusConfig.pending;
   const currentStageIndex = getStageIndex(status);
   const isPending = status === 'pending';
+  const isAwaitingPayment = status === 'awaiting_payment';
   const isDelivered = status === 'delivered';
   const isCancelled = status === 'cancelled';
   const isActive = !isDelivered && !isCancelled;
@@ -257,6 +266,40 @@ export function OrderCard({
               </span>
             </div>
           </div>
+
+          {/* Cash Dine-In Payment Notice */}
+          {isAwaitingPayment && paymentMethod !== 'GCash' && deliveryType === 'dine-in' && (
+            <div className="mb-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
+                  <Banknote className="w-5 h-5 text-yellow-700" />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm">Payment Required</h4>
+                  <p className="text-xs font-medium opacity-90 mt-0.5 leading-relaxed">
+                    Please proceed to the cashier to complete your payment of <strong>₱{total.toFixed(2)}</strong>. Your order will only be processed after payment is confirmed.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* GCash Unpaid Notice */}
+          {isAwaitingPayment && paymentMethod === 'GCash' && (
+            <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
+                  <Zap className="w-5 h-5 text-rose-700" />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm">Payment Not Completed</h4>
+                  <p className="text-xs font-medium opacity-90 mt-0.5 leading-relaxed">
+                    Your GCash payment was not completed or verified yet. Please try again from the top of the orders page if it failed.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Real-Time Progress Bar */}
           {!isCancelled && (

@@ -232,7 +232,7 @@ export function CartDrawer({
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           items: `${customerName.trim()} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up'}): ${orderItemsSummary}`,
           total,
-          status: 'pending',
+          status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
         });
       }

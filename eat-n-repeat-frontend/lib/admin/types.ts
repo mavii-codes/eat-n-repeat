@@ -15,7 +15,7 @@ export type RecentOrder = {
   time: string;
   items: string;
   total: number;
-  status: "pending" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
+  status: "pending" | "awaiting_payment" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
   notes?: string;
   paid?: boolean;
   paymentMethod?: string;
@@ -272,6 +272,7 @@ export type AssignmentLogEntry = {
 
 export type DeliveryStatus =
   | "pending"
+  | "awaiting_payment"
   | "preparing"
   | "ready_for_delivery"
   | "assigned"

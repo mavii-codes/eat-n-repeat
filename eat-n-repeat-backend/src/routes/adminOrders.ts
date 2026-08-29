@@ -36,7 +36,7 @@ const mapOrderToDashboard = (row: any) => {
     subtotal: Number(row.subtotal),
     deliveryFee: Number(row.delivery_fee),
     total: Number(row.total),
-    status: row.status === 'pending_payment' ? 'pending' : row.status,
+    status: row.status === 'pending_payment' ? 'pending' : (row.status === 'awaiting_payment' ? 'awaiting_payment' : row.status),
     deliveryPerson: row.delivery_person,
     assignedRole: row.assigned_role,
     assignedAt: row.assigned_at ? new Date(row.assigned_at).toISOString() : undefined,
@@ -211,9 +211,13 @@ router.patch("/:id/payment", requireAuth, async (req: any, res) => {
       }
     }
 
-    // If order was pending_payment, make it pending
-    if (existingRows[0].status === 'pending_payment') {
-        await pool.execute("UPDATE orders SET status = 'pending' WHERE id = ?", [orderId]);
+    // If order was pending_payment or awaiting_payment, make it confirmed for dine-in, or pending otherwise
+    if (existingRows[0].status === 'pending_payment' || existingRows[0].status === 'awaiting_payment') {
+        const newStatus = existingRows[0].type === 'dine-in' ? 'confirmed' : 'pending';
+        await pool.execute("UPDATE orders SET status = ? WHERE id = ?", [newStatus, orderId]);
+    } else if (existingRows[0].status === 'pending' && existingRows[0].type === 'dine-in') {
+        // Just in case older pending dine-in orders exist
+        await pool.execute("UPDATE orders SET status = 'confirmed' WHERE id = ?", [orderId]);
     }
 
     res.json({ success: true, message: "Order marked as paid", change });

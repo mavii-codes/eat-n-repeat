@@ -172,12 +172,14 @@ function OrdersPageContent() {
               const isCompleted = o.status === 'delivered' || o.status === 'completed';
               const isCancel = o.status === 'cancelled';
               const isPending = o.status === 'pending_payment' || o.status === 'pending';
+              const isAwaitingPayment = o.status === 'awaiting_payment';
               const isConfirmed = o.status === 'assigned';
               const isPreparing = o.status === 'preparing';
 
               let mappedStatus: OrderCardProps['status'] = 'preparing';
               if (isCompleted) mappedStatus = 'delivered';
               else if (isCancel) mappedStatus = 'cancelled';
+              else if (isAwaitingPayment) mappedStatus = 'awaiting_payment';
               else if (isPending) mappedStatus = 'pending';
               else if (isConfirmed) mappedStatus = 'preparing';
               else if (isPreparing) mappedStatus = 'preparing';

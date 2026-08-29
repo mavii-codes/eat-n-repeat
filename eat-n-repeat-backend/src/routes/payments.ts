@@ -57,9 +57,13 @@ router.post("/checkout", requireAuth, async (req: AuthenticatedRequest, res) => 
       return res.status(400).json({ success: false, error: "Total amount mismatch." });
     }
 
-    // GCash orders start as 'pending_payment' — only marked as 'confirmed' once Xendit webhook confirms payment.
-    // Cash orders start as 'pending' and staff is notified immediately.
-    const initialStatus = paymentMethod === "GCash" ? "pending_payment" : "pending";
+    // GCash orders start as 'pending_payment' (unless dine-in).
+    // Dine-in orders (both Cash and GCash) start as 'awaiting_payment'.
+    // Cash non-dine-in orders start as 'pending' and staff is notified immediately.
+    let initialStatus = paymentMethod === "GCash" ? "pending_payment" : "pending";
+    if (orderDetails.type === "dine-in") {
+      initialStatus = "awaiting_payment";
+    }
 
     // Insert order
     await pool.execute(
@@ -77,11 +81,13 @@ router.post("/checkout", requireAuth, async (req: AuthenticatedRequest, res) => 
     // GCash orders: staff is notified via webhook when payment is confirmed.
     if (paymentMethod !== "GCash") {
       const typeLabel = orderDetails.type === "dine-in" ? "Dine-in" : (orderDetails.type === "pickup" ? "Pickup" : "Delivery");
+      const titlePrefix = orderDetails.type === "dine-in" ? `NEW DINE-IN ORDER (Awaiting Payment)` : `NEW ${typeLabel.toUpperCase()} ORDER`;
       const notesText = orderDetails.notes ? `\nNotes: ${orderDetails.notes}` : "";
       let messageText = `Order #${orderNumber}\nCustomer: ${orderDetails.customerName}\nTotal: ₱${orderDetails.total.toFixed(2)}`;
       
       if (orderDetails.type === "dine-in") {
         messageText += `\nTable: ${orderDetails.address || "Counter"}`;
+        messageText += `\nPayment: CASH`;
       } else if (orderDetails.type === "delivery") {
         messageText += `\nAddress: ${orderDetails.address || "Unknown"}`;
         messageText += `\nFee: ₱${(orderDetails.deliveryFee || 0).toFixed(2)}`;
@@ -90,9 +96,19 @@ router.post("/checkout", requireAuth, async (req: AuthenticatedRequest, res) => 
 
       await notifyAllStaff(
         orderDetails.type || 'delivery',
-        `NEW ${typeLabel.toUpperCase()} ORDER`,
+        titlePrefix,
         messageText,
         orderId
+      );
+    }
+
+    // Explicitly insert a PENDING payment record for Cash Dine-In so staff sees the payment method
+    if (paymentMethod !== "GCash" && orderDetails.type === "dine-in") {
+      const paymentId = crypto.randomUUID();
+      await pool.execute(
+        `INSERT INTO payments (id, order_id, payment_method, amount, status)
+         VALUES (?, ?, ?, ?, ?)`,
+        [paymentId, orderId, paymentMethod, orderDetails.total, 'PENDING']
       );
     }
 
@@ -210,8 +226,8 @@ router.post("/retry/:orderId", requireAuth, async (req: AuthenticatedRequest, re
 
     const order = orders[0];
 
-    // Only allow retry for pending_payment or cancelled (payment-cancelled) orders
-    if (!['pending_payment', 'cancelled'].includes(order.status)) {
+    // Only allow retry for pending_payment, awaiting_payment, or cancelled (payment-cancelled) orders
+    if (!['pending_payment', 'awaiting_payment', 'cancelled'].includes(order.status)) {
       return res.status(400).json({ success: false, error: "This order cannot be retried. Current status: " + order.status });
     }
 
@@ -245,10 +261,11 @@ router.post("/retry/:orderId", requireAuth, async (req: AuthenticatedRequest, re
       [paymentId, order.id, 'GCash', invoice.id, referenceId, Number(order.total), invoice.status]
     );
 
-    // Reset order status to pending_payment
+    // Reset order status to pending_payment or awaiting_payment
+    const newStatus = order.type === 'dine-in' ? 'awaiting_payment' : 'pending_payment';
     await pool.execute(
-      "UPDATE orders SET status = 'pending_payment' WHERE id = ?",
-      [order.id]
+      "UPDATE orders SET status = ? WHERE id = ?",
+      [newStatus, order.id]
     );
 
     return res.json({ success: true, invoiceUrl: invoice.invoiceUrl, orderId: order.id, orderNumber: orderNumber });

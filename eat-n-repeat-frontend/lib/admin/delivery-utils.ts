@@ -31,6 +31,7 @@ export const availabilityStatusStyles: Record<AvailabilityStatus, string> = {
 
 export const deliveryStatusLabels: Record<DeliveryStatus, string> = {
   pending: "Pending",
+  awaiting_payment: "Awaiting Payment",
   preparing: "Preparing",
   ready_for_delivery: "Ready for Delivery",
   assigned: "Assigned",
@@ -54,6 +55,7 @@ export const historyDeliveryStatuses: DeliveryStatus[] = [
 
 export const deliveryStatusStyles: Record<DeliveryStatus, string> = {
   pending: "bg-amber-50 text-amber-800 border-amber-200",
+  awaiting_payment: "bg-yellow-50 text-yellow-800 border-yellow-200",
   preparing: "bg-orange-50 text-orange-800 border-orange-200",
   ready_for_delivery: "bg-teal-50 text-teal-800 border-teal-200",
   assigned: "bg-indigo-50 text-indigo-800 border-indigo-200",
