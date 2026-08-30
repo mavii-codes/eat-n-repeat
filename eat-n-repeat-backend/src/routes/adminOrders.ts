@@ -165,6 +165,12 @@ router.patch("/:id/payment", requireAuth, async (req: any, res) => {
     // Insert or update payment row
     const orderId = existingRows[0].id;
     const [payRows] = await pool.execute<mysql.RowDataPacket[]>("SELECT * FROM payments WHERE order_id = ?", [orderId]);
+    
+    // Protection against Double Payments
+    if (payRows.length > 0 && (payRows[0].status === 'SUCCEEDED' || payRows[0].status === 'PAID')) {
+      return res.status(400).json({ success: false, message: "Payment has already been confirmed for this order." });
+    }
+
     if (payRows.length > 0) {
       await pool.execute("UPDATE payments SET status = 'SUCCEEDED', paid_at = CURRENT_TIMESTAMP WHERE order_id = ?", [orderId]);
     } else {

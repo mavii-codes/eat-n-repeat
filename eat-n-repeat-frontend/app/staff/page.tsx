@@ -566,7 +566,7 @@ export default function StaffPortalPage() {
   return (
     <div className="admin-shell min-h-screen flex flex-col md:flex-row text-[#1c1c1c] w-full max-w-full overflow-x-hidden">
       {/* MOBILE COMPACT HEADER BAR */}
-      <header className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-[#500f17] text-white px-4 py-3 shadow-md border-b border-white/10 w-full">
+      <header className="md:hidden sticky top-0 z-[100] flex items-center justify-between bg-[#500f17] text-white px-4 py-3 shadow-md border-b border-white/10 w-full">
         <div className="flex items-center gap-3">
           <Logo size="sm" showText={false} />
           <div>
@@ -736,7 +736,7 @@ export default function StaffPortalPage() {
         {activeTab === "dashboard" && (
           <div className="space-y-6 w-full max-w-full min-w-0">
             {/* HEADER */}
-            <header className="flex flex-col gap-4 rounded-2xl md:rounded-3xl border border-white/80 bg-white/90 p-4 sm:p-6 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+            <header className="relative z-50 flex flex-col gap-4 rounded-2xl md:rounded-3xl border border-white/80 bg-white/90 p-4 sm:p-6 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-accent/80">Staff Workspace</p>
                 <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold tracking-tight text-[#63131d]">Good day, {user?.name || 'Staff'}!</h1>
@@ -1007,325 +1007,33 @@ export default function StaffPortalPage() {
             return matchesSearch && matchesStatus && matchesType;
           }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
 
-          // Filter history
-          const filteredHistory = historyOrders.filter(o => {
-            const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) || 
-                                  o.customerName?.toLowerCase().includes(orderHistorySearch.toLowerCase());
-            const matchesStatus = orderHistoryStatusFilter === "all" || o.status === orderHistoryStatusFilter;
-            return matchesSearch && matchesStatus;
-          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+          const filteredUnpaidDineIn = filteredActive.filter(o => o.status === 'awaiting_payment' && o.orderType === 'dine-in');
+          const filteredActiveKitchen = filteredActive.filter(o => !(o.status === 'awaiting_payment' && o.orderType === 'dine-in'));
 
-          return (
-            <div className="space-y-6">
-              {/* HEADER */}
-              <div>
-                <span className="inline-flex rounded-full bg-[#fce7db] px-2.5 py-0.5 text-xs font-semibold capitalize text-[#63131d] border border-[#63131d]/10">Operations</span>
-                <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5 flex justify-between items-center">
-                  Orders Dashboard
-                  {!activeCashShift ? (
-                    <button onClick={() => setStartShiftOpen(true)} className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-xl hover:bg-emerald-700 shadow-md">
-                      Start Cash Shift
-                    </button>
-                  ) : (
-                    <div className="flex gap-3 items-center">
-                      <span className="text-sm font-medium text-stone-600 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">Float: ₱{Number(activeCashShift.starting_float).toFixed(2)}</span>
-                      <button onClick={() => setEndShiftOpen(true)} className="px-4 py-2 bg-stone-800 text-white text-sm rounded-xl hover:bg-black shadow-md">
-                        End Cash Shift
-                      </button>
-                    </div>
-                  )}
-                </h1>
-                <p className="text-sm text-muted">Manage customer orders, update workflow status, and confirm payments.</p>
-              </div>
+          const renderOrdersTable = (orders: any[]) => (
+            <>
+              {filteredUnpaidDineIn.length > 0 && (
+                        <div className="mb-6">
+                           <h3 className="font-bold text-rose-900 bg-rose-50 px-4 py-2.5 rounded-t-xl border border-rose-200 flex items-center gap-2">
+                             <div className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></div>
+                             Dine-In &mdash; Awaiting Payment ({filteredUnpaidDineIn.length})
+                           </h3>
+                           <div className="border-x border-b border-rose-200/50 rounded-b-xl overflow-hidden bg-white/50">
+                             {renderOrdersTable(filteredUnpaidDineIn)}
+                           </div>
+                        </div>
+                      )}
 
-              {/* SUMMARY ROW */}
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                {[
-                  { label: "Total Active", value: summary.total, color: "text-[#800000]" },
-                  { label: "Pending", value: summary.pending, color: "text-amber-600" },
-                  { label: "Preparing", value: summary.preparing, color: "text-blue-600" },
-                  { label: "Ready", value: summary.ready, color: "text-indigo-600" },
-                  { label: "Completed", value: summary.completed, color: "text-green-700" },
-                  { label: "Cancelled", value: summary.cancelled, color: "text-red-600" },
-                ].map(stat => (
-                  <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-xl p-3 border border-white/40 shadow-sm flex flex-col items-center justify-center">
-                    <p className="text-[10px] font-bold text-muted uppercase tracking-wider">{stat.label}</p>
-                    <p className={`text-xl font-bold font-serif mt-1 ${stat.color}`}>{stat.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* ACTIVE ORDERS PANEL */}
-              <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
-                {/* TABS FOR DELIVERY / PICKUP / DINE-IN */}
-                <div className="flex border-b border-accent/10 bg-white/60">
-                  {['all', 'delivery', 'takeout', 'dine-in'].map((type) => (
-                    <button
-                      key={type}
-                      onClick={() => setOrderTypeFilter(type)}
-                      className={`flex-1 py-3 text-sm font-bold capitalize transition-colors border-b-2 ${
-                        orderTypeFilter === type 
-                          ? 'border-accent text-accent bg-white' 
-                          : 'border-transparent text-muted hover:text-stone-800 hover:bg-white/50'
-                      }`}
-                    >
-                      {type === 'all' ? 'All Orders' : type === 'takeout' ? 'Pick-up' : type}
-                    </button>
-                  ))}
-                </div>
-
-                {/* FILTERS */}
-                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-                  <div className="relative w-full md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
-                    <input 
-                      type="text" 
-                      placeholder="Search ID or customer..." 
-                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
-                      value={orderSearch}
-                      onChange={(e) => setOrderSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                    <select 
-                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
-                      value={orderStatusFilter}
-                      onChange={(e) => setOrderStatusFilter(e.target.value)}
-                    >
-                      <option value="all">All Statuses</option>
-                      <option value="pending">Pending</option>
-                      <option value="confirmed">Confirmed</option>
-                      <option value="preparing">Preparing</option>
-                      <option value="ready">Ready</option>
-                    </select>
-                  </div>
-                </div>
-
-                
-                {/* DESKTOP TABLE / MOBILE CARDS */}
-                {orderTypeFilter === 'delivery' ? (
-                  <div className="p-0">
-                    <DeliveryOrdersTable
-                      orders={deliveryOrders}
-                      getServiceAreaName={getServiceAreaName}
-                      showStatusControl={true}
-                      onStatusChange={updateDeliveryStatus}
-                      onDeliveryPersonChange={updateDeliveryPerson}
-                      onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
-                      isAdmin={user?.role === "admin"}
-                    />
-                  </div>
-                ) : (
-
-                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
-                  {filteredActive.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
-                        <Filter className="h-6 w-6 text-accent/40" />
-                      </div>
-                      <p className="text-[#800000] font-bold">No Active Orders</p>
-                      <p className="text-sm text-muted mt-1 max-w-xs">New customer orders will appear here when they are placed.</p>
-                    </div>
-                  ) : (
-                    <>
-                      {/* DESKTOP TABLE */}
-                      <div className="hidden md:block w-full min-w-0 overflow-x-hidden">
-                        <table className="w-full table-fixed text-left text-xs align-middle">
-                          <colgroup>
-                            <col className="w-[85px]" />
-                            <col className="w-[115px]" />
-                            <col className="w-[80px]" />
-                            <col className="w-auto" />
-                            <col className="w-[80px]" />
-                            <col className="w-[130px]" />
-                            <col className="w-[120px]" />
-                            <col className="w-[90px]" />
-                          </colgroup>
-                          <thead>
-                            <tr className="text-muted border-b border-accent/10 bg-[#63131d]/5 font-semibold text-[11px] uppercase tracking-wider">
-                              <th className="px-3 py-3">Order ID</th>
-                              <th className="px-3 py-3">Customer</th>
-                              <th className="px-3 py-3 text-center">Type</th>
-                              <th className="px-3 py-3">Items</th>
-                              <th className="px-3 py-3">Total</th>
-                              <th className="px-3 py-3">Payment</th>
-                              <th className="px-3 py-3">Status</th>
-                              <th className="px-3 py-3 text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-accent/5">
-                            {filteredActive.map((order) => (
-                              <tr key={order.id} className="hover:bg-accent-light/10 transition-colors h-14">
-                                <td className="px-3 py-2.5 font-bold text-[#63131d] truncate align-middle">
-                                  {order.orderId}
-                                </td>
-
-                                <td className="px-3 py-2.5 font-medium text-stone-800 align-middle">
-                                  <span className="line-clamp-2 leading-tight">{order.customerName || "Walk-in"}</span>
-                                </td>
-
-                                <td className="px-3 py-2.5 text-center align-middle">
-                                  <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-200 shadow-2xs">
-                                    {order.orderType || "dine-in"}
-                                  </span>
-                                </td>
-
-                                <td className="px-3 py-2.5 text-xs text-stone-600 align-middle">
-                          <p className="truncate max-w-full" title={order.items}>{order.items}</p>
-                                </td>
-
-                                <td className="px-3 py-2.5 font-bold text-[#63131d] whitespace-nowrap align-middle">
-                                  ₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}
-                                </td>
-
-                                <td className="px-3 py-2.5 align-middle">
-                                  <div className="flex flex-col items-start gap-1">
-                                    {(order.paid || order.paymentStatus === "paid" || order.status === "completed" || order.status === "delivered") ? (
-                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200 shadow-2xs whitespace-nowrap">
-                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
-                                      </span>
-                                    ) : order.paymentStatus === "failed" ? (
-                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 shadow-2xs whitespace-nowrap">
-                                        🔴 Payment Failed
-                                      </span>
-                                    ) : order.paymentStatus === "cancelled" ? (
-                                      <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold text-stone-700 border border-stone-200 shadow-2xs whitespace-nowrap">
-                                        ⚪ Cancelled
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 shadow-2xs whitespace-nowrap">
-                                        🔴 Unpaid
-                                      </span>
-                                    )}
-                                    <button
-                                      onClick={() => setPaymentModalOrder(order)}
-                                      className="text-[10px] font-bold text-[#63131d] hover:underline cursor-pointer leading-none"
-                                    >
-                                      View Details
-                                    </button>
-                                  </div>
-                                </td>
-
-                                <td className="px-3 py-2.5 align-middle">
-                                  <AdminSelect
-                                    value={order.status}
-                                    onChange={(e) => {
-                                      if (order.orderType === 'delivery') {
-                                        updateDeliveryStatus(order.id, e.target.value as any);
-                                      } else {
-                                        updateStoreOrderStatus(order.id, e.target.value as any);
-                                      }
-                                    }}
-                                    className="!py-1 !px-2 !text-xs w-full shadow-2xs font-medium"
-                                  >
-                                    <option value="pending">Pending</option>
-                                    <option value="confirmed">Confirmed</option>
-                                    <option value="preparing">Preparing</option>
-                                    <option value="ready">Ready</option>
-                                    {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
-                                    <option value="completed">Completed</option>
-                                    <option value="cancelled">Cancelled</option>
-                                  </AdminSelect>
-                                </td>
-
-                                <td className="px-3 py-2.5 text-right align-middle">
-                                  <button
-                                    onClick={() => setSelectedOrderDetails(order)}
-                                    className="inline-flex items-center gap-1 text-xs font-bold text-[#63131d] bg-white px-2.5 py-1.5 rounded-lg border border-[#63131d]/20 shadow-2xs hover:bg-[#fff9f6] transition-colors cursor-pointer"
-                                  >
-                                    <Eye className="h-3.5 w-3.5" /> Details
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* MOBILE CARDS */}
-                      <div className="md:hidden flex flex-col gap-3 p-2">
-                        {filteredActive.map((order) => (
-                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h3 className="font-bold text-[#63131d]">{order.orderId}</h3>
-                                <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
-                                {order.orderType === 'dine-in' && (order as any).tableNumber && (
-                                  <p className="text-[10px] text-stone-500 font-bold mt-0.5">Table: {(order as any).tableNumber}</p>
-                                )}
-                              </div>
-                              <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
-                                {order.orderType || "dine-in"}
-                              </span>
-                            </div>
-                            
-                            <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
-                              <span className="text-muted truncate max-w-[60%]">{order.items}</span>
-                              <span className="font-bold text-lg text-[#63131d]">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
-                            </div>
-
-                            <div className="flex flex-col gap-2">
-                              <div className="flex justify-between items-center">
-                                <span className="text-xs font-semibold text-muted">Status:</span>
-                                <AdminSelect
-                                  value={order.status}
-                                  onChange={(e) => {
-                                    if (order.orderType === 'delivery') {
-                                      updateDeliveryStatus(order.id, e.target.value as any);
-                                    } else {
-                                      updateStoreOrderStatus(order.id, e.target.value as any);
-                                    }
-                                  }}
-                                  className="!py-1 !text-xs w-32 shadow-sm"
-                                >
-                                  <option value="pending">Pending</option>
-                                  <option value="confirmed">Confirmed</option>
-                                  <option value="preparing">Preparing</option>
-                                  <option value="ready">Ready</option>
-                                  {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
-                                  <option value="completed">Completed</option>
-                                  <option value="cancelled">Cancelled</option>
-                                </AdminSelect>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-xs font-semibold text-muted">Payment:</span>
-                                {(order.paid || order.paymentStatus === "paid" || order.status === "completed" || order.status === "delivered") ? (
-                                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
-                                  </span>
-                                ) : order.paymentStatus === "failed" ? (
-                                  <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
-                                    🔴 Payment Failed
-                                  </span>
-                                ) : order.paymentStatus === "cancelled" ? (
-                                  <span className="text-[10px] font-bold text-stone-700 bg-stone-100 px-2.5 py-0.5 rounded-full border border-stone-200">
-                                    ⚪ Cancelled
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
-                                    🔴 Unpaid
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 mt-1">
-                              <button
-                                onClick={() => setPaymentModalOrder(order)}
-                                className="py-2 bg-[#fff9f6] text-[#63131d] font-bold text-xs rounded-lg border border-[#63131d]/20 flex items-center justify-center gap-1 cursor-pointer"
-                              >
-                                View Payment
-                              </button>
-                              <button
-                                onClick={() => setSelectedOrderDetails(order)}
-                                className="py-2 bg-white text-[#63131d] font-bold text-xs rounded-lg border border-stone-200 shadow-2xs flex items-center justify-center gap-1 cursor-pointer"
-                              >
-                                <Eye className="h-3.5 w-3.5" /> Details
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      {filteredActiveKitchen.length > 0 && (
+                        <div>
+                           <h3 className="font-bold text-stone-900 bg-stone-100 px-4 py-2.5 rounded-t-xl border border-stone-200 flex items-center gap-2">
+                             Kitchen / Preparation Queue ({filteredActiveKitchen.length})
+                           </h3>
+                           <div className="border-x border-b border-stone-200/50 rounded-b-xl overflow-hidden bg-white/50">
+                             {renderOrdersTable(filteredActiveKitchen)}
+                           </div>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>

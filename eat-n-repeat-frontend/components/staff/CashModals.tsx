@@ -223,7 +223,7 @@ export function CashPaymentModal({ open, order, onConfirm, onClose }: { open: bo
             disabled={loading || cashNum < total}
             className="w-full py-4 bg-[#800000] disabled:bg-stone-300 text-white font-bold rounded-xl hover:bg-[#600000] transition-colors"
           >
-            {loading ? "Confirming..." : "Confirm Cash Payment"}
+            {loading ? "Confirming..." : `Confirm that you received ₱${cashNum > 0 ? cashNum.toFixed(2) : '...'} cash for Order ${order.orderId || order.id}?`}
           </button>
         </form>
       </div>

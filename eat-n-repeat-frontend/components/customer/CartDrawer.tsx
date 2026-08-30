@@ -324,29 +324,51 @@ export function CartDrawer({
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {completedOrder ? (
               completedOrder.type === 'dine-in' && completedOrder.paymentMethod !== 'GCash' ? (
-                <div className="text-center py-10 space-y-4">
-                  <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center text-3xl mx-auto border-4 border-yellow-200">
+                <div className="text-center py-6 space-y-4">
+                  <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-3xl mx-auto border-4 border-rose-200">
                     <Banknote className="w-8 h-8" />
                   </div>
-                  <h3 className="text-2xl font-bold text-stone-900">Dine-In Order Created</h3>
-                  <p className="text-sm text-stone-600">
-                    Order <span className="font-mono font-bold text-rose-900">#{completedOrder.orderNumber}</span>
-                  </p>
+                  <h3 className="text-xl sm:text-2xl font-bold text-stone-900 leading-tight">Order Reserved &mdash; Payment Required</h3>
+                  
+                  <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 text-stone-900 shadow-sm text-left mx-auto max-w-sm space-y-1">
+                    <div className="flex justify-between border-b border-stone-200 pb-2">
+                      <span className="text-xs text-stone-500 font-bold uppercase">Order ID</span>
+                      <span className="font-mono font-bold text-rose-900">{completedOrder.orderNumber}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-stone-200 py-2">
+                      <span className="text-xs text-stone-500 font-bold uppercase">Table</span>
+                      <span className="font-bold">{tableNumber || 'Counter'}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-stone-200 py-2">
+                      <span className="text-xs text-stone-500 font-bold uppercase">Amount Due</span>
+                      <span className="font-bold text-lg text-[#800000]">₱{total.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between pt-2">
+                      <span className="text-xs text-stone-500 font-bold uppercase">Payment Method</span>
+                      <span className="font-bold text-sm">Cash at Counter</span>
+                    </div>
+                  </div>
+
                   <div className="p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 shadow-sm text-left mx-auto max-w-sm">
-                    <h4 className="font-black text-sm mb-1">Payment Required</h4>
-                    <p className="text-xs font-medium opacity-90 leading-relaxed">
-                      Please proceed to the cashier to complete your payment.
-                      Your order will be sent to the kitchen after payment is confirmed.
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></div>
+                      <h4 className="font-black text-sm uppercase">Awaiting Cash Payment</h4>
+                    </div>
+                    <p className="text-xs font-medium opacity-90 leading-relaxed mb-2">
+                      Please proceed to the cashier and present your Order ID. Your order will only be sent to the kitchen after the cashier confirms your cash payment.
+                    </p>
+                    <p className="text-[11px] font-bold text-rose-700 bg-white/50 p-2 rounded border border-rose-100">
+                      Your order is not yet being prepared. Payment must be confirmed by the cashier first.
                     </p>
                   </div>
-                  <div className="pt-4 flex flex-col gap-2">
-                    <Link
-                      href="/customer/orders"
-                      onClick={() => { setCompletedOrder(null); onClose(); }}
-                      className="w-full py-3 bg-rose-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-rose-950 transition text-center"
+                  
+                  <div className="pt-2 flex flex-col gap-2">
+                    <button
+                      onClick={() => { setCompletedOrder(null); onClose(); router.push('/customer/orders'); }}
+                      className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-stone-950 transition text-center"
                     >
-                      Track Order <Package className="w-4 h-4 inline" />
-                    </Link>
+                      Track Order Status <Package className="w-4 h-4 inline ml-1" />
+                    </button>
                     <button
                       onClick={() => { setCompletedOrder(null); onClose(); }}
                       className="w-full py-2.5 text-stone-600 hover:text-stone-900 text-xs font-semibold"

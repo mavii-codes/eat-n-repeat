@@ -63,9 +63,9 @@ const statusConfig: Record<
     estWait: '~30-40 mins',
   },
   awaiting_payment: {
-    color: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-    icon: <Hourglass className="w-3.5 h-3.5" />,
-    label: 'Awaiting Payment',
+    color: 'bg-rose-100 text-rose-800 border-rose-300',
+    icon: <Banknote className="w-3.5 h-3.5" />,
+    label: 'AWAITING CASH PAYMENT',
     progress: 5,
     estWait: 'Pending Payment',
   },
