@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { MenuItem, MenuCategory, StockItem, StockItemInput } from "@/lib/admin/types";
 import {
   Search,
@@ -123,6 +123,12 @@ export function POSCashierTab({
 
   // Image load error tracking for fallback icons
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (isOffline && paymentMethod === "GCash") {
+      setPaymentMethod("Cash");
+    }
+  }, [isOffline, paymentMethod]);
 
   // Active Category Options
   const categoriesList = useMemo(() => {
@@ -662,13 +668,17 @@ export function POSCashierTab({
                 <button
                   type="button"
                   onClick={() => setPaymentMethod("GCash")}
-                  className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    paymentMethod === "GCash"
-                      ? "bg-[#63131d] text-white shadow-2xs"
-                      : "bg-stone-100 border border-stone-200 text-stone-600 hover:bg-stone-200/60"
+                  disabled={isOffline}
+                  title={isOffline ? "GCash is unavailable while offline" : ""}
+                  className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                    isOffline
+                      ? "opacity-40 cursor-not-allowed bg-stone-100 border border-stone-200 text-stone-400"
+                      : paymentMethod === "GCash"
+                      ? "bg-[#63131d] text-white shadow-2xs cursor-pointer"
+                      : "bg-stone-100 border border-stone-200 text-stone-600 hover:bg-stone-200/60 cursor-pointer"
                   }`}
                 >
-                  <CreditCard className="w-3.5 h-3.5" /> GCash
+                  <CreditCard className="w-3.5 h-3.5" /> GCash {isOffline && "(Offline)"}
                 </button>
               </div>
 

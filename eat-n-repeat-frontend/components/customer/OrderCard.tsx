@@ -113,13 +113,6 @@ const statusConfig: Record<
   },
 };
 
-const timelineStages = [
-  { key: 'pending', label: 'Pending', icon: <Hourglass className="w-4 h-4" /> },
-  { key: 'confirmed', label: 'Confirmed', icon: <Check className="w-4 h-4" /> },
-  { key: 'preparing', label: 'Preparing', icon: <ChefHat className="w-4 h-4" /> },
-  { key: 'out_for_delivery', label: 'On Way / Ready', icon: <Bike className="w-4 h-4" /> },
-  { key: 'delivered', label: 'Completed', icon: <PartyPopper className="w-4 h-4" /> },
-];
 
 function getStageIndex(status: OrderStatus): number {
   switch (status) {
@@ -180,6 +173,20 @@ export function OrderCard({
     propSubtotal ?? items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const calculatedDeliveryFee =
     propDeliveryFee ?? (deliveryType === 'delivery' ? (calculatedSubtotal > 350 ? 0 : 45) : 0);
+
+  const currentTimelineStages = (deliveryType === 'dine-in' && paymentMethod !== 'GCash') ? [
+    { key: 'pending', label: 'Payment Req.', icon: <Banknote className="w-4 h-4" /> },
+    { key: 'confirmed', label: 'Paid/Queue', icon: <Check className="w-4 h-4" /> },
+    { key: 'preparing', label: 'Preparing', icon: <ChefHat className="w-4 h-4" /> },
+    { key: 'ready', label: 'Ready', icon: <CheckCheck className="w-4 h-4" /> },
+    { key: 'delivered', label: 'Served', icon: <PartyPopper className="w-4 h-4" /> },
+  ] : [
+    { key: 'pending', label: 'Pending', icon: <Hourglass className="w-4 h-4" /> },
+    { key: 'confirmed', label: 'Confirmed', icon: <Check className="w-4 h-4" /> },
+    { key: 'preparing', label: 'Preparing', icon: <ChefHat className="w-4 h-4" /> },
+    { key: 'out_for_delivery', label: 'On Way / Ready', icon: <Bike className="w-4 h-4" /> },
+    { key: 'delivered', label: 'Completed', icon: <PartyPopper className="w-4 h-4" /> },
+  ];
 
   const { hasReviewedOrder, addReview } = useReviews();
   const alreadyReviewed = hasReviewedOrder(id);
@@ -323,7 +330,7 @@ export function OrderCard({
 
               {/* 5-Stage Order Timeline */}
               <div className="grid grid-cols-5 gap-1 mt-4 pt-3 border-t border-amber-200/50 text-center">
-                {timelineStages.map((stage, idx) => {
+                {currentTimelineStages.map((stage, idx) => {
                   const isPassed = currentStageIndex >= idx;
                   const isCurrent = currentStageIndex === idx;
 

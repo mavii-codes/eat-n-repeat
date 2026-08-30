@@ -1,7 +1,17 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { getApiUrl } from "@/lib/config";
+import { 
+  getPendingOfflineOrders, 
+  getPendingStockTransactions, 
+  markOrdersSynced, 
+  clearSyncedOrders,
+  markStockTransactionsSynced,
+  clearSyncedStockTransactions
+} from "@/lib/offlineSync";
+import toast from "react-hot-toast";
+import axios from "axios";
 
 type NetworkStatusContextType = {
   isOffline: boolean;
@@ -18,10 +28,52 @@ export const useNetworkStatus = () => useContext(NetworkStatusContext);
 export function NetworkStatusProvider({ children }: { children: React.ReactNode }) {
   const [isOffline, setIsOffline] = useState(false);
   const [isLocalBackendReachable, setIsLocalBackendReachable] = useState(true);
+  const syncInProgress = useRef(false);
+
+  const performSync = async () => {
+    if (syncInProgress.current) return;
+    
+    try {
+      syncInProgress.current = true;
+      const offlineOrders = await getPendingOfflineOrders();
+      const offlineStockTxs = await getPendingStockTransactions();
+
+      if (offlineOrders.length === 0 && offlineStockTxs.length === 0) {
+        return;
+      }
+
+      toast.loading("Syncing offline data...", { id: "sync-status" });
+
+      const res = await axios.post(`${getApiUrl()}/api/sync/offline`, {
+        offline_orders: offlineOrders,
+        offline_stock_transactions: offlineStockTxs,
+      });
+
+      if (res.data.success) {
+        if (offlineOrders.length > 0) {
+          await markOrdersSynced(offlineOrders.map(o => o.id));
+          await clearSyncedOrders();
+        }
+        if (offlineStockTxs.length > 0) {
+          await markStockTransactionsSynced(offlineStockTxs.map(t => t.id));
+          await clearSyncedStockTransactions();
+        }
+        toast.success("Offline data synced successfully!", { id: "sync-status" });
+      }
+    } catch (err) {
+      console.error("Auto-sync failed:", err);
+      toast.error("Failed to sync offline data.", { id: "sync-status" });
+    } finally {
+      syncInProgress.current = false;
+    }
+  };
 
   useEffect(() => {
-    // Basic browser online/offline status
-    const handleOnline = () => setIsOffline(false);
+    const handleOnline = () => {
+      setIsOffline(false);
+      performSync();
+    };
+    
     const handleOffline = () => setIsOffline(true);
 
     window.addEventListener("online", handleOnline);
@@ -29,32 +81,34 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
 
     // Initial check
     setIsOffline(!navigator.onLine);
+    if (navigator.onLine) {
+      performSync();
+    }
 
-    // Advanced: Ping backend to see if we have actual connection to our local server
-    // and let the backend tell us if IT has internet (optional next step)
     const pingInterval = setInterval(async () => {
-      try {
-        // We ping a lightweight endpoint on the backend
-        const res = await fetch(`${getApiUrl()}/api/sync/status`, {
-          method: "GET",
-          cache: "no-store",
-          headers: { "Content-Type": "application/json" }
-        });
-        
-        if (res.ok) {
-          setIsLocalBackendReachable(true);
-          const data = await res.json();
-          // The backend tells us if it can reach the cloud
-          if (data.isOffline !== undefined) {
-            setIsOffline(data.isOffline);
+      if (navigator.onLine) {
+        try {
+          const res = await fetch(`${getApiUrl()}/api/sync/status`, {
+            method: "GET",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" }
+          });
+          
+          if (res.ok) {
+            setIsLocalBackendReachable(true);
+            const data = await res.json();
+            if (data.isOffline !== undefined && data.isOffline !== isOffline) {
+              setIsOffline(data.isOffline);
+              if (!data.isOffline) performSync();
+            }
+          } else {
+            setIsLocalBackendReachable(false);
           }
-        } else {
+        } catch (err) {
           setIsLocalBackendReachable(false);
         }
-      } catch (err) {
-        setIsLocalBackendReachable(false);
       }
-    }, 10000); // Check every 10 seconds
+    }, 10000);
 
     return () => {
       window.removeEventListener("online", handleOnline);

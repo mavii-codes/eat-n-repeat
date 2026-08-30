@@ -163,13 +163,23 @@ export function CashPaymentModal({ open, order, onConfirm, onClose }: { open: bo
           <X className="w-5 h-5" />
         </button>
         
-        <div className="flex items-center gap-2 mb-4 text-[#800000]">
-          <PhilippinePeso className="w-5 h-5" />
-          <h2 className="text-xl font-bold">Cash Payment</h2>
+        <div className="flex flex-col gap-1 mb-5 border-b border-stone-100 pb-4">
+          <h2 className="text-xl font-bold text-[#800000] flex items-center gap-2">
+            <PhilippinePeso className="w-5 h-5" />
+            {order.orderType === 'dine-in' ? 'Dine-In Payment' : 'Cash Payment'}
+          </h2>
+          <p className="text-sm font-bold text-stone-900 mt-2">
+            Order <span className="font-mono text-rose-900">#{order.orderId || order.id}</span>
+          </p>
+          {order.orderType === 'dine-in' && order.tableNumber && (
+            <p className="text-xs font-semibold text-stone-500">
+              Table: {order.tableNumber}
+            </p>
+          )}
         </div>
         
         <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 mb-5 flex justify-between items-center">
-          <span className="text-stone-500 font-bold uppercase text-[10px] tracking-wider">Amount Due</span>
+          <span className="text-stone-500 font-bold uppercase text-[10px] tracking-wider">Total</span>
           <span className="font-serif font-black text-2xl text-stone-900">₱{total.toFixed(2)}</span>
         </div>
 
@@ -213,7 +223,7 @@ export function CashPaymentModal({ open, order, onConfirm, onClose }: { open: bo
             disabled={loading || cashNum < total}
             className="w-full py-4 bg-[#800000] disabled:bg-stone-300 text-white font-bold rounded-xl hover:bg-[#600000] transition-colors"
           >
-            {loading ? "Confirming..." : "Confirm Payment"}
+            {loading ? "Confirming..." : "Confirm Cash Payment"}
           </button>
         </form>
       </div>

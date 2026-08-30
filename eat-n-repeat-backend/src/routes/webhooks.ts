@@ -34,10 +34,12 @@ router.post("/xendit", async (req, res) => {
         
         // Fetch current order status first to check if it was cancelled
         const [existingOrders] = await pool.execute<any[]>(
-          "SELECT status FROM orders WHERE id = ?",
+          "SELECT status, type FROM orders WHERE id = ?",
           [payment.order_id]
         );
-        const wasCancelled = existingOrders.length > 0 && existingOrders[0].status === 'cancelled';
+        const orderData = existingOrders.length > 0 ? existingOrders[0] : null;
+        const wasCancelled = orderData && orderData.status === 'cancelled';
+        const orderType = orderData ? orderData.type : 'delivery';
 
         // Update payment status
         await pool.execute(
@@ -52,9 +54,10 @@ router.post("/xendit", async (req, res) => {
             [payment.order_id]
           );
         } else if (status === 'EXPIRED' || status === 'FAILED') {
+          const revertStatus = orderType === 'dine-in' ? 'awaiting_payment' : 'pending_payment';
           await pool.execute(
-            "UPDATE orders SET status = 'cancelled' WHERE id = ?",
-            [payment.order_id]
+            "UPDATE orders SET status = ? WHERE id = ?",
+            [revertStatus, payment.order_id]
           );
         }
 

@@ -68,7 +68,7 @@ export function CartDrawer({
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
+  const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string } | null>(null);
 
   // Calculations
   useEffect(() => {
@@ -238,7 +238,12 @@ export function CartDrawer({
       }
 
       setIsSubmitting(false);
-      setCompletedOrderId(data.orderNumber || orderNumber);
+      setCompletedOrder({
+        id: data.orderId || orderNumber,
+        orderNumber: data.orderNumber || orderNumber,
+        type: fulfillmentType,
+        paymentMethod: backendPaymentMethod
+      });
       onClearCart();
     } catch (error: any) {
       console.error('Checkout error:', error);
@@ -317,31 +322,65 @@ export function CartDrawer({
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-            {completedOrderId ? (
-              <div className="text-center py-10 space-y-4">
-                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-3xl mx-auto border-4 border-emerald-200 animate-bounce">
-                  ✓
+            {completedOrder ? (
+              completedOrder.type === 'dine-in' && completedOrder.paymentMethod !== 'GCash' ? (
+                <div className="text-center py-10 space-y-4">
+                  <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center text-3xl mx-auto border-4 border-yellow-200">
+                    <Banknote className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-stone-900">Dine-In Order Created</h3>
+                  <p className="text-sm text-stone-600">
+                    Order <span className="font-mono font-bold text-rose-900">#{completedOrder.orderNumber}</span>
+                  </p>
+                  <div className="p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 shadow-sm text-left mx-auto max-w-sm">
+                    <h4 className="font-black text-sm mb-1">Payment Required</h4>
+                    <p className="text-xs font-medium opacity-90 leading-relaxed">
+                      Please proceed to the cashier to complete your payment.
+                      Your order will be sent to the kitchen after payment is confirmed.
+                    </p>
+                  </div>
+                  <div className="pt-4 flex flex-col gap-2">
+                    <Link
+                      href="/customer/orders"
+                      onClick={() => { setCompletedOrder(null); onClose(); }}
+                      className="w-full py-3 bg-rose-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-rose-950 transition text-center"
+                    >
+                      Track Order <Package className="w-4 h-4 inline" />
+                    </Link>
+                    <button
+                      onClick={() => { setCompletedOrder(null); onClose(); }}
+                      className="w-full py-2.5 text-stone-600 hover:text-stone-900 text-xs font-semibold"
+                    >
+                      Close Window
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-2xl font-bold text-stone-900">Order Placed Successfully!</h3>
-                <p className="text-sm text-stone-600">
-                  Your Order ID is <span className="font-mono font-bold text-rose-900">{completedOrderId}</span>. Our kitchen is preparing your delicious meal!
-                </p>
-                <div className="pt-4 flex flex-col gap-2">
-                  <Link
-                    href="/customer/orders"
-                    onClick={onClose}
-                    className="w-full py-3 bg-rose-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-rose-950 transition text-center"
-                  >
-                    Track Order Status <Package className="w-4 h-4 inline" />
-                  </Link>
-                  <button
-                    onClick={() => setCompletedOrderId(null)}
-                    className="w-full py-2.5 text-stone-600 hover:text-stone-900 text-xs font-semibold"
-                  >
-                    Close Window
-                  </button>
+              ) : (
+                <div className="text-center py-10 space-y-4">
+                  <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-3xl mx-auto border-4 border-emerald-200 animate-bounce">
+                    ✓
+                  </div>
+                  <h3 className="text-2xl font-bold text-stone-900">Order Placed Successfully!</h3>
+                  <p className="text-sm text-stone-600">
+                    Your Order ID is <span className="font-mono font-bold text-rose-900">{completedOrder.orderNumber}</span>. Our kitchen is preparing your delicious meal!
+                  </p>
+                  <div className="pt-4 flex flex-col gap-2">
+                    <Link
+                      href="/customer/orders"
+                      onClick={() => { setCompletedOrder(null); onClose(); }}
+                      className="w-full py-3 bg-rose-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-rose-950 transition text-center"
+                    >
+                      Track Order Status <Package className="w-4 h-4 inline" />
+                    </Link>
+                    <button
+                      onClick={() => { setCompletedOrder(null); onClose(); }}
+                      className="w-full py-2.5 text-stone-600 hover:text-stone-900 text-xs font-semibold"
+                    >
+                      Close Window
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )
             ) : cartItems.length === 0 ? (
               <div className="text-center py-16 text-stone-500 space-y-3">
                 <div className="opacity-40"><ShoppingBag className="w-12 h-12 text-stone-400 mx-auto" /></div>
@@ -632,7 +671,7 @@ export function CartDrawer({
           </div>
 
           {/* Footer Summary & Checkout Action */}
-          {!completedOrderId && cartItems.length > 0 && (
+          {!completedOrder && cartItems.length > 0 && (
             <div className="p-4 sm:p-6 border-t border-stone-200 bg-amber-50/50 space-y-3">
               <div className="space-y-1.5 text-xs text-stone-600">
                 <div className="flex justify-between">

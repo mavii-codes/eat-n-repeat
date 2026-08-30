@@ -63,7 +63,7 @@ export function RecentOrdersTable({ orders, onArchive }: RecentOrdersTableProps)
               </tr>
             ) : (
               orders.map((order) => (
-                <tr key={order.id} className="border-b border-accent/5 last:border-0">
+                <tr key={order.id} className={`border-b border-accent/5 last:border-0 ${order.status === 'awaiting_payment' ? 'bg-yellow-50/50 border-yellow-200/50' : ''}`}>
                   <td className="px-4 py-3 font-medium text-accent">
                     {order.orderId}
                   </td>
@@ -76,7 +76,7 @@ export function RecentOrdersTable({ orders, onArchive }: RecentOrdersTableProps)
                     <span
                       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusStyles[order.status]}`}
                     >
-                      {order.status}
+                      {order.status === 'awaiting_payment' ? 'Payment Pending' : order.status.replace('_', ' ')}
                     </span>
                   </td>
                   {onArchive && (

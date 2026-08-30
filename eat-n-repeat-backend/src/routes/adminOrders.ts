@@ -97,6 +97,17 @@ router.patch("/:id/status", async (req, res) => {
     const orderRow = existingRows[0];
     const orderId = orderRow.id;
 
+    // Enforce business logic: No payment = No kitchen processing
+    if (
+      (status === "preparing" || status === "ready" || status === "out_for_delivery" || status === "delivered" || status === "completed") &&
+      (orderRow.status === "pending_payment" || orderRow.status === "awaiting_payment" || orderRow.payment_status === "failed")
+    ) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Payment must be completed before processing this order." 
+      });
+    }
+
     // 2. Map timestamp columns if status corresponds to a specific lifecycle event
     let timeCol = "";
     if (status === "preparing") timeCol = "preparing_at";
