@@ -4,7 +4,13 @@ import { useState, useRef, useEffect } from "react";
 import { Bell, Check, X, Circle } from "lucide-react";
 import { useStaffNotifications } from "@/context/StaffNotificationContext";
 
-export function StaffNotificationPanel({ onNavigateToOrder }: { onNavigateToOrder: (type: string, orderId: string) => void }) {
+export function StaffNotificationPanel({ 
+  onNavigateToOrder,
+  theme = "light"
+}: { 
+  onNavigateToOrder: (type: string, orderId: string) => void;
+  theme?: "dark" | "light";
+}) {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useStaffNotifications();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -32,12 +38,18 @@ export function StaffNotificationPanel({ onNavigateToOrder }: { onNavigateToOrde
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors cursor-pointer"
+        className={`relative p-2 rounded-xl transition-colors cursor-pointer ${
+          theme === "dark" 
+            ? "bg-white/10 text-white hover:bg-white/20" 
+            : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+        }`}
         title="Staff Notifications"
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow ring-2 ring-[#500f17]">
+          <span className={`absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow ring-2 ${
+            theme === "dark" ? "ring-[#500f17]" : "ring-white"
+          }`}>
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}

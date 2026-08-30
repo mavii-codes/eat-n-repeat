@@ -579,7 +579,7 @@ export default function StaffPortalPage() {
 
         <div className="flex items-center gap-2">
           {/* Notification Button */}
-          <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} />
+          <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} theme="dark" />
 
           {/* Hamburger Menu Icon */}
           <button
@@ -746,7 +746,7 @@ export default function StaffPortalPage() {
                 </p>
               </div>
               <div className="hidden md:flex items-center gap-3">
-                <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} />
+                <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} theme="light" />
               </div>
             </header>
 
