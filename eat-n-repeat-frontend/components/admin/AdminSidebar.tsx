@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
 import { useAuth } from "@/context/AuthContext";
+import { LocalModeModal } from "@/components/admin/LocalModeModal";
+import { Server } from "lucide-react";
 
 const navGroups = [
   {
@@ -198,9 +201,11 @@ function isActive(pathname: string, href: string) {
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const [isLocalModeModalOpen, setIsLocalModeModalOpen] = useState(false);
 
   return (
     <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
+      <LocalModeModal isOpen={isLocalModeModalOpen} onClose={() => setIsLocalModeModalOpen(false)} />
       <div className="border-b border-white/8 px-6 py-6">
         <Logo href="/admin" size="lg" />
         <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/45">
@@ -255,6 +260,13 @@ export function AdminSidebar() {
               <p className="text-xs font-semibold text-white/95">{user.name}</p>
               <p className="text-[10px] text-white/40 font-mono">@{user.username} • {user.role}</p>
             </div>
+            <button
+              onClick={() => setIsLocalModeModalOpen(true)}
+              className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600/20 border border-emerald-500/30 py-2 text-xs font-semibold text-emerald-100 transition-all hover:bg-emerald-600/40 active:scale-[0.98] cursor-pointer"
+            >
+              <Server className="h-3.5 w-3.5" />
+              Switch to Local Mode
+            </button>
             <button
               onClick={logout}
               className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-accent/20 border border-accent/30 py-2 text-xs font-semibold text-white transition-all hover:bg-accent/40 active:scale-[0.98]"

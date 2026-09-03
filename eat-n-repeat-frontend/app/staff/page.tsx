@@ -4,11 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
-import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Calculator } from "lucide-react";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Server } from "lucide-react";
+import { LocalModeModal } from "@/components/admin/LocalModeModal";
 import { Logo } from "@/components/brand/Logo";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
-import { DeliveryOrdersTable } from "@/components/admin/DeliveryOrdersTable";
-import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
@@ -21,10 +20,7 @@ import {
 } from "@/components/admin/AdminForm";
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
-import { PaymentDetailsModal } from "@/components/admin/PaymentDetailsModal";
-import { StartShiftModal, EndShiftModal, CashPaymentModal } from "@/components/staff/CashModals";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
-import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
@@ -97,8 +93,6 @@ export default function StaffPortalPage() {
     addMenuItem,
     updateMenuItem,
     updateDeliveryStatus,
-    updateDeliveryPerson,
-    getServiceAreaName,
     getMenuCategoryName,
     getStockCategoryName,
     staffAccounts,
@@ -106,7 +100,6 @@ export default function StaffPortalPage() {
     addStockItem,
     updateStockItem,
     deleteStockItem,
-    processOfflineStoreOrder,
   } = useAdminData();
 
   const router = useRouter();
@@ -122,17 +115,10 @@ export default function StaffPortalPage() {
   // Orders Tab State
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
-  const [orderTypeFilter, setOrderTypeFilter] = useState("delivery");
+  const [orderTypeFilter, setOrderTypeFilter] = useState("all");
   const [orderHistorySearch, setOrderHistorySearch] = useState("");
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
-  const [paymentModalOrder, setPaymentModalOrder] = useState<any | null>(null);
-
-  // Cash Register States
-  const { activeCashShift, fetchActiveCashShift } = useAdminData();
-  const [startShiftOpen, setStartShiftOpen] = useState(false);
-  const [endShiftOpen, setEndShiftOpen] = useState(false);
-  const [cashPaymentOrder, setCashPaymentOrder] = useState<any | null>(null);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -167,6 +153,7 @@ export default function StaffPortalPage() {
   const [posCart, setPosCart] = useState<POSCartItem[]>([]);
   const [posTendered, setPosTendered] = useState("");
   const [posReceiptOpen, setPosReceiptOpen] = useState(false);
+  const [isLocalModeModalOpen, setIsLocalModeModalOpen] = useState(false);
   const [posSearchTerm, setPosSearchTerm] = useState("");
   const [posCategoryFilter, setPosCategoryFilter] = useState("all");
   const [posReceiptData, setPosReceiptData] = useState<{
@@ -190,21 +177,9 @@ export default function StaffPortalPage() {
     setActiveChatOrder({ customerName, orderNumber });
     setChatOpen(true);
   };
-  
-  const handleNavigateToOrder = (type: string, orderId: string) => {
-    if (type === "delivery" || type === "status") {
-      setActiveTab("delivery");
-    } else {
-      setActiveTab("orders");
-      setOrderHistorySearch(orderId);
-      setOrderSearch(orderId);
-    }
-  };
-
   const [currentTime, setCurrentTime] = useState("");
 
   useEffect(() => {
-    fetchActiveCashShift();
     setCurrentTime(
       new Date().toLocaleTimeString("en-US", {
         hour: "2-digit",
@@ -282,7 +257,18 @@ export default function StaffPortalPage() {
           </svg>
         ),
       },
-      
+      {
+        id: "delivery",
+        label: "Delivery Orders",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+            <rect x="1" y="3" width="15" height="13" rx="1" />
+            <path d="M16 8h4l3 4v5h-7V8z" />
+            <circle cx="5.5" cy="18.5" r="2.5" />
+            <circle cx="18.5" cy="18.5" r="2.5" />
+          </svg>
+        ),
+      },
       {
         id: "archive",
         label: "Archived Items",
@@ -408,40 +394,6 @@ export default function StaffPortalPage() {
   }
 
   // Profile Edit Submission
-  const handleStartShift = async (float: number) => {
-    try {
-      const { getApiUrl } = await import('@/lib/config');
-      const token = localStorage.getItem('eat-n-repeat-staff-token');
-      await fetch(`${getApiUrl()}/api/cash/shift/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ startingFloat: float })
-      });
-      await fetchActiveCashShift();
-      setStartShiftOpen(false);
-    } catch (e) { console.error(e); }
-  };
-
-  const handleEndShift = async (cash: number) => {
-    try {
-      if (!activeCashShift) return;
-      const { getApiUrl } = await import('@/lib/config');
-      const token = localStorage.getItem('eat-n-repeat-staff-token');
-      await fetch(`${getApiUrl()}/api/cash/shift/end`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ shiftId: activeCashShift.id, actualCash: cash })
-      });
-      await fetchActiveCashShift();
-      setEndShiftOpen(false);
-    } catch (e) { console.error(e); }
-  };
-
-  const handleConfirmCashPayment = async (cashReceived: number) => {
-    if (!cashPaymentOrder) return { success: false, message: "No order selected" };
-    return await confirmStoreOrderPayment(cashPaymentOrder.id, cashReceived);
-  };
-
   function handleProfileUpdate(e: React.FormEvent) {
     e.preventDefault();
     setProfileError(null);
@@ -564,122 +516,10 @@ export default function StaffPortalPage() {
   if (!user) return null;
 
   return (
-    <div className="admin-shell min-h-screen flex flex-col md:flex-row text-[#1c1c1c] w-full max-w-full overflow-x-hidden">
-      {/* MOBILE COMPACT HEADER BAR */}
-      <header className="md:hidden sticky top-0 z-[100] flex items-center justify-between bg-[#500f17] text-white px-4 py-3 shadow-md border-b border-white/10 w-full">
-        <div className="flex items-center gap-3">
-          <Logo size="sm" showText={false} />
-          <div>
-            <h1 className="font-serif text-base font-bold text-white leading-tight">Eat n&apos; Repeat</h1>
-            <p className="text-[10px] text-white/60 font-semibold uppercase tracking-wider">
-              {tabs.find((t) => t.id === activeTab)?.label || "Staff Portal"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Notification Button */}
-          <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} theme="dark" />
-
-          {/* Hamburger Menu Icon */}
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 rounded-xl bg-accent/30 text-white hover:bg-accent/50 transition-colors cursor-pointer"
-            aria-label="Toggle Navigation Menu"
-          >
-            {isMobileMenuOpen ? (
-              <X className="h-6 w-6" />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6">
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            )}
-          </button>
-        </div>
-      </header>
-
-      {/* MOBILE SIDEBAR DRAWER OVERLAY */}
-      {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex">
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
-            onClick={() => setIsMobileMenuOpen(false)}
-          />
-
-          {/* Drawer Panel */}
-          <aside className="admin-sidebar relative z-50 flex w-72 flex-col h-full bg-[#500f17] text-white shadow-2xl overflow-y-auto animate-in slide-in-from-left duration-200">
-            <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
-              <div>
-                <Logo size="md" showText={false} />
-                <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/50">
-                  Staff Portal
-                </p>
-                <p className="font-script text-lg text-white/90">Eat n&apos; Repeat</p>
-              </div>
-              <button
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="p-2 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <nav className="flex-1 space-y-1.5 px-4 py-5">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all cursor-pointer ${
-                    activeTab === tab.id
-                      ? "bg-accent/30 text-white border-l-4 border-accent shadow-inner"
-                      : "text-white/70 hover:bg-white/10"
-                  }`}
-                >
-                  <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                      activeTab === tab.id ? "bg-accent text-white" : "bg-white/10 text-white/80"
-                    }`}
-                  >
-                    {tab.icon}
-                  </span>
-                  <span className="text-sm font-semibold">{tab.label}</span>
-                </button>
-              ))}
-            </nav>
-
-            {/* Footer User Card */}
-            <div className="border-t border-white/10 px-5 py-4 space-y-3">
-              <div className="rounded-xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur-sm flex flex-col gap-2">
-                <div>
-                  <p className="text-xs font-semibold text-white">{user?.name}</p>
-                  <p className="text-[10px] text-white/50 font-mono">@{user?.username} • {user?.role}</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setIsMobileMenuOpen(false);
-                    logout();
-                  }}
-                  className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-accent/30 border border-accent/40 py-2 text-xs font-semibold text-white transition-all hover:bg-accent/50 cursor-pointer"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-                  </svg>
-                  Sign Out
-                </button>
-              </div>
-            </div>
-          </aside>
-        </div>
-      )}
-
-      {/* DESKTOP LEFT SIDEBAR */}
-      <aside className="admin-sidebar hidden md:flex fixed inset-y-0 left-0 z-40 w-72 flex-col overflow-y-auto text-white">
+    <div className="admin-shell min-h-screen flex text-[#1c1c1c]">
+      <LocalModeModal isOpen={isLocalModeModalOpen} onClose={() => setIsLocalModeModalOpen(false)} />
+      {/* LEFT SIDEBAR */}
+      <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
         <div className="border-b border-white/8 px-6 py-6">
           <Logo size="md" showText={false} />
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/45">
@@ -692,7 +532,7 @@ export default function StaffPortalPage() {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setIsMobileMenuOpen(false); }}
+                            onClick={() => { setActiveTab(tab.id); setIsMobileMenuOpen(false); }}
               className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all ${
                 activeTab === tab.id
                   ? "bg-accent/20 text-white border-l-4 border-accent shadow-inner"
@@ -717,6 +557,13 @@ export default function StaffPortalPage() {
               <p className="text-[10px] text-white/45 font-mono">@{user.username} • {user.role}</p>
             </div>
             <button
+              onClick={() => setIsLocalModeModalOpen(true)}
+              className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600/20 border border-emerald-500/30 py-2 text-xs font-semibold text-emerald-100 transition-all hover:bg-emerald-600/40 active:scale-[0.98] cursor-pointer"
+            >
+              <Server className="h-3.5 w-3.5" />
+              Switch to Local Mode
+            </button>
+            <button
               onClick={logout}
               className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-accent/20 border border-accent/30 py-2 text-xs font-semibold text-white transition-all hover:bg-accent/40 active:scale-[0.98] cursor-pointer"
             >
@@ -729,66 +576,32 @@ export default function StaffPortalPage() {
         </div>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
-      <main className="relative z-10 pl-0 md:pl-72 flex-1 mx-auto w-full max-w-6xl px-3 sm:px-6 md:px-8 py-4 md:py-8 overflow-x-hidden min-w-0">
+      {/* MAIN MAIN AREA */}
+      <main className="relative z-10 pl-72 flex-1 mx-auto max-w-6xl px-8 py-8">
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === "dashboard" && (
-          <div className="space-y-6 w-full max-w-full min-w-0">
+          <div className="space-y-6">
             {/* HEADER */}
-            <header className="relative z-50 flex flex-col gap-4 rounded-2xl md:rounded-3xl border border-white/80 bg-white/90 p-4 sm:p-6 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+            <header className="flex flex-col gap-4 rounded-3xl border border-white/80 bg-white/90 px-6 py-6 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-accent/80">Staff Workspace</p>
-                <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold tracking-tight text-[#63131d]">Good day, {user?.name || 'Staff'}!</h1>
-                <p className="mt-1 text-xs sm:text-sm text-[#8a5a5a]">Here's your cafe pulse for today.</p>
+                <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-[#63131d]">Good day, {user?.name || 'Staff'}!</h1>
+                <p className="mt-1 text-sm text-[#8a5a5a]">Here's your cafe pulse for today.</p>
                 <p className="mt-2 text-xs font-medium text-[#63131d]/60 bg-[#63131d]/5 inline-block px-3 py-1 rounded-full border border-[#63131d]/10">
                   {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                 </p>
               </div>
-              <div className="hidden md:flex items-center gap-3">
-                <StaffNotificationPanel onNavigateToOrder={handleNavigateToOrder} theme="light" />
+              <div className="flex items-center gap-3">
+                <button className="relative rounded-full bg-[#fffaf7] p-2.5 text-[#63131d] shadow-sm border border-accent/10 hover:bg-white transition-colors cursor-pointer">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                  {stockNotifications.length > 0 && <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-[#fffaf7]"></span>}
+                </button>
               </div>
             </header>
 
-            {/* ACTIVE CASH SHIFT */}
-            {activeCashShift && (
-              <section className="rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-4 sm:p-5 shadow-sm backdrop-blur-sm relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-                  <Calculator className="w-24 h-24 text-emerald-900" />
-                </div>
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> OPEN SHIFT
-                    </span>
-                    <h2 className="text-sm font-bold text-emerald-950">Active Cash Float</h2>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Staff</p>
-                      <p className="font-medium text-emerald-950 truncate">{user?.name} <span className="text-emerald-700/60 text-xs">({activeCashShift.staff_id})</span></p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Shift ID</p>
-                      <p className="font-mono text-xs font-medium text-emerald-950">{activeCashShift.id.split('-').slice(0, 2).join('-')}...</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Started</p>
-                      <p className="font-medium text-emerald-950">
-                        {new Date(activeCashShift.start_time).toLocaleDateString()} at {new Date(activeCashShift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase font-bold text-emerald-800/70">Starting Float</p>
-                      <p className="font-bold text-emerald-900 text-lg">₱{Number(activeCashShift.starting_float).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            )}
-
             {/* KPI CARDS */}
-            <section className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4">
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               {[
                 { label: "Today's Orders", value: salesSummary.totalOrders, color: "text-[#8b3b25]" },
                 { label: "Pending Orders", value: salesSummary.pendingOrders, color: "text-[#9a6100]" },
@@ -796,20 +609,20 @@ export default function StaffPortalPage() {
                 { label: "Completed", value: salesSummary.completedOrders, color: "text-[#24753c]" },
                 { label: "Low Stock", value: stockNotifications.length, color: "text-[#bd2525]" },
               ].map((stat) => (
-                <div key={stat.label} className="rounded-2xl border border-white/60 bg-white/80 p-3.5 sm:p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md hover:bg-white/95">
-                  <p className="text-[10px] sm:text-xs font-semibold text-muted uppercase tracking-wide">{stat.label}</p>
-                  <p className={`mt-1 font-serif text-2xl sm:text-3xl font-bold ${stat.color}`}>{stat.value}</p>
+                <div key={stat.label} className="rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md hover:bg-white/95">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">{stat.label}</p>
+                  <p className={`mt-2 font-serif text-3xl font-bold ${stat.color}`}>{stat.value}</p>
                 </div>
               ))}
             </section>
 
             {/* STATUS SUMMARY */}
-            <section className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-sm backdrop-blur-sm">
+            <section className="rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur-sm">
               <h2 className="text-sm font-bold text-[#63131d] mb-4 flex items-center gap-2">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>
                 Order Status Summary
               </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 text-center">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 text-center">
                 {[
                   { s: "Pending", c: "bg-amber-50 text-amber-700 border-amber-200" },
                   { s: "Confirmed", c: "bg-blue-50 text-blue-700 border-blue-200" },
@@ -820,16 +633,16 @@ export default function StaffPortalPage() {
                 ].map(status => {
                   const count = [...storeOrders, ...deliveryOrders].filter(o => !o.archived && o.status === status.s.toLowerCase()).length;
                   return (
-                    <div key={status.s} className={`rounded-xl border p-2.5 sm:p-3 flex flex-col items-center justify-center ${status.c}`}>
-                      <span className="text-xl sm:text-2xl font-bold">{count}</span>
-                      <span className="text-[10px] font-semibold uppercase mt-0.5 opacity-80">{status.s}</span>
+                    <div key={status.s} className={`rounded-xl border p-3 flex flex-col items-center justify-center ${status.c}`}>
+                      <span className="text-2xl font-bold">{count}</span>
+                      <span className="text-[10px] font-semibold uppercase mt-1 opacity-80">{status.s}</span>
                     </div>
                   );
                 })}
               </div>
             </section>
 
-            <div className="grid gap-6 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
               {/* LEFT COLUMN: CUSTOMER ORDERS */}
               <div className="space-y-6">
                 <AdminPanel title="Customer Orders" subtitle="Today's active orders from all channels" action={<button onClick={() => setActiveTab("orders")} className="text-xs font-bold text-accent hover:underline">View all</button>}>
@@ -845,13 +658,13 @@ export default function StaffPortalPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...storeOrders.map(o => ({...o, orderCode: o.orderId, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, orderCode: o.orderNumber, type: "Delivery"}))]
+                        {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, type: "Delivery", orderId: o.orderNumber, total: o.subtotal + (o.deliveryFee || 0)}))]
                           .filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered")
                           .sort((a, b) => b.id.localeCompare(a.id))
                           .slice(0, 5)
                           .map((order) => (
                           <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
-                            <td className="px-4 py-3 font-bold text-[#63131d]">{order.orderCode}</td>
+                            <td className="px-4 py-3 font-bold text-[#63131d]">{order.orderId}</td>
                             <td className="px-4 py-3 text-xs font-medium text-muted">{order.type}</td>
                             <td className="px-4 py-3 text-xs text-[#1c1c1c] truncate max-w-[150px]">{order.items}</td>
                             <td className="px-4 py-3 font-semibold text-[#24753c]">₱{order.total}</td>
@@ -870,7 +683,7 @@ export default function StaffPortalPage() {
                       </tbody>
                     </table>
                   </div>
-              </AdminPanel>
+                </AdminPanel>
 
                 <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
                   <div className="divide-y divide-accent/5 px-5 py-2">
@@ -975,14 +788,10 @@ export default function StaffPortalPage() {
               orderId: d.orderNumber,
               time: d.orderedAt,
               orderType: "delivery",
-              paid: d.paymentStatus === "paid" || d.paid === true,
+              paid: true, // assume paid for delivery in this mock unless stated
               customerName: d.customerName,
               subtotal: d.subtotal,
-              deliveryFee: d.deliveryFee,
-              paymentStatus: d.paymentStatus || (d.paid ? "paid" : "pending"),
-              paymentMethod: d.paymentMethod,
-              cancelledBy: d.cancelledBy,
-              cancelledAt: d.cancelledAt,
+              deliveryFee: d.deliveryFee
           }))];
 
           const activeOrders = allOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled");
@@ -1007,205 +816,6 @@ export default function StaffPortalPage() {
             return matchesSearch && matchesStatus && matchesType;
           }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
 
-          const filteredUnpaidDineIn = filteredActive.filter(o => o.status === 'awaiting_payment' && o.orderType === 'dine-in');
-          const filteredActiveKitchen = filteredActive.filter(o => !(o.status === 'awaiting_payment' && o.orderType === 'dine-in'));
-
-          const renderOrdersTable = (orders: any[]) => (
-            <>
-              {/* REUSABLE DESKTOP TABLE */}
-              <div className="hidden md:block w-full min-w-0 overflow-x-hidden border-b border-accent/10">
-                <table className="w-full table-fixed text-left text-xs align-middle">
-                  <colgroup>
-                    <col className="w-[85px]" />
-                    <col className="w-[115px]" />
-                    <col className="w-[80px]" />
-                    <col className="w-auto" />
-                    <col className="w-[80px]" />
-                    <col className="w-[130px]" />
-                    <col className="w-[120px]" />
-                    <col className="w-[90px]" />
-                  </colgroup>
-                  <thead>
-                    <tr className="text-muted border-b border-accent/10 bg-[#63131d]/5 font-semibold text-[11px] uppercase tracking-wider">
-                      <th className="px-3 py-3">Order ID</th>
-                      <th className="px-3 py-3">Customer</th>
-                      <th className="px-3 py-3 text-center">Type</th>
-                      <th className="px-3 py-3">Items</th>
-                      <th className="px-3 py-3">Total</th>
-                      <th className="px-3 py-3">Payment</th>
-                      <th className="px-3 py-3">Status</th>
-                      <th className="px-3 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-accent/5">
-                    {orders.map((order) => (
-                      <tr key={order.id} className="hover:bg-accent-light/10 transition-colors h-14">
-                        <td className="px-3 py-2.5 font-bold text-[#63131d] truncate align-middle">
-                          {order.orderId}
-                        </td>
-                        <td className="px-3 py-2.5 font-medium text-stone-800 align-middle">
-                          <span className="line-clamp-2 leading-tight">{order.customerName || "Walk-in"}</span>
-                        </td>
-                        <td className="px-3 py-2.5 text-center align-middle">
-                          <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-200 shadow-2xs">
-                            {order.orderType || "dine-in"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 align-middle">
-                          <p className="line-clamp-2 leading-tight text-stone-600" title={order.items}>{order.items}</p>
-                        </td>
-                        <td className="px-3 py-2.5 font-bold text-[#63131d] whitespace-nowrap align-middle">
-                          ₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}
-                        </td>
-                        <td className="px-3 py-2.5 align-middle">
-                          <div className="flex flex-col gap-1 items-start">
-                            {(order.paid || order.paymentStatus === "paid" || order.status === "completed" || order.status === "delivered") ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200 shadow-2xs whitespace-nowrap">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
-                              </span>
-                            ) : order.paymentStatus === "failed" ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 shadow-2xs whitespace-nowrap">
-                                🔴 Payment Failed
-                              </span>
-                            ) : order.paymentStatus === "cancelled" ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold text-stone-700 border border-stone-200 shadow-2xs whitespace-nowrap">
-                                ⚪ Cancelled
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 shadow-2xs whitespace-nowrap">
-                                🔴 Unpaid
-                              </span>
-                            )}
-                            <button
-                              onClick={() => setPaymentModalOrder(order)}
-                              className="text-[10px] font-bold text-[#63131d] hover:underline cursor-pointer leading-none"
-                            >
-                              View Details
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 align-middle">
-                          <AdminSelect
-                            value={order.status}
-                            onChange={(e) => {
-                              if (order.orderType === 'delivery') {
-                                updateDeliveryStatus(order.id, e.target.value as any);
-                              } else {
-                                updateStoreOrderStatus(order.id, e.target.value as any);
-                              }
-                            }}
-                            className="!py-1 !px-2 !text-xs w-full shadow-2xs font-medium"
-                          >
-                            <option value="pending">Pending</option>
-                            <option value="confirmed">Confirmed</option>
-                            <option value="preparing">Preparing</option>
-                            <option value="ready">Ready</option>
-                            {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
-                            <option value="completed">Completed</option>
-                            <option value="cancelled">Cancelled</option>
-                          </AdminSelect>
-                        </td>
-                        <td className="px-3 py-2.5 text-right align-middle">
-                          <button
-                            onClick={() => setSelectedOrderDetails(order)}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-[#63131d] bg-white px-2.5 py-1.5 rounded-lg border border-[#63131d]/20 shadow-2xs hover:bg-[#fff9f6] transition-colors cursor-pointer"
-                          >
-                            <Eye className="h-3.5 w-3.5" /> Details
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              
-              {/* REUSABLE MOBILE CARDS */}
-              <div className="md:hidden flex flex-col gap-3 p-2">
-                {orders.map((order) => (
-                  <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-[#63131d]">{order.orderId}</h3>
-                        <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
-                        {order.orderType === 'dine-in' && (order as any).tableNumber && (
-                          <p className="text-[10px] text-stone-500 font-bold mt-0.5">Table: {(order as any).tableNumber}</p>
-                        )}
-                      </div>
-                      <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
-                        {order.orderType || "dine-in"}
-                      </span>
-                    </div>
-                    
-                    <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
-                      <span className="text-muted truncate max-w-[60%]">{order.items}</span>
-                      <span className="font-bold text-lg text-[#63131d]">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-muted">Status:</span>
-                        <AdminSelect
-                          value={order.status}
-                          onChange={(e) => {
-                            if (order.orderType === 'delivery') {
-                              updateDeliveryStatus(order.id, e.target.value as any);
-                            } else {
-                              updateStoreOrderStatus(order.id, e.target.value as any);
-                            }
-                          }}
-                          className="!py-1 !text-xs w-32 shadow-sm"
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="confirmed">Confirmed</option>
-                          <option value="preparing">Preparing</option>
-                          <option value="ready">Ready</option>
-                          {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
-                          <option value="completed">Completed</option>
-                          <option value="cancelled">Cancelled</option>
-                        </AdminSelect>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-muted">Payment:</span>
-                        {(order.paid || order.paymentStatus === "paid" || order.status === "completed" || order.status === "delivered") ? (
-                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
-                          </span>
-                        ) : order.paymentStatus === "failed" ? (
-                          <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
-                            🔴 Payment Failed
-                          </span>
-                        ) : order.paymentStatus === "cancelled" ? (
-                          <span className="text-[10px] font-bold text-stone-700 bg-stone-100 px-2.5 py-0.5 rounded-full border border-stone-200">
-                            ⚪ Cancelled
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
-                            🔴 Unpaid
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 mt-1">
-                      <button
-                        onClick={() => setPaymentModalOrder(order)}
-                        className="py-2 bg-[#fff9f6] text-[#63131d] font-bold text-xs rounded-lg border border-[#63131d]/20 flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        View Payment
-                      </button>
-                      <button
-                        onClick={() => setSelectedOrderDetails(order)}
-                        className="py-2 bg-white text-[#63131d] font-bold text-xs rounded-lg border border-stone-200 shadow-2xs flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Eye className="h-3.5 w-3.5" /> Details
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          );
-
           // Filter history
           const filteredHistory = historyOrders.filter(o => {
             const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) || 
@@ -1218,22 +828,8 @@ export default function StaffPortalPage() {
             <div className="space-y-6">
               {/* HEADER */}
               <div>
-                <span className="inline-flex rounded-full bg-[#fce7db] px-2.5 py-0.5 text-xs font-semibold capitalize text-[#63131d] border border-[#63131d]/10">Operations</span>
-                <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5 flex justify-between items-center">
-                  Orders Dashboard
-                  {!activeCashShift ? (
-                    <button onClick={() => setStartShiftOpen(true)} className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-xl hover:bg-emerald-700 shadow-md">
-                      Start Cash Shift
-                    </button>
-                  ) : (
-                    <div className="flex gap-3 items-center">
-                      <span className="text-sm font-medium text-stone-600 bg-stone-100 px-3 py-1.5 rounded-lg border border-stone-200">Float: ₱{Number(activeCashShift.starting_float).toFixed(2)}</span>
-                      <button onClick={() => setEndShiftOpen(true)} className="px-4 py-2 bg-stone-800 text-white text-sm rounded-xl hover:bg-black shadow-md">
-                        End Cash Shift
-                      </button>
-                    </div>
-                  )}
-                </h1>
+                <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Operations</span>
+                <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">In-store Orders</h1>
                 <p className="text-sm text-muted">Manage customer orders, update workflow status, and confirm payments.</p>
               </div>
 
@@ -1256,23 +852,6 @@ export default function StaffPortalPage() {
 
               {/* ACTIVE ORDERS PANEL */}
               <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
-                {/* TABS FOR DELIVERY / PICKUP / DINE-IN */}
-                <div className="flex border-b border-accent/10 bg-white/60">
-                  {['all', 'delivery', 'takeout', 'dine-in'].map((type) => (
-                    <button
-                      key={type}
-                      onClick={() => setOrderTypeFilter(type)}
-                      className={`flex-1 py-3 text-sm font-bold capitalize transition-colors border-b-2 ${
-                        orderTypeFilter === type 
-                          ? 'border-accent text-accent bg-white' 
-                          : 'border-transparent text-muted hover:text-stone-800 hover:bg-white/50'
-                      }`}
-                    >
-                      {type === 'all' ? 'All Orders' : type === 'takeout' ? 'Pick-up' : type}
-                    </button>
-                  ))}
-                </div>
-
                 {/* FILTERS */}
                 <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">
@@ -1288,6 +867,16 @@ export default function StaffPortalPage() {
                   <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
                     <select 
                       className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
+                      value={orderTypeFilter}
+                      onChange={(e) => setOrderTypeFilter(e.target.value)}
+                    >
+                      <option value="all">All Types</option>
+                      <option value="dine-in">Dine-in</option>
+                      <option value="takeout">Takeout</option>
+                      <option value="delivery">Delivery</option>
+                    </select>
+                    <select 
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
                       value={orderStatusFilter}
                       onChange={(e) => setOrderStatusFilter(e.target.value)}
                     >
@@ -1300,22 +889,7 @@ export default function StaffPortalPage() {
                   </div>
                 </div>
 
-                
                 {/* DESKTOP TABLE / MOBILE CARDS */}
-                {orderTypeFilter === 'delivery' ? (
-                  <div className="p-0">
-                    <DeliveryOrdersTable
-                      orders={deliveryOrders}
-                      getServiceAreaName={getServiceAreaName}
-                      showStatusControl={true}
-                      onStatusChange={updateDeliveryStatus}
-                      onDeliveryPersonChange={updateDeliveryPerson}
-                      onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
-                      isAdmin={user?.role === "admin"}
-                    />
-                  </div>
-                ) : (
-
                 <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
                   {filteredActive.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -1327,32 +901,139 @@ export default function StaffPortalPage() {
                     </div>
                   ) : (
                     <>
-                      {filteredUnpaidDineIn.length > 0 && (
-                        <div className="mb-6">
-                           <h3 className="font-bold text-rose-900 bg-rose-50 px-4 py-2.5 rounded-t-xl border border-rose-200 flex items-center gap-2">
-                             <div className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></div>
-                             Dine-In &mdash; Awaiting Payment ({filteredUnpaidDineIn.length})
-                           </h3>
-                           <div className="border-x border-b border-rose-200/50 rounded-b-xl overflow-hidden bg-white/50">
-                             {renderOrdersTable(filteredUnpaidDineIn)}
-                           </div>
-                        </div>
-                      )}
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Order ID</th>
+                              <th className="px-4 py-3 font-medium">Customer</th>
+                              <th className="px-4 py-3 font-medium">Type</th>
+                              <th className="px-4 py-3 font-medium">Items</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
+                              <th className="px-4 py-3 font-medium">Payment</th>
+                              <th className="px-4 py-3 font-medium">Status</th>
+                              <th className="px-4 py-3 font-medium text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredActive.map((order) => (
+                              <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10">
+                                <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}</td>
+                                <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-accent/10 shadow-sm">
+                                    {order.orderType || "dine-in"}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-muted max-w-[150px] truncate">{order.items}</td>
+                                <td className="px-4 py-3 font-bold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3">
+                                  {order.paid ? (
+                                    <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-200">Confirmed Paid</span>
+                                  ) : (
+                                    <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <AdminSelect
+                                    value={order.status}
+                                    onChange={(e) => {
+                                      if (order.orderType === 'delivery') {
+                                        updateDeliveryStatus(order.id, e.target.value as any);
+                                      } else {
+                                        updateStoreOrderStatus(order.id, e.target.value as any);
+                                      }
+                                    }}
+                                    className="!py-1.5 !text-xs max-w-[120px] shadow-sm font-medium"
+                                  >
+                                    <option value="pending">Pending</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="preparing">Preparing</option>
+                                    <option value="ready">Ready</option>
+                                    {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
+                                  </AdminSelect>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => setSelectedOrderDetails(order)}
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-accent hover:underline bg-white px-3 py-1.5 rounded-lg border border-accent/10 shadow-sm"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" /> Details
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
 
-                      {filteredActiveKitchen.length > 0 && (
-                        <div>
-                           <h3 className="font-bold text-stone-900 bg-stone-100 px-4 py-2.5 rounded-t-xl border border-stone-200 flex items-center gap-2">
-                             Kitchen / Preparation Queue ({filteredActiveKitchen.length})
-                           </h3>
-                           <div className="border-x border-b border-stone-200/50 rounded-b-xl overflow-hidden bg-white/50">
-                             {renderOrdersTable(filteredActiveKitchen)}
-                           </div>
-                        </div>
-                      )}
+                      {/* MOBILE CARDS */}
+                      <div className="md:hidden flex flex-col gap-3 p-2">
+                        {filteredActive.map((order) => (
+                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
+                              </div>
+                              <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
+                                {order.orderType || "dine-in"}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
+                              <span className="text-muted truncate max-w-[60%]">{order.items}</span>
+                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Status:</span>
+                                <AdminSelect
+                                  value={order.status}
+                                  onChange={(e) => {
+                                    if (order.orderType === 'delivery') {
+                                      updateDeliveryStatus(order.id, e.target.value as any);
+                                    } else {
+                                      updateStoreOrderStatus(order.id, e.target.value as any);
+                                    }
+                                  }}
+                                  className="!py-1 !text-xs w-32 shadow-sm"
+                                >
+                                  <option value="pending">Pending</option>
+                                  <option value="confirmed">Confirmed</option>
+                                  <option value="preparing">Preparing</option>
+                                  <option value="ready">Ready</option>
+                                  {order.orderType === 'delivery' && <option value="out_for_delivery">Out for Delivery</option>}
+                                  <option value="completed">Completed</option>
+                                  <option value="cancelled">Cancelled</option>
+                                </AdminSelect>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Payment:</span>
+                                {order.paid ? (
+                                  <span className="text-[10px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">Confirmed Paid</span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Pending</span>
+                                )}
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={() => setSelectedOrderDetails(order)}
+                              className="w-full mt-1 py-2 bg-white text-accent font-bold text-sm rounded-lg border border-accent/10 shadow-sm flex items-center justify-center gap-2"
+                            >
+                              <Eye className="h-4 w-4" /> View Details
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </>
                   )}
                 </div>
-              )}
               </AdminPanel>
 
               {/* ORDER HISTORY */}
@@ -1398,8 +1079,7 @@ export default function StaffPortalPage() {
                               <th className="px-4 py-3 font-medium">Time</th>
                               <th className="px-4 py-3 font-medium">Type</th>
                               <th className="px-4 py-3 font-medium">Total</th>
-                              <th className="px-4 py-3 font-medium">Order Status</th>
-                              <th className="px-4 py-3 font-medium">Payment Status</th>
+                              <th className="px-4 py-3 font-medium">Final Status</th>
                               <th className="px-4 py-3 font-medium text-right">Action</th>
                             </tr>
                           </thead>
@@ -1416,24 +1096,9 @@ export default function StaffPortalPage() {
                                 </td>
                                 <td className="px-4 py-3 font-semibold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
                                 <td className="px-4 py-3">
-                                  <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'} border`}>
+                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
                                     {order.status}
                                   </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  {(order.paid || order.paymentStatus === "paid") ? (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200 whitespace-nowrap">
-                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
-                                    </span>
-                                  ) : order.paymentStatus === "refunded" ? (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold text-stone-700 border border-stone-200 whitespace-nowrap">
-                                      ⚪ Refunded
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200 whitespace-nowrap">
-                                      🔴 Unpaid
-                                    </span>
-                                  )}
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                   <button
@@ -1575,55 +1240,30 @@ export default function StaffPortalPage() {
                         </div>
                       </div>
 
-                      {/* Customer Note — from actual customer order data */}
-                      {(selectedOrderDetails as any).notes && String((selectedOrderDetails as any).notes).trim().length > 0 && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm">
-                          <h3 className="text-[10px] font-bold uppercase text-amber-700 tracking-wider mb-2 flex items-center gap-1.5">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5 shrink-0">
-                              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                            </svg>
-                            Customer Note
-                          </h3>
-                          <p className="text-sm font-semibold text-amber-950 italic leading-relaxed break-words whitespace-pre-wrap">
-                            {String((selectedOrderDetails as any).notes).trim()}
-                          </p>
-                        </div>
-                      )}
-
                       {/* Payment Status */}
                       <div className="flex justify-between items-center p-5 bg-white rounded-xl shadow-sm border border-accent/5">
                         <span className="text-sm font-bold text-[#2B2523] uppercase tracking-wide">Payment Status</span>
-                        {(selectedOrderDetails.paid || selectedOrderDetails.paymentStatus === "paid" || selectedOrderDetails.status === "completed" || selectedOrderDetails.status === "delivered") ? (
-                          <span className="px-4 py-1.5 bg-emerald-50 text-emerald-800 font-bold text-xs rounded-full border border-emerald-200 shadow-2xs flex items-center gap-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Paid / Verified
-                          </span>
-                        ) : selectedOrderDetails.paymentStatus === "failed" ? (
-                          <span className="px-4 py-1.5 bg-rose-50 text-rose-800 font-bold text-xs rounded-full border border-rose-200 shadow-2xs flex items-center gap-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-rose-600"></span> Payment Failed
+                        {selectedOrderDetails.paid ? (
+                          <span className="px-4 py-1.5 bg-green-50 text-green-700 font-bold text-xs rounded-full border border-green-200 shadow-sm flex items-center gap-1.5">
+                            <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Confirmed Paid
                           </span>
                         ) : (
-                          <span className="px-4 py-1.5 bg-rose-50 text-rose-800 font-bold text-xs rounded-full border border-rose-200 shadow-2xs flex items-center gap-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-rose-600"></span> Unpaid
-                          </span>
+                          <div className="flex gap-3 items-center">
+                            <span className="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200 shadow-sm flex items-center gap-1.5">
+                              <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div> Pending Payment
+                            </span>
+                            <button
+                              onClick={() => {
+                                confirmStoreOrderPayment(selectedOrderDetails.id);
+                                setSelectedOrderDetails(null);
+                              }}
+                              className="px-4 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-lg shadow hover:bg-emerald-700 transition"
+                            >
+                              Confirm Payment
+                            </button>
+                          </div>
                         )}
                       </div>
-
-                      {(!selectedOrderDetails.paid && selectedOrderDetails.paymentStatus !== "paid" && selectedOrderDetails.status !== "completed" && selectedOrderDetails.status !== "delivered") && (
-                        <div className="mt-4 pt-4 border-t border-accent/10">
-                          <button
-                            onClick={() => {
-                              if (!activeCashShift) {
-                                setStartShiftOpen(true);
-                              } else {
-                                setCashPaymentOrder(selectedOrderDetails);
-                              }
-                            }}
-                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-md"
-                          >
-                            Receive Cash Payment
-                          </button>
-                        </div>
-                      )}
 
                     </div>
                   </div>
@@ -1986,30 +1626,86 @@ export default function StaffPortalPage() {
           <ArchiveTab />
         )}
 
-        {/* TAB 5: DELIVERY ORDERS */}
+{/* TAB 5: DELIVERY ORDERS */}
         {activeTab === "delivery" && (
           <div className="space-y-6">
             <div>
-              <span className="inline-flex rounded-full bg-[#fce7db] px-2.5 py-0.5 text-xs font-semibold capitalize text-[#63131d] border border-[#63131d]/10">
-                Deliveries
-              </span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#63131d] mt-1.5">
-                Delivery Orders
-              </h1>
-              <p className="text-sm text-stone-500 mt-1">
-                View delivery addresses, item manifests, courier assignments, and update live progress status.
-              </p>
+              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Deliveries</span>
+              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">Delivery Orders</h1>
+              <p className="text-sm text-muted">View delivery addresses, item manifests, and update progress status.</p>
             </div>
 
-            <DeliveryOrdersTable
-              orders={deliveryOrders}
-              getServiceAreaName={getServiceAreaName}
-              showStatusControl={true}
-              onStatusChange={updateDeliveryStatus}
-              onDeliveryPersonChange={updateDeliveryPerson}
-              onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
-              isAdmin={user?.role === "admin"}
-            />
+            <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
+              <div className="overflow-x-auto p-2">
+                <table className="w-full text-left text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="admin-table-head text-muted">
+                      <th className="px-4 py-3 font-medium rounded-l-lg">Order ID</th>
+                      <th className="px-4 py-3 font-medium">Customer Details</th>
+                      <th className="px-4 py-3 font-medium">Manifest</th>
+                      <th className="px-4 py-3 font-medium">Total Price</th>
+                      <th className="px-4 py-3 font-medium">Delivery Status</th>
+                      <th className="px-4 py-3 font-medium rounded-r-lg text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deliveryOrders.filter(o => !o.archived).length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-8 text-muted">No delivery orders listed.</td>
+                      </tr>
+                    ) : (
+                      deliveryOrders.filter(o => !o.archived).map((order) => (
+                        <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
+                          <td className="px-4 py-3 font-bold text-[#800000]">{order.orderNumber}</td>
+                          <td className="px-4 py-3 text-xs leading-4">
+                            <p className="font-bold text-ink">{order.customerName}</p>
+                            <p className="text-muted">{order.phone}</p>
+                            <p className="text-muted mt-0.5">{order.address}</p>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenChat(order.customerName, order.orderNumber)}
+                              className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent hover:underline cursor-pointer focus:outline-none"
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3 w-3">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                              </svg>
+                              Chat with Customer
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-xs">{order.items}</td>
+                          <td className="px-4 py-3 font-semibold">₱{order.total}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
+                              order.status === "delivered"
+                                ? "bg-green-50 text-green-800 border-green-200"
+                                : order.status === "cancelled"
+                                ? "bg-gray-50 text-gray-700 border-gray-200"
+                                : "bg-red-50 text-accent border-accent/15"
+                            }`}>
+                              {order.status.replace(/_/g, " ")}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <AdminSelect
+                              value={order.status}
+                              onChange={(e) => updateDeliveryStatus(order.id, e.target.value as DeliveryStatus)}
+                              className="!py-1 !text-xs max-w-32 inline-block"
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="confirmed">Confirmed</option>
+                              <option value="preparing">Preparing</option>
+                              <option value="out_for_delivery">Out for Delivery</option>
+                              <option value="delivered">Delivered</option>
+                              <option value="cancelled">Cancelled</option>
+                            </AdminSelect>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </AdminPanel>
           </div>
         )}
 
@@ -2140,18 +1836,298 @@ export default function StaffPortalPage() {
 
         {/* TAB: POS CASHIER */}
         {activeTab === "pos" && (
-          <POSCashierTab
-            menuItems={menuItems}
-            menuCategories={menuCategories}
-            getMenuCategoryName={getMenuCategoryName}
-            addStoreOrder={addStoreOrder}
-            stockItems={stockItems}
-            updateStockItem={updateStockItem}
-            staffName={user?.name || "Cashier"}
-            processOfflineStoreOrder={processOfflineStoreOrder}
-          />
+          <div className="space-y-5">
+            <header>
+              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Point of Sale</span>
+              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">POS Cashier</h1>
+              <p className="text-sm text-muted">Process walk-in transactions, calculate change, and generate receipts.</p>
+            </header>
+
+            <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+              {/* LEFT: Menu Item Picker */}
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-3">
+                  <div className="flex-1 min-w-[180px]">
+                    <AdminInput
+                      type="text"
+                      value={posSearchTerm}
+                      onChange={(e) => setPosSearchTerm(e.target.value)}
+                      placeholder="Search menu items..."
+                    />
+                  </div>
+                  <div className="min-w-[140px]">
+                    <AdminSelect value={posCategoryFilter} onChange={(e) => setPosCategoryFilter(e.target.value)}>
+                      <option value="all">All Categories</option>
+                      {menuCategories.filter((c) => !c.archived).map((cat) => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </AdminSelect>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+                  {posFilteredItems.length === 0 ? (
+                    <p className="col-span-full text-center py-12 text-sm text-muted">No menu items found.</p>
+                  ) : (
+                    posFilteredItems.map((item) => {
+                      const inCart = posCart.find((ci) => ci.item.id === item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => posAddToCart(item)}
+                          className="group relative flex items-center gap-3 rounded-xl border border-accent/10 bg-white p-3 text-left shadow-sm transition-all hover:shadow-md hover:border-[#800000]/30 active:scale-[0.98] cursor-pointer"
+                        >
+                          {item.image ? (
+                            <img src={item.image} alt={item.name} className="h-11 w-11 shrink-0 rounded-lg object-cover border border-accent/5 shadow-sm" />
+                          ) : (
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#800000]/10 to-[#800000]/5 text-[#800000] font-serif font-bold text-lg">
+                              {item.name.charAt(0)}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-ink truncate">{item.name}</p>
+                            <p className="text-xs text-muted">{getMenuCategoryName(item.categoryId)}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-bold text-[#800000] text-sm">₱{item.price.toFixed(2)}</p>
+                            {inCart && (
+                              <span className="inline-flex items-center justify-center rounded-full bg-[#800000] text-white text-[10px] font-bold h-5 min-w-5 px-1">
+                                {inCart.qty}
+                              </span>
+                            )}
+                          </div>
+                          <span className="absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-[#800000]/20 pointer-events-none transition-all" />
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* RIGHT: Cart & Transaction */}
+              <div className="space-y-4">
+                <AdminPanel title="Current Transaction" subtitle={posCart.length > 0 ? `${posCart.reduce((s, c) => s + c.qty, 0)} item(s)` : "No items yet"}>
+                  <div className="px-4 py-3">
+                    {posCart.length === 0 ? (
+                      <div className="text-center py-10">
+                        <p className="text-4xl mb-3">🛒</p>
+                        <p className="text-sm text-muted">Tap menu items on the left to add them to the cart.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="max-h-[280px] overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-xs text-muted border-b border-accent/10">
+                                <th className="text-left py-2 font-medium">Item</th>
+                                <th className="text-center py-2 font-medium w-24">Qty</th>
+                                <th className="text-right py-2 font-medium">Total</th>
+                                <th className="w-8"></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-accent/5">
+                              {posCart.map((ci) => (
+                                <tr key={ci.item.id} className="text-ink">
+                                  <td className="py-2.5">
+                                    <p className="font-semibold text-xs">{ci.item.name}</p>
+                                    <p className="text-[10px] text-muted">₱{ci.item.price.toFixed(2)} each</p>
+                                  </td>
+                                  <td className="py-2.5">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty - 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">−</button>
+                                      <span className="w-6 text-center font-bold text-xs">{ci.qty}</span>
+                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty + 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">+</button>
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 text-right font-bold text-xs text-[#800000]">₱{(ci.item.price * ci.qty).toFixed(2)}</td>
+                                  <td className="py-2.5">
+                                    <button onClick={() => posRemoveFromCart(ci.item.id)} className="text-red-400 hover:text-red-600 transition-colors cursor-pointer" title="Remove">
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Totals */}
+                        <div className="border-t border-accent/10 pt-3 mt-3 space-y-1.5">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted">Subtotal</span>
+                            <span className="font-semibold">₱{posSubtotal.toFixed(2)}</span>
+                          </div>
+                          {posTax > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted">Tax ({(posTaxRate * 100).toFixed(0)}%)</span>
+                              <span className="font-semibold">₱{posTax.toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-lg font-bold border-t border-dashed border-accent/20 pt-2">
+                            <span className="text-[#800000]">TOTAL</span>
+                            <span className="text-[#800000]">₱{posTotal.toFixed(2)}</span>
+                          </div>
+                        </div>
+
+                        {/* Tendered */}
+                        <div className="mt-4 space-y-3">
+                          <AdminField label="Amount Tendered (₱)">
+                            <AdminInput
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={posTendered}
+                              onChange={(e) => setPosTendered(e.target.value)}
+                              placeholder="Enter amount given by customer..."
+                            />
+                          </AdminField>
+
+                          {posTendered && (
+                            <div className={`rounded-xl p-3 text-center font-bold text-sm ${
+                              posChange >= 0
+                                ? "bg-green-50 text-green-700 border border-green-200"
+                                : "bg-red-50 text-red-600 border border-red-200"
+                            }`}>
+                              {posChange >= 0
+                                ? `Change: ₱${posChange.toFixed(2)}`
+                                : `Insufficient: ₱${Math.abs(posChange).toFixed(2)} short`
+                              }
+                            </div>
+                          )}
+
+                          {/* Change Denomination Preview */}
+                          {posTendered && posChange > 0 && (
+                            <div className="rounded-xl border border-accent/10 bg-[#fffaf7] p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-2">Change Breakdown</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {breakdownChange(posChange).map((d) => (
+                                  <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-white border border-accent/15 px-2 py-0.5 text-[11px] font-semibold text-ink shadow-sm">
+                                    <span className="text-[#800000] font-bold">{d.count}×</span> {d.label}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            onClick={posClearCart}
+                            className="flex-1 py-2.5 rounded-xl border border-accent/20 text-sm font-semibold text-muted hover:bg-accent/5 transition-colors cursor-pointer"
+                          >
+                            Clear Cart
+                          </button>
+                          <button
+                            onClick={posCompleteTransaction}
+                            disabled={posCart.length === 0 || posTenderedNum < posTotal || !posTendered}
+                            className="flex-[2] py-2.5 rounded-xl bg-[#800000] text-white text-sm font-bold shadow-md hover:bg-[#6b0000] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            Complete Transaction
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </AdminPanel>
+              </div>
+            </div>
+          </div>
         )}
+
       </main>
+
+      {/* POS RECEIPT MODAL */}
+      <AdminModal
+        open={posReceiptOpen}
+        title="Transaction Receipt"
+        onClose={() => setPosReceiptOpen(false)}
+        footer={
+          <>
+            <AdminButton variant="secondary" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print Receipt</AdminButton>
+            <AdminButton onClick={posNewTransaction}>New Transaction</AdminButton>
+          </>
+        }
+      >
+        {posReceiptData && (
+          <div className="font-mono text-xs text-ink bg-white rounded-xl border border-accent/10 p-5 max-w-[320px] mx-auto shadow-inner">
+            {/* Header */}
+            <div className="text-center border-b border-dashed border-gray-300 pb-3 mb-3">
+              <p className="font-serif text-lg font-bold text-[#800000] not-italic">Eat n&apos; Repeat Café</p>
+              <p className="text-[10px] text-muted mt-0.5">Cordova Branch</p>
+              <p className="text-[10px] text-muted">Tel: (032) 555-1234</p>
+              <p className="text-[10px] text-muted mt-1">{posReceiptData.date}</p>
+              <p className="text-[10px] text-muted">{posReceiptData.time}</p>
+              <p className="text-[10px] text-muted mt-1">Receipt #: {posReceiptData.receiptNo}</p>
+              <p className="text-[10px] text-muted">Cashier: {posReceiptData.cashier}</p>
+            </div>
+
+            {/* Items */}
+            <div className="border-b border-dashed border-gray-300 pb-3 mb-3 space-y-1">
+              <div className="flex justify-between font-bold text-[10px] text-muted uppercase">
+                <span>Item</span>
+                <span>Amount</span>
+              </div>
+              {posReceiptData.cart.map((ci) => (
+                <div key={ci.item.id}>
+                  <div className="flex justify-between">
+                    <span className="truncate mr-2">{ci.item.name}</span>
+                    <span className="shrink-0 font-semibold">₱{(ci.item.price * ci.qty).toFixed(2)}</span>
+                  </div>
+                  <p className="text-[10px] text-muted pl-2">{ci.qty} × ₱{ci.item.price.toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Totals */}
+            <div className="space-y-1 border-b border-dashed border-gray-300 pb-3 mb-3">
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>₱{posReceiptData.subtotal.toFixed(2)}</span>
+              </div>
+              {posReceiptData.tax > 0 && (
+                <div className="flex justify-between">
+                  <span>Tax</span>
+                  <span>₱{posReceiptData.tax.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-sm border-t border-gray-300 pt-1">
+                <span>TOTAL</span>
+                <span>₱{posReceiptData.total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between mt-1">
+                <span>Amount Paid</span>
+                <span>₱{posReceiptData.tendered.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-green-700">
+                <span>Change</span>
+                <span>₱{posReceiptData.change.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Denomination Breakdown */}
+            {posReceiptData.breakdown.length > 0 && (
+              <div className="border-b border-dashed border-gray-300 pb-3 mb-3">
+                <p className="text-[10px] font-bold text-muted uppercase mb-1">Change Breakdown:</p>
+                {posReceiptData.breakdown.map((d) => (
+                  <div key={d.label} className="flex justify-between text-[10px]">
+                    <span>{d.label}</span>
+                    <span>× {d.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="text-center pt-1">
+              <p className="font-serif text-xs font-semibold text-[#800000] not-italic">Thank you for dining at</p>
+              <p className="font-serif text-sm font-bold text-[#800000] not-italic">Eat n&apos; Repeat!</p>
+              <p className="text-[10px] text-muted mt-2">Please come again ♥</p>
+              <p className="text-[10px] text-muted mt-1">━━━━━━━━━━━━━━━━━━━━━━</p>
+            </div>
+          </div>
+        )}
+      </AdminModal>
 
       {/* ADD/EDIT MENU ITEM MODAL */}
       <AdminModal
@@ -2222,8 +2198,8 @@ export default function StaffPortalPage() {
                   </button>
                 </div>
               ) : (
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-accent/25 bg-accent-light/10 text-accent">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><circle cx="12" cy="13" r="3" /></svg>
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-accent/25 bg-accent-light/10 text-accent text-xl">
+                  📷
                 </div>
               )}
               <div className="flex-1">
@@ -2257,18 +2233,6 @@ export default function StaffPortalPage() {
           orderId={activeChatOrder.orderNumber}
         />
       )}
-
-      {paymentModalOrder && (
-        <PaymentDetailsModal
-          open={!!paymentModalOrder}
-          onClose={() => setPaymentModalOrder(null)}
-          order={paymentModalOrder}
-        />
-      )}
-
-      <StartShiftModal open={startShiftOpen} onStart={handleStartShift} />
-      <EndShiftModal open={endShiftOpen} shift={activeCashShift} onEnd={handleEndShift} onClose={() => setEndShiftOpen(false)} />
-      <CashPaymentModal open={!!cashPaymentOrder} order={cashPaymentOrder} onConfirm={handleConfirmCashPayment} onClose={() => { setCashPaymentOrder(null); setSelectedOrderDetails(null); }} />
     </div>
   );
 }

@@ -41,7 +41,11 @@ import type {
 const STORAGE_KEY = "eat-n-repeat-admin-data";
 
 function createId(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  // Fallback for insecure contexts (e.g. LAN IP over HTTP)
+  return `${prefix}-${Math.random().toString(36).substring(2, 10)}`;
 }
 
 function archiveTimestamp() {
@@ -175,18 +179,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const parsed = JSON.parse(stored) as Partial<AdminDataState>;
-      const hasMissingCreds =
-        !parsed.staffAccounts ||
-        parsed.staffAccounts.length === 0 ||
-        parsed.staffAccounts.some((acc) => !acc.username || !acc.password);
-
-      if (hasMissingCreds) {
-        console.warn("Legacy local storage detected. Resetting to initial mock data...");
-        localStorage.removeItem(STORAGE_KEY);
-        setData(initialAdminData);
-        return;
-      }
-
       setData(normalizeStoredData(parsed));
     } catch {
       setData(initialAdminData);

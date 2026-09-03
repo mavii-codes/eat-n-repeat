@@ -18,7 +18,10 @@ import type {
 const STORAGE_KEY = 'eat-n-repeat-reviews';
 
 function createReviewId() {
-  return `rev-${crypto.randomUUID().slice(0, 8)}`;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `rev-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `rev-${Math.random().toString(36).substring(2, 10)}`;
 }
 
 // Seed data: realistic mock reviews for existing menu items

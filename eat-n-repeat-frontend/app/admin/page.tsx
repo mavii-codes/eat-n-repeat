@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { StatCard, PesoIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import { useAdminData } from "@/context/AdminDataContext";
+import { useLocalMode } from "@/lib/customer/useLocalMode";
 import type { AdminNotification } from "@/lib/admin/types";
 import {
   ShoppingBag,
@@ -92,6 +93,7 @@ const statusStyles: Record<string, { label: string; bg: string }> = {
 };
 
 export default function AdminDashboardPage() {
+  const isLocalMode = useLocalMode();
   const { storeOrders, deliveryOrders, stockItems, stockRequests, deliveryTeam } = useAdminData();
 
   // Combine and process live backend order data
@@ -412,6 +414,7 @@ export default function AdminDashboardPage() {
           </div>
 
           {/* DELIVERY OVERVIEW */}
+          {!isLocalMode && (
           <div className="admin-panel rounded-2xl p-5 shadow-sm">
             <div className="flex justify-between items-center mb-4 border-b border-stone-200/60 pb-3">
               <div>
@@ -444,6 +447,7 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* RIGHT COLUMN: NOTIFICATIONS & INVENTORY ALERTS (1 COL) */}
@@ -549,7 +553,7 @@ export default function AdminDashboardPage() {
         <p className="mt-0.5 text-xs text-muted mb-5">Jump directly into café management portals</p>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {quickAccessLinks.map((link) => (
+          {quickAccessLinks.filter(link => !isLocalMode || link.label !== "Delivery").map((link) => (
             <Link
               key={link.href}
               href={link.href}

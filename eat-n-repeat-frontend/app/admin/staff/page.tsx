@@ -69,9 +69,9 @@ export default function StaffPage() {
   const filteredStaff = useMemo(() => {
     return allStaffAccounts.filter((account) => {
       const matchesSearch = 
-        account.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        account.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        account.email.toLowerCase().includes(searchQuery.toLowerCase());
+        (account.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (account.username || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (account.email || "").toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesRole = roleFilter === "all" || account.role === roleFilter;
       const matchesAvailability = availabilityFilter === "all" || account.availability === availabilityFilter;
@@ -202,7 +202,8 @@ export default function StaffPage() {
     }
   }
 
-  function getStatusColor(status: string) {
+  function getStatusColor(status?: string) {
+    if (!status) return "bg-stone-100 text-stone-700 ring-stone-200";
     switch (status.toLowerCase()) {
       case "active":
       case "online":

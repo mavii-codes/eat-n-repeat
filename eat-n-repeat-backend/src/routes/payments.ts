@@ -3,7 +3,7 @@ import { Xendit } from "xendit-node";
 import { config } from "../config.js";
 import { getPool } from "../database.js";
 import crypto from "crypto";
-import { requireAuth, AuthenticatedRequest } from "../middleware/require-auth.js";
+import { requireAuth, optionalAuth, AuthenticatedRequest } from "../middleware/require-auth.js";
 import { notifyAllStaff } from "./staffNotifications.js";
 
 const router = Router();
@@ -12,7 +12,7 @@ const { Invoice } = xenditClient;
 
 import dns from "dns/promises";
 
-router.post("/checkout", requireAuth, async (req: AuthenticatedRequest, res) => {
+router.post("/checkout", optionalAuth, async (req: AuthenticatedRequest, res) => {
   try {
     let { orderDetails, paymentMethod } = req.body;
     

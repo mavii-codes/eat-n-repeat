@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { getApiUrl } from "@/lib/config";
-
-
+import { registerCustomer } from "@/lib/customer/customer-store";
 
 export async function POST(request: Request) {
   try {
@@ -15,19 +13,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const res = await fetch(`${getApiUrl()}/api/customer-auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, phone }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      return NextResponse.json({ message: data.message || "Registration failed." }, { status: res.status });
-    }
-
-    return NextResponse.json({ message: "Account created successfully" }, { status: 201 });
+    const user = await registerCustomer({ name, email, password, phone });
+    return NextResponse.json({ user }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Registration failed.";
     return NextResponse.json({ message }, { status: 400 });

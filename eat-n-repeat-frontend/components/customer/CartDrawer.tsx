@@ -8,7 +8,7 @@ import { useSession } from 'next-auth/react';
 import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package } from 'lucide-react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
-import type { CustomerMenuItem } from './MenuCard';
+import { useLocalMode } from '@/lib/customer/useLocalMode';
 
 export type CartItem = {
   menuItem: CustomerMenuItem;
@@ -42,9 +42,16 @@ export function CartDrawer({
   const router = useRouter();
   const { data: session } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const isLocalMode = useLocalMode();
+
+  useEffect(() => {
+    if (isLocalMode && fulfillmentType !== 'dine-in') {
+      setFulfillmentType('dine-in');
+    }
+  }, [isLocalMode, fulfillmentType, setFulfillmentType]);
 
   const handleGoToCheckout = () => {
-    if (!session?.user) {
+    if (!session?.user && !isLocalMode) {
       setShowAuthModal(true);
       return;
     }
@@ -62,6 +69,13 @@ export function CartDrawer({
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState('');
   const [tableNumber, setTableNumber] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'gcash' | 'cod' | null>(null);
+  
+  useEffect(() => {
+    if (isLocalMode) {
+      setPaymentMethod('cod'); // Force cash in local mode
+    }
+  }, [isLocalMode]);
+
   const [isPaymentExpanded, setIsPaymentExpanded] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [discountPercent, setDiscountPercent] = useState(0);
@@ -135,7 +149,9 @@ export function CartDrawer({
     // Prevent duplicate submissions
     if (isSubmitting) return;
 
-    if (!customerName.trim()) {
+    const finalCustomerName = isLocalMode ? (customerName.trim() || 'Local Guest') : customerName.trim();
+
+    if (!finalCustomerName) {
       alert('Please enter your name');
       return;
     }
@@ -170,8 +186,8 @@ export function CartDrawer({
 
       const orderDetails = {
         orderNumber,
-        customerName: customerName.trim(),
-        phone: phone.trim() || '09170000000',
+        customerName: finalCustomerName,
+        phone: phone.trim() || (isLocalMode ? 'LocalGuest' : '09170000000'),
         address: fulfillmentType === 'dine-in' ? (tableNumber || 'Counter') : (address.trim() || null),
         serviceAreaId: fulfillmentType === 'delivery' ? selectedServiceAreaId : null,
         type: fulfillmentType,
@@ -202,20 +218,15 @@ export function CartDrawer({
       }
 
       if (paymentMethod === 'gcash' && data.invoiceUrl) {
-        // GCash: Redirect to Xendit payment page. Do NOT show success screen yet.
-        // Cart is cleared so the user doesn't re-submit on return.
         onClearCart();
         window.location.href = data.invoiceUrl;
-        // Keep isSubmitting=true to prevent any further interaction while redirecting
         return;
       }
 
-      // Cash: order created successfully on backend
-      // Also update local admin context for staff dashboard real-time display
       if (fulfillmentType === 'delivery') {
         addDeliveryOrder({
           orderNumber: data.orderNumber || orderNumber,
-          customerName: customerName.trim(),
+          customerName: finalCustomerName,
           phone: phone.trim() || '09170000000',
           address: address.trim(),
           serviceAreaId: selectedServiceAreaId || 'sa-1',
@@ -230,7 +241,7 @@ export function CartDrawer({
         addStoreOrder({
           orderId: data.orderNumber || orderNumber,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          items: `${customerName.trim()} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up'}): ${orderItemsSummary}`,
+          items: `${isLocalMode ? '[GUEST] ' : ''}${finalCustomerName} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up'}): ${orderItemsSummary}`,
           total,
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
@@ -284,28 +295,32 @@ export function CartDrawer({
               Fulfillment Type
             </label>
             <div className="grid grid-cols-3 gap-2 bg-white p-1 rounded-xl border border-amber-200 shadow-inner">
-              <button
-                type="button"
-                onClick={() => setFulfillmentType('delivery')}
-                className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
-                  fulfillmentType === 'delivery'
-                    ? 'bg-rose-900 text-white shadow-sm'
-                    : 'text-stone-700 hover:bg-amber-100/50'
-                }`}
-              >
-                <Truck className="w-4 h-4" /> Delivery
-              </button>
-              <button
-                type="button"
-                onClick={() => setFulfillmentType('pickup')}
-                className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
-                  fulfillmentType === 'pickup'
-                    ? 'bg-rose-900 text-white shadow-sm'
-                    : 'text-stone-700 hover:bg-amber-100/50'
-                }`}
-              >
-                <ShoppingBag className="w-4 h-4" /> Pick-Up
-              </button>
+              {!isLocalMode && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentType('delivery')}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
+                      fulfillmentType === 'delivery'
+                        ? 'bg-rose-900 text-white shadow-sm'
+                        : 'text-stone-700 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    <Truck className="w-4 h-4" /> Delivery
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentType('pickup')}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
+                      fulfillmentType === 'pickup'
+                        ? 'bg-rose-900 text-white shadow-sm'
+                        : 'text-stone-700 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    <ShoppingBag className="w-4 h-4" /> Pick-Up
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => setFulfillmentType('dine-in')}
@@ -313,7 +328,7 @@ export function CartDrawer({
                   fulfillmentType === 'dine-in'
                     ? 'bg-rose-900 text-white shadow-sm'
                     : 'text-stone-700 hover:bg-amber-100/50'
-                }`}
+                } ${isLocalMode ? 'col-span-3' : ''}`}
               >
                 <Utensils className="w-4 h-4" /> Dine-In
               </button>
@@ -363,15 +378,17 @@ export function CartDrawer({
                   </div>
                   
                   <div className="pt-2 flex flex-col gap-2">
-                    <button
-                      onClick={() => { setCompletedOrder(null); onClose(); router.push('/customer/orders'); }}
-                      className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-stone-950 transition text-center"
-                    >
-                      Track Order Status <Package className="w-4 h-4 inline ml-1" />
-                    </button>
+                    {!isLocalMode && (
+                      <button
+                        onClick={() => { setCompletedOrder(null); onClose(); router.push('/customer/orders'); }}
+                        className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-stone-950 transition text-center"
+                      >
+                        Track Order Status <Package className="w-4 h-4 inline ml-1" />
+                      </button>
+                    )}
                     <button
                       onClick={() => { setCompletedOrder(null); onClose(); }}
-                      className="w-full py-2.5 text-stone-600 hover:text-stone-900 text-xs font-semibold"
+                      className={`w-full py-2.5 text-xs font-semibold ${isLocalMode ? 'bg-stone-900 text-white py-3 rounded-xl hover:bg-stone-950' : 'text-stone-600 hover:text-stone-900'}`}
                     >
                       Close Window
                     </button>
@@ -509,7 +526,7 @@ export function CartDrawer({
                 </div>
 
                 {/* Customer Checkout Form */}
-                {session?.user ? (
+                {session?.user || isLocalMode ? (
                 <form id="checkout-form" onSubmit={handleCheckout} className="space-y-3 pt-2 border-t border-stone-200">
                   <h3 className="font-bold text-sm text-stone-900">Customer & Delivery Details</h3>
 
@@ -518,24 +535,26 @@ export function CartDrawer({
                     <input
                       type="text"
                       required
-                      placeholder="Enter your name"
+                      placeholder={isLocalMode ? "Enter your name (Guest)" : "Enter your name"}
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
                       className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none"
                     />
                   </div>
 
-                  <div>
-                    <label className="text-xs font-semibold text-stone-700 block mb-1">Mobile Phone *</label>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="0917XXXXXXX"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none"
-                    />
-                  </div>
+                  {!isLocalMode && (
+                    <div>
+                      <label className="text-xs font-semibold text-stone-700 block mb-1">Mobile Phone *</label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="0917XXXXXXX"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none"
+                      />
+                    </div>
+                  )}
 
                   {fulfillmentType === 'delivery' && (
                     <>
@@ -624,24 +643,26 @@ export function CartDrawer({
                       {isPaymentExpanded && (
                         <div className="p-3 border-t border-stone-100 space-y-2 bg-stone-50/50">
                           <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-2 pl-1">Choose Payment Method</p>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.preventDefault(); setPaymentMethod('gcash'); }}
-                            className={`w-full p-3 border rounded-xl flex items-center justify-between transition-colors ${paymentMethod === 'gcash' ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600' : 'border-stone-200 hover:border-blue-300 bg-white'}`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-xs shadow-sm">G</div>
-                              <div className="text-left">
-                                <p className="text-sm font-bold text-stone-800">GCash</p>
-                                <p className="text-[10px] text-stone-500 font-medium">Powered by Xendit</p>
+                          {!isLocalMode && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); setPaymentMethod('gcash'); }}
+                              className={`w-full p-3 border rounded-xl flex items-center justify-between transition-colors ${paymentMethod === 'gcash' ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600' : 'border-stone-200 hover:border-blue-300 bg-white'}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-xs shadow-sm">G</div>
+                                <div className="text-left">
+                                  <p className="text-sm font-bold text-stone-800">GCash</p>
+                                  <p className="text-[10px] text-stone-500 font-medium">Powered by Xendit</p>
+                                </div>
                               </div>
-                            </div>
-                            {paymentMethod === 'gcash' ? (
-                              <div className="w-4 h-4 rounded-full border-[4px] border-blue-600 bg-white shadow-sm flex-shrink-0"></div>
-                            ) : (
-                              <div className="w-4 h-4 rounded-full border-2 border-stone-300 flex-shrink-0"></div>
-                            )}
-                          </button>
+                              {paymentMethod === 'gcash' ? (
+                                <div className="w-4 h-4 rounded-full border-[4px] border-blue-600 bg-white shadow-sm flex-shrink-0"></div>
+                              ) : (
+                                <div className="w-4 h-4 rounded-full border-2 border-stone-300 flex-shrink-0"></div>
+                              )}
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -723,7 +744,7 @@ export function CartDrawer({
                 </div>
               </div>
 
-              {session?.user ? (
+              {session?.user || isLocalMode ? (
                 <button
                   type="submit"
                   form="checkout-form"
