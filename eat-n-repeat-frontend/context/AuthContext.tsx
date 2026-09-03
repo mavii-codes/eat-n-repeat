@@ -110,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password: newPassword,
       role: user.role,
       status: user.status,
+      availability: user.availability || "Offline",
     };
 
     updateStaffAccount(user.id, input);
@@ -129,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password: user.password || "staff123",
       role: user.role,
       status: user.status,
+      availability: user.availability || "Offline",
     };
 
     updateStaffAccount(user.id, input);

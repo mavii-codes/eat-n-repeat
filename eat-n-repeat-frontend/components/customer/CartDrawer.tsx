@@ -9,6 +9,7 @@ import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
 import { useLocalMode } from '@/lib/customer/useLocalMode';
+import type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
 export type CartItem = {
   menuItem: CustomerMenuItem;
