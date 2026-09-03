@@ -219,7 +219,7 @@ export const initialAdminData: AdminDataState = {
       name: "Marvin Barro",
       username: "admin",
       email: "owner@eatnrepeat.com",
-      password: "admin123",
+      password: "EatnRepeat!2026",
       role: "admin",
       status: "active",
       availability: "Online",
