@@ -218,6 +218,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             const liveStoreOrders: any[] = [];
 
             result.orders.forEach((o: any) => {
+              const orderTotal = Number(o.total) || 0;
+              const orderSubtotal = Number(o.subtotal) || 0;
+              const orderDeliveryFee = Number(o.deliveryFee) || 0;
+              const paymentStatus = o.payments?.[0]?.status === 'PAID' ? 'paid' : 'pending';
+              const orderPaid = paymentStatus === 'paid';
+
               if (o.type === 'delivery') {
                 liveDeliveryOrders.push({
                   id: o.id,
@@ -227,31 +233,37 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
                   address: o.address,
                   serviceAreaId: o.serviceAreaId,
                   items: o.items,
-                  subtotal: o.subtotal,
-                  deliveryFee: o.deliveryFee,
-                  total: o.total,
+                  subtotal: orderSubtotal,
+                  deliveryFee: orderDeliveryFee,
+                  total: orderTotal,
                   status: o.status,
                   deliveryPerson: o.deliveryPerson,
                   assignedRole: o.assignedRole,
-                  orderedAt: o.orderedAt,
+                  orderedAt: o.createdAt,
                   archived: o.archived,
-                  paymentStatus: o.paymentStatus,
-                  paid: o.paymentStatus === 'paid'
+                  paymentStatus,
+                  paid: orderPaid
                 });
               } else {
+                const statusMap: Record<string, string> = {
+                  pending: 'pending', pending_payment: 'pending', preparing: 'pending', confirmed: 'pending',
+                  delivered: 'completed', completed: 'completed',
+                  cancelled: 'cancelled',
+                };
                 liveStoreOrders.push({
                   id: o.id,
                   orderId: o.orderNumber,
-                  time: new Date(o.orderedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  time: new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                   items: o.items,
-                  total: o.total,
-                  status: o.status === 'pending' || o.status === 'preparing' ? 'pending' : (o.status === 'delivered' || o.status === 'completed' ? 'completed' : 'cancelled'),
-                  paid: o.paymentStatus === 'paid',
+                  total: orderTotal,
+                  status: statusMap[o.status] ?? o.status,
+                  paid: orderPaid,
                   archived: o.archived,
                   customerName: o.customerName,
                   orderType: o.type === 'dine-in' ? 'dine-in' : 'takeout',
+                  orderMode: (o as any).orderMode || "online",
                   tableNumber: o.type === 'dine-in' ? o.address : undefined,
-                  paymentStatus: o.paymentStatus
+                  paymentStatus
                 });
               }
             });

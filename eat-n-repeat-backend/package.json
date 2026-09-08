@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js"
+    "b buiuild": "tsc",
+    "start": "node dist/server.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -20,7 +24,9 @@
     "nodemailer": "^9.0.4",
     "uuid": "^14.0.1",
     "xendit-node": "^7.0.0",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "@prisma/client": "^6.0.0",
+    "prisma": "^6.0.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -33,5 +39,8 @@
     "@types/uuid": "^10.0.0",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

@@ -6,6 +6,8 @@ import { useSession, signOut } from 'next-auth/react';
 import { ArrowLeft, Shield, LogOut, Trash2, Mail, Laptop } from 'lucide-react';
 import Link from 'next/link';
 import { getApiUrl } from "@/lib/config";
+import toast from "react-hot-toast";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 
 
 const API_BASE = `${getApiUrl()}/api`;
@@ -14,6 +16,7 @@ export default function SecuritySettingsPage() {
   const { data: session } = useSession();
   const userId = session?.user?.id;
   const accessToken = (session as any)?.accessToken as string | undefined;
+  const { confirm } = useConfirm();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +59,7 @@ export default function SecuritySettingsPage() {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwords.newPassword !== passwords.confirmPassword) {
-      return alert('New passwords do not match!');
+      return toast.error('New passwords do not match!');
     }
     setSaving(true);
     try {
@@ -70,13 +73,13 @@ export default function SecuritySettingsPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        alert('Password changed successfully!');
+        toast.success('Password changed successfully!');
         setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
       } else {
-        alert(data.error || 'Failed to change password');
+        toast.error(data.error || 'Failed to change password');
       }
     } catch (e) {
-      alert('Failed to change password');
+      toast.error('Failed to change password');
     } finally {
       setSaving(false);
     }
@@ -84,16 +87,21 @@ export default function SecuritySettingsPage() {
 
   const handleDeleteAccount = async () => {
     if (!userId) return;
-    if (confirm('Are you absolutely sure you want to delete your account? This action cannot be undone and all your order history will be lost.')) {
-      try {
-        await fetch(`${API_BASE}/customer-settings/account`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-        signOut({ callbackUrl: '/customer/login' });
-      } catch (e) {
-        alert('Failed to delete account');
-      }
+    const confirmed = await confirm({
+      title: "Delete Account",
+      message: "Are you absolutely sure you want to delete your account? This action cannot be undone and all your order history will be lost.",
+      variant: "danger",
+      confirmLabel: "Delete",
+    });
+    if (!confirmed) return;
+    try {
+      await fetch(`${API_BASE}/customer-settings/account`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      signOut({ callbackUrl: '/customer/login' });
+    } catch (e) {
+      toast.error('Failed to delete account');
     }
   };
 

@@ -47,6 +47,10 @@ export default function AdminLayout({
   return (
     <ReviewsProvider>
       <div className="admin-shell min-h-screen w-full overflow-x-hidden">
+        <div className="admin-shell-bg" aria-hidden="true">
+          <div className="admin-shell-bg-image" />
+          <div className="admin-shell-bg-overlay" />
+        </div>
         <OnlineIndicator />
         
         {/* Mobile Header */}

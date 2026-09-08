@@ -9,6 +9,7 @@ import { OrderCard, type OrderCardProps } from '@/components/customer/OrderCard'
 import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
 import { Package, Bike, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import toast from "react-hot-toast";
 
 // Realistic sample orders for Cordova branch customer portal
 const fallbackOrders: OrderCardProps[] = [
@@ -133,7 +134,7 @@ function OrdersPageContent() {
       }
     } catch (error: any) {
       console.error('Payment retry error:', error);
-      alert(error.message || 'Failed to retry payment. Please try again.');
+      toast.error(error.message || 'Failed to retry payment. Please try again.');
     }
     setIsRetrying(false);
   };

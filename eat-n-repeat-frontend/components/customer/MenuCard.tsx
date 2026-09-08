@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
+import { useLocalMode } from '@/lib/customer/useLocalMode';
 import { useReviews } from '@/context/ReviewsContext';
 import { Star, Flame, Milk } from 'lucide-react';
 
@@ -56,6 +57,7 @@ export function MenuCard({
   isFavorite = false,
   customizations,
 }: MenuCardProps) {
+  const isLocalMode = useLocalMode();
   const { getAverageRating } = useReviews();
   const liveSummary = getAverageRating(id);
   
@@ -156,7 +158,8 @@ export function MenuCard({
             )}
           </div>
 
-          {/* Favorite Button */}
+          {/* Favorite Button - hidden in local mode */}
+          {!isLocalMode && (
           <button
             type="button"
             onClick={handleFavoriteClick}
@@ -179,6 +182,7 @@ export function MenuCard({
               />
             </svg>
           </button>
+          )}
 
           {/* Price Tag Overlay */}
           <div className="absolute bottom-3 left-3 z-10 bg-[#B91C1C] text-white text-sm font-extrabold px-3 py-1 rounded-xl shadow-lg border border-red-400/20">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { useAdminData } from "@/context/AdminDataContext";
 import { AdminPanel } from "@/components/admin/AdminForm";
 import { Coffee, RotateCcw, Package, ShoppingBag, Truck, Archive } from "lucide-react";
@@ -16,6 +17,8 @@ export function ArchiveTab() {
     restoreDeliveryOrder,
   } = useAdminData();
 
+  const { confirm } = useConfirm();
+
   const [activeFilter, setActiveFilter] = useState<"all" | "menu" | "store_orders" | "delivery_orders">("all");
 
   const archivedMenuItems = useMemo(() => menuItems.filter((m) => m.archived), [menuItems]);
@@ -28,22 +31,37 @@ export function ArchiveTab() {
     return menuCategories.find((c) => c.id === id)?.name || "Unknown";
   };
 
-  const handleRestoreMenu = (id: string) => {
-    if (confirm("Restore this menu item to the active menu?")) {
-      restoreMenuItem(id);
-    }
+  const handleRestoreMenu = async (id: string) => {
+    const confirmed = await confirm({
+      title: "Confirm Action",
+      message: "Restore this menu item to the active menu?",
+      variant: "info",
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
+    restoreMenuItem(id);
   };
 
-  const handleRestoreStoreOrder = (id: string) => {
-    if (confirm("Restore this store order to active orders?")) {
-      restoreStoreOrder(id);
-    }
+  const handleRestoreStoreOrder = async (id: string) => {
+    const confirmed = await confirm({
+      title: "Confirm Action",
+      message: "Restore this store order to active orders?",
+      variant: "info",
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
+    restoreStoreOrder(id);
   };
 
-  const handleRestoreDeliveryOrder = (id: string) => {
-    if (confirm("Restore this delivery order to active deliveries?")) {
-      restoreDeliveryOrder(id);
-    }
+  const handleRestoreDeliveryOrder = async (id: string) => {
+    const confirmed = await confirm({
+      title: "Confirm Action",
+      message: "Restore this delivery order to active deliveries?",
+      variant: "info",
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
+    restoreDeliveryOrder(id);
   };
 
   return (

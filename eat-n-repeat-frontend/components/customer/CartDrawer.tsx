@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package } from 'lucide-react';
+import toast from "react-hot-toast";
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
 import { useLocalMode } from '@/lib/customer/useLocalMode';
@@ -83,7 +84,7 @@ export function CartDrawer({
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string } | null>(null);
+  const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string; total: number } | null>(null);
 
   // Calculations
   useEffect(() => {
@@ -153,23 +154,23 @@ export function CartDrawer({
     const finalCustomerName = isLocalMode ? (customerName.trim() || 'Local Guest') : customerName.trim();
 
     if (!finalCustomerName) {
-      alert('Please enter your name');
+      toast.error('Please enter your name');
       return;
     }
 
     if (fulfillmentType === 'delivery') {
       if (!selectedServiceAreaId) {
-        alert('Please select your Delivery Area (Barangay/City)');
+        toast.error('Please select your Delivery Area (Barangay/City)');
         return;
       }
       if (!address.trim()) {
-        alert('Please enter a complete delivery address');
+        toast.error('Please enter a complete delivery address');
         return;
       }
     }
 
     if (!paymentMethod) {
-      alert('Please select a payment method');
+      toast.error('Please select a payment method');
       return;
     }
 
@@ -209,7 +210,7 @@ export function CartDrawer({
           'Content-Type': 'application/json',
           ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
         },
-        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod }),
+        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod, orderMode: isLocalMode ? "local" : "online" }),
       });
 
       const data = await response.json();
@@ -254,13 +255,14 @@ export function CartDrawer({
         id: data.orderId || orderNumber,
         orderNumber: data.orderNumber || orderNumber,
         type: fulfillmentType,
-        paymentMethod: backendPaymentMethod
+        paymentMethod: backendPaymentMethod,
+        total,
       });
       onClearCart();
     } catch (error: any) {
       console.error('Checkout error:', error);
       setIsSubmitting(false);
-      alert(error.message || 'Something went wrong. Please try again.');
+      toast.error(error.message || 'Something went wrong. Please try again.');
     }
   };
 
@@ -357,7 +359,7 @@ export function CartDrawer({
                     </div>
                     <div className="flex justify-between border-b border-stone-200 py-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Amount Due</span>
-                      <span className="font-bold text-lg text-[#800000]">₱{total.toFixed(2)}</span>
+                      <span className="font-bold text-lg text-[#800000]">₱{completedOrder.total.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between pt-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Payment Method</span>

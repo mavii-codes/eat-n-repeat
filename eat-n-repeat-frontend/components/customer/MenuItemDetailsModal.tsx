@@ -3,6 +3,8 @@
 
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
+import toast from "react-hot-toast";
+import { useLocalMode } from '@/lib/customer/useLocalMode';
 import type { CustomerMenuItem } from './MenuCard';
 import { ReviewsSection } from './ReviewsSection';
 import { useReviews } from '@/context/ReviewsContext';
@@ -52,6 +54,7 @@ export function MenuItemDetailsModal({
   onToggleFavorite,
   isFavorite = false,
 }: MenuItemDetailsModalProps) {
+  const isLocalMode = useLocalMode();
   const { getAverageRating } = useReviews();
 
   // Customization States
@@ -134,7 +137,7 @@ export function MenuItemDetailsModal({
   const handleAdd = () => {
     if (!isAvailable) return;
     if (item.sizes && item.sizes.filter(s=>s.available).length > 0 && !selectedSize) {
-      alert("Please select a size before adding to order.");
+      toast.error("Please select a size before adding to order.");
       return;
     }
     setAdded(true);
@@ -201,6 +204,7 @@ export function MenuItemDetailsModal({
 
           {/* Close & Favorite Top Controls */}
           <div className="absolute top-4 right-4 flex items-center gap-2 z-20">
+            {!isLocalMode && (
             <button
               type="button"
               onClick={handleFavoriteClick}
@@ -223,6 +227,7 @@ export function MenuItemDetailsModal({
                 />
               </svg>
             </button>
+            )}
             <button
               type="button"
               onClick={onClose}

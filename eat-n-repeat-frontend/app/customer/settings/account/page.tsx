@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { ArrowLeft, User } from 'lucide-react';
 import Link from 'next/link';
 import { getApiUrl } from "@/lib/config";
+import toast from "react-hot-toast";
 
 
 const API_BASE = `${getApiUrl()}/api`;
@@ -88,9 +89,9 @@ export default function AccountSettingsPage() {
           notification_preferences: profile.notification_preferences
         })
       });
-      alert('Account information saved successfully!');
+      toast.success('Account information saved successfully!');
     } catch (e) {
-      alert('Failed to save account information.');
+      toast.error('Failed to save account information.');
     } finally {
       setSaving(false);
     }

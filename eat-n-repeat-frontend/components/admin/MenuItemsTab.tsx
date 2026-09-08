@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import toast from "react-hot-toast";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { useAdminData } from "@/context/AdminDataContext";
 import { 
   AdminPanel, 
@@ -31,6 +33,8 @@ export function MenuItemsTab() {
     updateMenuItem, 
     archiveMenuItem 
   } = useAdminData();
+
+  const { confirm } = useConfirm();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("all");
@@ -101,16 +105,21 @@ export function MenuItemsTab() {
     setActiveDropdownId(null);
   };
 
-  const handleArchive = (id: string) => {
-    if (confirm("Are you sure you want to archive this menu item? It will be hidden from the menu.")) {
-      archiveMenuItem(id);
-    }
+  const handleArchive = async (id: string) => {
+    const confirmed = await confirm({
+      title: "Confirm Action",
+      message: "Are you sure you want to archive this menu item? It will be hidden from the menu.",
+      variant: "danger",
+      confirmLabel: "Archive",
+    });
+    if (!confirmed) return;
+    archiveMenuItem(id);
     setActiveDropdownId(null);
   };
 
   const handleSubmit = () => {
     if (!formState.name || !formState.categoryId || Number(formState.price) <= 0) {
-      alert("Please fill in all required fields (Name, Category, Price > 0).");
+      toast.error("Please fill in all required fields (Name, Category, Price > 0).");
       return;
     }
 

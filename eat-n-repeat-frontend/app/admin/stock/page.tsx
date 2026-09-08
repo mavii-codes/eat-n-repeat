@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import toast from "react-hot-toast";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   AdminButton,
@@ -59,6 +61,7 @@ const emptyCategoryForm: StockCategoryInput = {
 };
 
 export default function StockManagementPage() {
+  const { confirm } = useConfirm();
   const {
     stockItems,
     stockCategories,
@@ -214,10 +217,15 @@ export default function StockManagementPage() {
     setStockModalOpen(false);
   }
 
-  function handleStockDelete(item: StockItem) {
-    if (confirm(`Archive stock item "${item.name}"?`)) {
-      archiveStockItem(item.id);
-    }
+  async function handleStockDelete(item: StockItem) {
+    const confirmed = await confirm({
+      title: "Confirm Archive",
+      message: `Archive stock item "${item.name}"?`,
+      variant: "danger",
+      confirmLabel: "Archive",
+    });
+    if (!confirmed) return;
+    archiveStockItem(item.id);
   }
 
   // Handlers for Quick Adjust (+ Add / - Remove Stock)
@@ -290,16 +298,21 @@ export default function StockManagementPage() {
     setCategoryModalOpen(false);
   }
 
-  function handleCategoryDelete(category: StockCategory) {
+  async function handleCategoryDelete(category: StockCategory) {
     const itemCount = getStockItemsByCategory(category.id).length;
     if (itemCount > 0) {
-      alert(`Cannot delete "${category.name}" — ${itemCount} stock item(s) still use this category.`);
+      toast.error(`Cannot delete "${category.name}" — ${itemCount} stock item(s) still use this category.`);
       return;
     }
 
-    if (confirm(`Archive stock category "${category.name}"?`)) {
-      archiveStockCategory(category.id);
-    }
+    const confirmed = await confirm({
+      title: "Confirm Archive",
+      message: `Archive stock category "${category.name}"?`,
+      variant: "danger",
+      confirmLabel: "Archive",
+    });
+    if (!confirmed) return;
+    archiveStockCategory(category.id);
   }
 
   // Handlers for Restock Requests Resolution

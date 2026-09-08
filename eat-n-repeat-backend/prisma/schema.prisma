@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String              @id @db.VarChar(64) @map("id")
+  name         String              @db.VarChar(120) @map("name")
+  username     String              @unique @db.VarChar(80) @map("username")
+  email        String              @unique @db.VarChar(255) @map("email")
+  passwordHash String              @db.VarChar(255) @map("password_hash")
+  role         String              @default("staff") @db.VarChar(50) @map("role")
+  status       String              @default("active") @db.VarChar(20) @map("status")
+  archived     Boolean             @default(false) @map("archived")
+  createdAt    DateTime            @default(now()) @db.Timestamp(0) @map("created_at")
+
+  staffNotifications StaffNotification[]
+
+  @@map("users")
+}
+
+model Customer {
+  id                      String                    @id @db.VarChar(64) @map("id")
+  name                    String                    @db.VarChar(120) @map("name")
+  email                   String                    @unique @db.VarChar(255) @map("email")
+  phone                   String?                   @db.VarChar(20) @map("phone")
+  passwordHash            String                    @db.VarChar(255) @map("password_hash")
+  status                  String                    @default("pending_verification") @db.VarChar(30) @map("status")
+  avatarUrl               String?                   @db.VarChar(255) @map("avatar_url")
+  notificationPreferences Json?                     @db.Json @map("notification_preferences")
+  syncStatus              String                    @default("pending") @db.VarChar(10) @map("sync_status")
+  createdAt               DateTime                  @default(now()) @db.Timestamp(0) @map("created_at")
+
+  orders                  Order[]
+  customerNotifications   CustomerNotification[]
+  customerFavorites       CustomerFavorite[]
+  customerAddresses       CustomerAddress[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+
+  @@map("customers")
+}
+
+model Order {
+  id                    String    @id @db.VarChar(64) @map("id")
+  orderNumber           String    @db.VarChar(50) @map("order_number")
+  customerId            String?   @db.VarChar(64) @map("customer_id")
+  customer              Customer? @relation(fields: [customerId], references: [id])
+  customerName          String    @db.VarChar(120) @map("customer_name")
+  phone                 String?   @db.VarChar(20) @map("phone")
+  address               String?   @db.Text @map("address")
+  serviceAreaId         String?   @db.VarChar(64) @map("service_area_id")
+  type                  String    @default("delivery") @db.VarChar(20) @map("type")
+  items                 String    @db.Text @map("items")
+  subtotal              Decimal   @db.Decimal(10, 2) @map("subtotal")
+  deliveryFee           Decimal   @default(0) @db.Decimal(10, 2) @map("delivery_fee")
+  total                 Decimal   @db.Decimal(10, 2) @map("total")
+  status                String    @default("pending") @db.VarChar(50) @map("status")
+  deliveryPerson        String?   @db.VarChar(50) @map("delivery_person")
+  assignedRole          String?   @db.VarChar(50) @map("assigned_role")
+  assignedAt            DateTime? @db.Timestamp(0) @map("assigned_at")
+  estimatedDeliveryTime String?   @default("15–25 min") @db.VarChar(50) @map("estimated_delivery_time")
+  notes                 String?   @db.Text @map("notes")
+  createdAt             DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  deliveredAt           DateTime? @db.Timestamp(0) @map("delivered_at")
+  archived              Boolean   @default(false) @map("archived")
+  cancelledBy           String?   @db.VarChar(50) @map("cancelled_by")
+  cancelledAt           DateTime? @db.Timestamp(0) @map("cancelled_at")
+  pendingAt             DateTime? @db.Timestamp(0) @map("pending_at")
+  confirmedAt           DateTime? @db.Timestamp(0) @map("confirmed_at")
+  preparingAt           DateTime? @db.Timestamp(0) @map("preparing_at")
+  readyForDeliveryAt    DateTime? @db.Timestamp(0) @map("ready_for_delivery_at")
+  outForDeliveryAt      DateTime? @db.Timestamp(0) @map("out_for_delivery_at")
+  orderMode             String    @default("online") @db.VarChar(10) @map("order_mode")
+  syncStatus            String    @default("pending") @db.VarChar(10) @map("sync_status")
+
+  payments Payment[]
+
+  @@map("orders")
+  @@index([customerId], map: "orders_customer_id_fkey")
+}
+
+model Payment {
+  id              String    @id @db.VarChar(64) @map("id")
+  orderId         String    @db.VarChar(64) @map("order_id")
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentMethod   String    @db.VarChar(50) @map("payment_method")
+  xenditInvoiceId String?   @db.VarChar(100) @map("xendit_invoice_id")
+  xenditReference String?   @db.VarChar(100) @map("xendit_reference")
+  amount          Decimal   @db.Decimal(10, 2) @map("amount")
+  status          String    @default("PENDING") @db.VarChar(50) @map("status")
+  paidAt          DateTime? @db.Timestamp(0) @map("paid_at")
+  syncStatus      String    @default("pending") @db.VarChar(10) @map("sync_status")
+  createdAt       DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("payments")
+  @@index([orderId], map: "payments_order_id_fkey")
+}
+
+model CustomerNotification {
+  id          String   @id @db.VarChar(64) @map("id")
+  customerId  String   @db.VarChar(64) @map("customer_id")
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type        String   @db.VarChar(20) @map("type")
+  title       String   @db.VarChar(255) @map("title")
+  description String   @db.Text @map("description")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("customer_notifications")
+  @@index([customerId], map: "customer_notifications_customer_id_fkey")
+}
+
+model CustomerFavorite {
+  customerId String   @db.VarChar(64) @map("customer_id")
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  menuItemId String   @db.VarChar(64) @map("menu_item_id")
+  createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@id([customerId, menuItemId])
+  @@map("customer_favorites")
+}
+
+model CustomerAddress {
+  id            String   @id @db.VarChar(64) @map("id")
+  customerId    String   @db.VarChar(64) @map("customer_id")
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  addressName   String   @db.VarChar(100) @map("address_name")
+  fullAddress   String   @db.VarChar(255) @map("full_address")
+  barangay      String   @db.VarChar(100) @map("barangay")
+  municipality  String   @db.VarChar(100) @map("municipality")
+  landmarks     String?  @db.VarChar(255) @map("landmarks")
+  deliveryNotes String?  @db.VarChar(255) @map("delivery_notes")
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("customer_addresses")
+  @@index([customerId], map: "customer_addresses_customer_id_fkey")
+}
+
+model StaffNotification {
+  id             String   @id @db.VarChar(64) @map("id")
+  userId         String   @db.VarChar(64) @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String   @db.VarChar(50) @map("type")
+  title          String   @db.VarChar(255) @map("title")
+  message        String   @db.Text @map("message")
+  relatedOrderId String?  @db.VarChar(64) @map("related_order_id")
+  isRead         Boolean  @default(false) @map("is_read")
+  syncStatus     String   @default("pending") @db.VarChar(10) @map("sync_status")
+  createdAt      DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("staff_notifications")
+  @@index([userId], map: "staff_notifications_user_id_fkey")
+}
+
+model StockCategory {
+  id         String      @id @db.VarChar(64) @map("id")
+  name       String      @unique @db.VarChar(120) @map("name")
+  stockItems StockItem[]
+
+  @@map("stock_categories")
+}
+
+model StockItem {
+  id                String        @id @db.VarChar(64) @map("id")
+  name              String        @db.VarChar(160) @map("name")
+  categoryId        String        @db.VarChar(64) @map("category_id")
+  category          StockCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  quantity          Decimal       @default(0) @db.Decimal(10, 2) @map("quantity")
+  unit              String        @db.VarChar(30) @map("unit")
+  lowStockThreshold Decimal       @default(5) @db.Decimal(10, 2) @map("low_stock_threshold")
+
+  @@map("stock_items")
+  @@index([categoryId], map: "stock_items_category_id_fkey")
+}
+
+model StockRequest {
+  id              String   @id @db.VarChar(64) @map("id")
+  staffId         String   @db.VarChar(64) @map("staff_id")
+  staffName       String   @db.VarChar(120) @map("staff_name")
+  ingredientId    String   @db.VarChar(64) @map("ingredient_id")
+  ingredientName  String   @db.VarChar(160) @map("ingredient_name")
+  currentQuantity Decimal  @db.Decimal(10, 2) @map("current_quantity")
+  unit            String   @db.VarChar(30) @map("unit")
+  threshold       Decimal  @db.Decimal(10, 2) @map("threshold")
+  status          String   @default("Pending") @db.VarChar(20) @map("status")
+  message         String?  @db.Text @map("message")
+  adminNote       String?  @db.Text @map("admin_note")
+  createdAt       DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("stock_requests")
+}
+
+model OfflineStockTransaction {
+  id               String   @id @db.VarChar(64) @map("id")
+  stockItemId      String   @db.VarChar(255) @map("stock_item_id")
+  quantityDeducted Decimal  @db.Decimal(10, 2) @map("quantity_deducted")
+  orderId          String   @db.VarChar(64) @map("order_id")
+  staffId          String   @db.VarChar(64) @map("staff_id")
+  transactionDate  DateTime @db.Timestamp(0) @map("transaction_date")
+  createdAt        DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("offline_stock_transactions")
+}
+
+model EmailVerificationToken {
+  id         String   @id @db.VarChar(64) @map("id")
+  customerId String   @db.VarChar(64) @map("customer_id")
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tokenHash  String   @db.VarChar(255) @map("token_hash")
+  expiresAt  DateTime @db.Timestamp(0) @map("expires_at")
+  createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("email_verification_tokens")
+  @@index([customerId], map: "email_verification_tokens_customer_id_fkey")
+}
+
+model PasswordResetToken {
+  id         String   @id @db.VarChar(64) @map("id")
+  customerId String   @db.VarChar(64) @map("customer_id")
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tokenHash  String   @db.VarChar(255) @map("token_hash")
+  expiresAt  DateTime @db.Timestamp(0) @map("expires_at")
+  createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("password_reset_tokens")
+  @@index([customerId], map: "password_reset_tokens_customer_id_fkey")
+}
+
+model Addon {
+  id        String   @id @db.VarChar(64) @map("id")
+  name      String   @db.VarChar(120) @map("name")
+  price     Decimal  @db.Decimal(10, 2) @map("price")
+  available Boolean  @default(true) @map("available")
+  createdAt DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("addons")
+}
+
+model CashShift {
+  id              String            @id @db.VarChar(64) @map("id")
+  staffId         String            @db.VarChar(64) @map("staff_id")
+  staffName       String            @db.VarChar(120) @map("staff_name")
+  startTime       DateTime          @db.Timestamp(0) @map("start_time")
+  endTime         DateTime?         @db.Timestamp(0) @map("end_time")
+  startingFloat   Decimal           @db.Decimal(10, 2) @map("starting_float")
+  expectedCash    Decimal           @db.Decimal(10, 2) @map("expected_cash")
+  actualCash      Decimal?          @db.Decimal(10, 2) @map("actual_cash")
+  difference      Decimal?          @db.Decimal(10, 2) @map("difference")
+  status          String            @default("open") @db.VarChar(20) @map("status")
+  cashTransactions CashTransaction[]
+
+  @@map("cash_shifts")
+}
+
+model CashTransaction {
+  id        String    @id @db.VarChar(64) @map("id")
+  shiftId   String    @db.VarChar(64) @map("shift_id")
+  shift     CashShift @relation(fields: [shiftId], references: [id])
+  orderId   String?   @db.VarChar(64) @map("order_id")
+  type      String    @default("sale") @db.VarChar(30) @map("type")
+  amount    Decimal   @db.Decimal(10, 2) @map("amount")
+  adminId   String?   @db.VarChar(64) @map("admin_id")
+  adminName String?   @db.VarChar(120) @map("admin_name")
+  reason    String?   @db.VarChar(255) @map("reason")
+  timestamp DateTime  @db.Timestamp(0) @map("timestamp")
+
+  @@map("cash_transactions")
+  @@index([shiftId], map: "cash_transactions_shift_id_fkey")
+}

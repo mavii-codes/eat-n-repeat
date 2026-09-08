@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { ArrowLeft, Bell } from 'lucide-react';
 import Link from 'next/link';
 import { getApiUrl } from "@/lib/config";
+import toast from "react-hot-toast";
 
 
 const API_BASE = `${getApiUrl()}/api`;
@@ -69,9 +70,9 @@ export default function NotificationsSettingsPage() {
           notification_preferences: preferences
         })
       });
-      alert('Notification preferences saved successfully!');
+      toast.success('Notification preferences saved successfully!');
     } catch (e) {
-      alert('Failed to save preferences.');
+      toast.error('Failed to save preferences.');
     } finally {
       setSaving(false);
     }

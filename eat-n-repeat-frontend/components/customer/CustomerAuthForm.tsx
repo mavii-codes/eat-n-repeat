@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
+import { getApiUrl } from '@/lib/config';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/brand/Logo';
 import { Coffee } from 'lucide-react';
@@ -39,13 +40,33 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
           setLoading(false);
           return;
         }
-        if (password.length < 6) {
-          setError('Password must be at least 6 characters.');
+        if (password.length < 8) {
+          setError('Password must be at least 8 characters.');
+          setLoading(false);
+          return;
+        }
+        if (!/[A-Z]/.test(password)) {
+          setError('Password must contain at least one uppercase letter.');
+          setLoading(false);
+          return;
+        }
+        if (!/[a-z]/.test(password)) {
+          setError('Password must contain at least one lowercase letter.');
+          setLoading(false);
+          return;
+        }
+        if (!/[0-9]/.test(password)) {
+          setError('Password must contain at least one number.');
+          setLoading(false);
+          return;
+        }
+        if (!/[^A-Za-z0-9]/.test(password)) {
+          setError('Password must contain at least one special character.');
           setLoading(false);
           return;
         }
 
-        const res = await fetch('/api/customer/register', {
+        const res = await fetch(`${getApiUrl()}/api/customer-auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, password, phone }),
@@ -184,10 +205,10 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
                   type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                  minLength={6}
+                  minLength={8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder="Min 8 chars, upper, lower, number, special"
                   className="w-full px-4 py-3 pr-12 rounded-2xl border border-amber-200/90 bg-[#FFF8F0] text-sm text-stone-800 placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition"
                 />
                 <button

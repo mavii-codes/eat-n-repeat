@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { X, Wifi, WifiOff, RefreshCw, Copy, CheckCircle2, Server, Globe } from "lucide-react";
+import { startLocalMode, stopLocalMode } from "@/lib/customer/useLocalMode";
 
 type LocalModeModalProps = {
   isOpen: boolean;
@@ -28,12 +30,9 @@ export function LocalModeModal({ isOpen, onClose }: LocalModeModalProps) {
       if (data.error) {
         throw new Error(data.error);
       }
-      setNetworkInfo({ ip: data.ip, url: data.url });
+      setNetworkInfo({ ip: data.ip, url: `${data.url}?mode=local` });
       
-      // Save state to let other components know it's forced local mode for demo
-      localStorage.setItem("force-local-mode-demo", "true");
-      // Trigger a storage event manually for same tab
-      window.dispatchEvent(new Event('local-mode-toggled'));
+      startLocalMode();
     } catch (err: any) {
       setError(err.message || "An unknown error occurred");
     } finally {
@@ -69,15 +68,14 @@ export function LocalModeModal({ isOpen, onClose }: LocalModeModalProps) {
   };
 
   const handleStopLocalMode = () => {
-    localStorage.removeItem("force-local-mode-demo");
-    window.dispatchEvent(new Event('local-mode-toggled'));
+    stopLocalMode();
     setNetworkInfo(null);
     onClose();
   };
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* HEADER */}
@@ -85,10 +83,10 @@ export function LocalModeModal({ isOpen, onClose }: LocalModeModalProps) {
           <div>
             <h2 className="font-serif text-xl font-bold flex items-center gap-2">
               <Server className="h-5 w-5" />
-              LOCAL MODE ACTIVE
+              LOCAL CAFÉ NETWORK
             </h2>
             <p className="text-white/70 text-xs font-semibold uppercase tracking-wider mt-1">
-              Local Café Ordering Demo
+              Café Local Ordering Setup
             </p>
           </div>
           <button
@@ -210,10 +208,11 @@ export function LocalModeModal({ isOpen, onClose }: LocalModeModalProps) {
             onClick={handleStopLocalMode}
             className="bg-stone-800 hover:bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-colors"
           >
-            Switch back to Online Mode
+            Switch to Online Mode
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

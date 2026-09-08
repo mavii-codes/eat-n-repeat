@@ -6,6 +6,8 @@ import { useSession } from 'next-auth/react';
 import { ArrowLeft, MapPin, Edit2, Plus, X, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { getApiUrl } from "@/lib/config";
+import toast from "react-hot-toast";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 
 
 const API_BASE = `${getApiUrl()}/api`;
@@ -25,6 +27,7 @@ export default function SavedAddressesPage() {
   const { data: session } = useSession();
   const userId = session?.user?.id;
   const accessToken = (session as any)?.accessToken as string | undefined;
+  const { confirm } = useConfirm();
 
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,17 +112,24 @@ export default function SavedAddressesPage() {
         await fetchAddresses();
         setShowModal(false);
       } else {
-        alert('Failed to save address.');
+        toast.error('Failed to save address.');
       }
     } catch (e) {
-      alert('An error occurred.');
+      toast.error('An error occurred.');
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!userId || !confirm('Are you sure you want to delete this address?')) return;
+    if (!userId) return;
+    const confirmed = await confirm({
+      title: "Delete Address",
+      message: "Are you sure you want to delete this address?",
+      variant: "danger",
+      confirmLabel: "Delete",
+    });
+    if (!confirmed) return;
     
     try {
       const res = await fetch(`${API_BASE}/customer-addresses/${id}`, {
@@ -133,7 +143,7 @@ export default function SavedAddressesPage() {
         }
       }
     } catch (e) {
-      alert('Failed to delete address.');
+      toast.error('Failed to delete address.');
     }
   };
 
@@ -148,7 +158,7 @@ export default function SavedAddressesPage() {
         await fetchAddresses();
       }
     } catch (e) {
-      alert('Failed to set default address.');
+      toast.error('Failed to set default address.');
     }
   };
 

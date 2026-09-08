@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import toast from "react-hot-toast";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { Eye, Clock, ShieldCheck, PhilippinePeso, History } from "lucide-react";
 import { X } from "lucide-react";
@@ -154,8 +155,8 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
   const handleAddFloat = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(floatAmount);
-    if (isNaN(amount) || amount <= 0) return alert("Please enter a valid positive amount.");
-    if (!floatReason.trim()) return alert("Please provide a reason.");
+    if (isNaN(amount) || amount <= 0) return toast.error("Please enter a valid positive amount.");
+    if (!floatReason.trim()) return toast.error("Please provide a reason.");
     
     setSubmitLoading(true);
     try {
@@ -176,11 +177,11 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
         setFloatReason("");
         await fetchDetails();
       } else {
-        alert(data.message || "Failed to add float.");
+        toast.error(data.message || "Failed to add float.");
       }
     } catch (e) {
       console.error(e);
-      alert("Network error.");
+      toast.error("Network error.");
     } finally {
       setSubmitLoading(false);
     }

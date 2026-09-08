@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import toast from "react-hot-toast";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   AdminButton,
@@ -38,6 +40,7 @@ export default function StaffPage() {
   const { user } = useAuth();
   const currentUserEmail = user?.email;
   const currentRole = user?.role as StaffRole;
+  const { confirm } = useConfirm();
 
   const {
     getActiveStaffAccounts,
@@ -104,7 +107,7 @@ export default function StaffPage() {
   function openEdit(account: StaffAccount) {
     // Basic guard
     if (currentRole === "staff" && account.email !== currentUserEmail) {
-      alert("You do not have permission to edit this account.");
+      toast.error("You do not have permission to edit this account.");
       return;
     }
     setEditing(account);
@@ -133,12 +136,12 @@ export default function StaffPage() {
 
   function handleSubmit() {
     if (!form.name.trim() || !form.email.trim() || !form.username.trim()) {
-      alert("Please fill out Name, Username, and Email.");
+      toast.error("Please fill out Name, Username, and Email.");
       return;
     }
     
     if (form.password && form.password !== confirmPassword) {
-      alert("Passwords do not match.");
+      toast.error("Passwords do not match.");
       return;
     }
 
@@ -147,7 +150,7 @@ export default function StaffPage() {
     if (editing) {
       if (editing.role === "admin" && payload.role !== "admin" && currentUserEmail !== editing.email) {
          if (currentRole !== "admin") {
-           alert("You cannot change an Admin's role.");
+           toast.error("You cannot change an Admin's role.");
            return;
          }
       }
@@ -156,50 +159,60 @@ export default function StaffPage() {
         payload.password = editing.password;
       }
       updateStaffAccount(editing.id, payload);
-      alert("Staff account updated successfully.");
+      toast.success("Staff account updated successfully.");
     } else {
       if (!payload.password?.trim()) {
-        alert("Please enter a temporary password.");
+        toast.error("Please enter a temporary password.");
         return;
       }
       addStaffAccount(payload);
-      alert("Staff account created successfully.");
+      toast.success("Staff account created successfully.");
     }
     setOpenAddEdit(false);
   }
 
-  function handleArchive(account: StaffAccount) {
+  async function handleArchive(account: StaffAccount) {
     setOpenActionMenuId(null);
     if (account.email === currentUserEmail) {
-      alert("You cannot archive your own account while logged in.");
+      toast.error("You cannot archive your own account while logged in.");
       return;
     }
     if (account.role === "admin" && currentRole !== "admin") {
-      alert("You do not have permission to archive an Admin account.");
+      toast.error("You do not have permission to archive an Admin account.");
       return;
     }
-    if (confirm(`Archive staff account for "${account.name}"? This staff member will no longer be able to sign in.`)) {
-      archiveStaffAccount(account.id);
-    }
+    const confirmed = await confirm({
+      title: "Confirm Archive",
+      message: `Archive staff account for "${account.name}"? This staff member will no longer be able to sign in.`,
+      variant: "danger",
+      confirmLabel: "Archive",
+    });
+    if (!confirmed) return;
+    archiveStaffAccount(account.id);
   }
 
-  function toggleStatus(account: StaffAccount) {
+  async function toggleStatus(account: StaffAccount) {
     setOpenActionMenuId(null);
     if (account.email === currentUserEmail) {
-      alert("You cannot deactivate your own account while logged in.");
+      toast.error("You cannot deactivate your own account while logged in.");
       return;
     }
     if (account.role === "admin" && currentRole !== "admin") {
-      alert("You do not have permission to deactivate an Admin account.");
+      toast.error("You do not have permission to deactivate an Admin account.");
       return;
     }
     const action = account.status === "active" ? "Deactivate" : "Activate";
-    if (confirm(`${action} this staff account? ${action === "Deactivate" ? "They will no longer be able to sign in." : "They will regain access to the portal."}`)) {
-      updateStaffAccount(account.id, {
-        ...account,
-        status: account.status === "active" ? "inactive" : "active"
-      });
-    }
+    const confirmed = await confirm({
+      title: `Confirm ${action}`,
+      message: `${action} this staff account? ${action === "Deactivate" ? "They will no longer be able to sign in." : "They will regain access to the portal."}`,
+      variant: "warning",
+      confirmLabel: action,
+    });
+    if (!confirmed) return;
+    updateStaffAccount(account.id, {
+      ...account,
+      status: account.status === "active" ? "inactive" : "active"
+    });
   }
 
   function getStatusColor(status?: string) {

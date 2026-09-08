@@ -27,7 +27,7 @@ type CustomerHeaderProps = {
   subtitle?: string;
 };
 
-const navLinks = [
+const baseNavLinks = [
   { href: '/customer/menu', label: 'Menu' },
   { href: '/customer/orders', label: 'Orders' },
   { href: '/customer/favorites', label: 'Favorites' },
@@ -53,6 +53,9 @@ export function CustomerHeader({
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('');
   const [showAuthModal, setShowAuthModal] = useState(false);
   const isLocalMode = useLocalMode();
+  const navLinks = isLocalMode
+    ? baseNavLinks.filter(l => l.label !== 'Orders' && l.label !== 'Favorites')
+    : baseNavLinks;
 
   const handleRestrictedNavClick = (e: React.MouseEvent, href: string) => {
     // In local mode, we allow access to orders without auth (since they are guest orders)
@@ -124,7 +127,8 @@ export function CustomerHeader({
 
             {/* Right Header Actions: Notifications + User Profile + Cart Pill */}
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-              {/* Notification Bell Button & Dropdown */}
+              {/* Notification Bell Button & Dropdown - hidden in local mode */}
+              {!isLocalMode && (
               <div className="relative">
                 <button
                   type="button"
@@ -150,14 +154,16 @@ export function CustomerHeader({
                   onClose={() => setShowNotificationPanel(false)}
                 />
               </div>
+              )}
 
 
 
               {/* Desktop Profile Icon & Dropdown */}
               {isLocalMode ? (
-                <div className="hidden md:flex flex-col items-end mr-2">
-                  <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider">Local Mode</span>
-                  <span className="text-[10px] text-stone-500 font-medium">Dine-in Only • Cash Only</span>
+                <div className="hidden md:flex flex-col items-end mr-2 gap-1">
+                  <span className="bg-amber-50 text-amber-900 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide">LOCAL CAFÉ</span>
+                  <span className="text-[10px] text-stone-500 font-medium">Dine-in • Cash</span>
+                  <a href="/login" className="text-[10px] text-amber-700 hover:text-amber-900 font-bold underline transition">Staff / Admin</a>
                 </div>
               ) : session?.user ? (
                 <div className="relative hidden md:block">
@@ -327,8 +333,10 @@ export function CustomerHeader({
                     const navLinks = [
                       { href: '/customer', label: 'Home', icon: <House className="w-4 h-4" /> },
                       { href: '/customer/menu', label: 'Menu', icon: <UtensilsCrossed className="w-4 h-4" /> },
-                      { href: '/customer/orders', label: 'Orders', icon: <Receipt className="w-4 h-4" /> },
-                      { href: '/customer/favorites', label: 'Favorites', icon: <Heart className="w-4 h-4" /> }
+                      ...(!isLocalMode ? [
+                        { href: '/customer/orders', label: 'Orders', icon: <Receipt className="w-4 h-4" /> },
+                        { href: '/customer/favorites', label: 'Favorites', icon: <Heart className="w-4 h-4" /> }
+                      ] : [])
                     ].filter(l => l.label.toLowerCase().includes(drawerSearchQuery.toLowerCase()));
 
                     const accLinks = [
@@ -417,6 +425,15 @@ export function CustomerHeader({
                 >
                   <LogOut className="w-4 h-4" /> Sign Out
                 </button>
+              )}
+              {isLocalMode && (
+                <a
+                  href="/login"
+                  onClick={() => setIsMobileDrawerOpen(false)}
+                  className="flex items-center gap-4 px-2 py-2 text-xs font-bold text-amber-700 hover:text-amber-900 transition w-full mb-4"
+                >
+                  <Key className="w-4 h-4" /> Staff / Admin Login
+                </a>
               )}
               <div className="px-2 space-y-1">
                 <p className="text-[10px] text-stone-400 font-medium">Version 1.0.4</p>

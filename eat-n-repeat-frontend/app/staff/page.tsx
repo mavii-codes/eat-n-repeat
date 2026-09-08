@@ -4,10 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
-import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Server } from "lucide-react";
-import { LocalModeModal } from "@/components/admin/LocalModeModal";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { LocalModeModal } from "@/components/admin/LocalModeModal";
+import { useLocalMode, startLocalMode, stopLocalMode } from "@/lib/customer/useLocalMode";
+import { Server } from "lucide-react";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
+import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
@@ -24,34 +27,6 @@ import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/adm
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
-
-type POSCartItem = { item: MenuItem; qty: number };
-
-const PHP_DENOMINATIONS = [
-  { value: 1000, label: "₱1,000 bill" },
-  { value: 500, label: "₱500 bill" },
-  { value: 200, label: "₱200 bill" },
-  { value: 100, label: "₱100 bill" },
-  { value: 50, label: "₱50 bill" },
-  { value: 20, label: "₱20 bill" },
-  { value: 10, label: "₱10 coin" },
-  { value: 5, label: "₱5 coin" },
-  { value: 1, label: "₱1 coin" },
-  { value: 0.25, label: "₱0.25 coin" },
-];
-
-function breakdownChange(change: number): { label: string; count: number }[] {
-  let remaining = Math.round(change * 100) / 100;
-  const result: { label: string; count: number }[] = [];
-  for (const denom of PHP_DENOMINATIONS) {
-    if (remaining >= denom.value) {
-      const count = Math.floor(remaining / denom.value);
-      remaining = Math.round((remaining - count * denom.value) * 100) / 100;
-      result.push({ label: denom.label, count });
-    }
-  }
-  return result;
-}
 
 function getWeekRange(dateStr: string): { start: string; end: string; label: string } {
   const [year, month, day] = dateStr.split("-").map(Number);
@@ -149,26 +124,9 @@ export default function StaffPortalPage() {
   const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
 
 
-  // POS Cashier States
-  const [posCart, setPosCart] = useState<POSCartItem[]>([]);
-  const [posTendered, setPosTendered] = useState("");
-  const [posReceiptOpen, setPosReceiptOpen] = useState(false);
+  // Local Mode State
+  const isLocalMode = useLocalMode();
   const [isLocalModeModalOpen, setIsLocalModeModalOpen] = useState(false);
-  const [posSearchTerm, setPosSearchTerm] = useState("");
-  const [posCategoryFilter, setPosCategoryFilter] = useState("all");
-  const [posReceiptData, setPosReceiptData] = useState<{
-    cart: POSCartItem[];
-    subtotal: number;
-    tax: number;
-    total: number;
-    tendered: number;
-    change: number;
-    breakdown: { label: string; count: number }[];
-    receiptNo: string;
-    date: string;
-    time: string;
-    cashier: string;
-  } | null>(null);
 
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
@@ -438,86 +396,14 @@ export default function StaffPortalPage() {
     setConfirmNewPwd("");
   }
 
-  // POS Cashier Functions
-  const posSubtotal = posCart.reduce((sum, ci) => sum + ci.item.price * ci.qty, 0);
-  const posTaxRate = 0; // No tax for simplicity, set to e.g. 0.12 for 12% VAT
-  const posTax = Math.round(posSubtotal * posTaxRate * 100) / 100;
-  const posTotal = posSubtotal + posTax;
-  const posTenderedNum = parseFloat(posTendered) || 0;
-  const posChange = posTenderedNum - posTotal;
-
-  function posAddToCart(item: MenuItem) {
-    setPosCart((prev) => {
-      const existing = prev.find((ci) => ci.item.id === item.id);
-      if (existing) return prev.map((ci) => ci.item.id === item.id ? { ...ci, qty: ci.qty + 1 } : ci);
-      return [...prev, { item, qty: 1 }];
-    });
-  }
-
-  function posRemoveFromCart(itemId: string) {
-    setPosCart((prev) => prev.filter((ci) => ci.item.id !== itemId));
-  }
-
-  function posUpdateQty(itemId: string, qty: number) {
-    if (qty <= 0) { posRemoveFromCart(itemId); return; }
-    setPosCart((prev) => prev.map((ci) => ci.item.id === itemId ? { ...ci, qty } : ci));
-  }
-
-  function posClearCart() {
-    setPosCart([]);
-    setPosTendered("");
-  }
-
-  function posCompleteTransaction() {
-    if (posCart.length === 0 || posTenderedNum < posTotal) return;
-    const now = new Date();
-    const receiptNo = `ENR-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    
-    // Save to global context storeOrders list
-    addStoreOrder({
-      orderId: receiptNo.slice(-8), // use short ID for dashboard visibility
-      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      items: posCart.map((ci) => `${ci.item.name} (${ci.qty}x)`).join(", "),
-      total: posTotal,
-      status: "completed",
-      paid: true,
-    });
-
-    setPosReceiptData({
-      cart: [...posCart],
-      subtotal: posSubtotal,
-      tax: posTax,
-      total: posTotal,
-      tendered: posTenderedNum,
-      change: posChange,
-      breakdown: breakdownChange(posChange),
-      receiptNo,
-      date: now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }),
-      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-      cashier: user?.name || "Cashier",
-    });
-    setPosReceiptOpen(true);
-  }
-
-  function posNewTransaction() {
-    setPosCart([]);
-    setPosTendered("");
-    setPosReceiptOpen(false);
-    setPosReceiptData(null);
-  }
-
-  const posFilteredItems = menuItems.filter((item) => {
-    if (item.archived || !item.available) return false;
-    if (posCategoryFilter !== "all" && item.categoryId !== posCategoryFilter) return false;
-    if (posSearchTerm && !item.name.toLowerCase().includes(posSearchTerm.toLowerCase())) return false;
-    return true;
-  });
-
   if (!user) return null;
 
   return (
     <div className="admin-shell min-h-screen flex text-[#1c1c1c]">
-      <LocalModeModal isOpen={isLocalModeModalOpen} onClose={() => setIsLocalModeModalOpen(false)} />
+      <div className="admin-shell-bg" aria-hidden="true">
+        <div className="admin-shell-bg-image" />
+        <div className="admin-shell-bg-overlay" />
+      </div>
       {/* LEFT SIDEBAR */}
       <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
         <div className="border-b border-white/8 px-6 py-6">
@@ -551,18 +437,39 @@ export default function StaffPortalPage() {
 
         {/* FOOTER USER CARD */}
         <div className="border-t border-white/8 px-6 py-5 space-y-4">
+        {/* SYSTEM MODE SWITCH */}
+        <div className="px-4 pt-4">
+          <div className={`rounded-xl border p-3 ${isLocalMode ? 'bg-amber-500/15 border-amber-500/30' : 'bg-emerald-500/15 border-emerald-500/30'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Server className={`h-4 w-4 ${isLocalMode ? 'text-amber-400' : 'text-emerald-400'}`} />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-white/70">System Mode</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className={`text-xs font-bold ${isLocalMode ? 'text-amber-300' : 'text-emerald-300'}`}>
+                {isLocalMode ? 'LOCAL MODE ACTIVE' : 'ONLINE MODE'}
+              </span>
+              <button
+                onClick={() => {
+                  if (isLocalMode) {
+                    stopLocalMode();
+                  } else {
+                    setIsLocalModeModalOpen(true);
+                  }
+                }}
+                className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 transition-colors"
+              >
+                {isLocalMode ? 'Switch to Online' : 'Switch to Local'}
+              </button>
+            </div>
+          </div>
+        </div>
           <div className="rounded-xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm flex flex-col gap-2">
             <div>
               <p className="text-xs font-semibold text-white/95">{user.name}</p>
               <p className="text-[10px] text-white/45 font-mono">@{user.username} • {user.role}</p>
             </div>
-            <button
-              onClick={() => setIsLocalModeModalOpen(true)}
-              className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600/20 border border-emerald-500/30 py-2 text-xs font-semibold text-emerald-100 transition-all hover:bg-emerald-600/40 active:scale-[0.98] cursor-pointer"
-            >
-              <Server className="h-3.5 w-3.5" />
-              Switch to Local Mode
-            </button>
             <button
               onClick={logout}
               className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-accent/20 border border-accent/30 py-2 text-xs font-semibold text-white transition-all hover:bg-accent/40 active:scale-[0.98] cursor-pointer"
@@ -575,6 +482,7 @@ export default function StaffPortalPage() {
           </div>
         </div>
       </aside>
+      <LocalModeModal isOpen={isLocalModeModalOpen} onClose={() => setIsLocalModeModalOpen(false)} />
 
       {/* MAIN MAIN AREA */}
       <main className="relative z-10 pl-72 flex-1 mx-auto max-w-6xl px-8 py-8">
@@ -788,6 +696,7 @@ export default function StaffPortalPage() {
               orderId: d.orderNumber,
               time: d.orderedAt,
               orderType: "delivery",
+              orderMode: (d as any).orderMode || "online",
               paid: true, // assume paid for delivery in this mock unless stated
               customerName: d.customerName,
               subtotal: d.subtotal,
@@ -919,7 +828,13 @@ export default function StaffPortalPage() {
                           <tbody>
                             {filteredActive.map((order) => (
                               <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10">
-                                <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}</td>
+                                <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}
+                                  {order.orderMode === 'local' && (
+                                    <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
+                                      LOCAL
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
                                 <td className="px-4 py-3">
                                   <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-accent/10 shadow-sm">
@@ -976,7 +891,13 @@ export default function StaffPortalPage() {
                           <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
                             <div className="flex justify-between items-start">
                               <div>
-                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}
+                                  {order.orderMode === 'local' && (
+                                    <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
+                                      LOCAL
+                                    </span>
+                                  )}
+                                </h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
                               </div>
                               <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
@@ -1086,7 +1007,13 @@ export default function StaffPortalPage() {
                           <tbody>
                             {filteredHistory.map((order) => (
                               <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10 text-[#2B2523]">
-                                <td className="px-4 py-3 font-bold">{order.orderId}</td>
+                                <td className="px-4 py-3 font-bold">{order.orderId}
+                                  {order.orderMode === 'local' && (
+                                    <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
+                                      LOCAL
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
                                 <td className="px-4 py-3 text-xs text-muted">{order.time}</td>
                                 <td className="px-4 py-3">
@@ -1120,7 +1047,13 @@ export default function StaffPortalPage() {
                           <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 opacity-90">
                             <div className="flex justify-between items-start">
                               <div>
-                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}
+                                  {order.orderMode === 'local' && (
+                                    <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
+                                      LOCAL
+                                    </span>
+                                  )}
+                                </h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
                               </div>
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
@@ -1155,9 +1088,16 @@ export default function StaffPortalPage() {
                     <div className="flex justify-between items-center p-5 border-b border-accent/10 bg-white">
                       <div>
                         <h2 className="font-serif text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
-                        <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 mt-1 border border-gray-200 shadow-sm">
-                          {selectedOrderDetails.orderType || "Dine-in"}
-                        </span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200 shadow-sm">
+                            {selectedOrderDetails.orderType || "Dine-in"}
+                          </span>
+                          {selectedOrderDetails.orderMode === 'local' && (
+                            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200 uppercase shadow-sm">
+                              LOCAL
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <button 
                         onClick={() => setSelectedOrderDetails(null)}
@@ -1835,299 +1775,9 @@ export default function StaffPortalPage() {
         )}
 
         {/* TAB: POS CASHIER */}
-        {activeTab === "pos" && (
-          <div className="space-y-5">
-            <header>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Point of Sale</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">POS Cashier</h1>
-              <p className="text-sm text-muted">Process walk-in transactions, calculate change, and generate receipts.</p>
-            </header>
-
-            <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-              {/* LEFT: Menu Item Picker */}
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-3">
-                  <div className="flex-1 min-w-[180px]">
-                    <AdminInput
-                      type="text"
-                      value={posSearchTerm}
-                      onChange={(e) => setPosSearchTerm(e.target.value)}
-                      placeholder="Search menu items..."
-                    />
-                  </div>
-                  <div className="min-w-[140px]">
-                    <AdminSelect value={posCategoryFilter} onChange={(e) => setPosCategoryFilter(e.target.value)}>
-                      <option value="all">All Categories</option>
-                      {menuCategories.filter((c) => !c.archived).map((cat) => (
-                        <option key={cat.id} value={cat.id}>{cat.name}</option>
-                      ))}
-                    </AdminSelect>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
-                  {posFilteredItems.length === 0 ? (
-                    <p className="col-span-full text-center py-12 text-sm text-muted">No menu items found.</p>
-                  ) : (
-                    posFilteredItems.map((item) => {
-                      const inCart = posCart.find((ci) => ci.item.id === item.id);
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => posAddToCart(item)}
-                          className="group relative flex items-center gap-3 rounded-xl border border-accent/10 bg-white p-3 text-left shadow-sm transition-all hover:shadow-md hover:border-[#800000]/30 active:scale-[0.98] cursor-pointer"
-                        >
-                          {item.image ? (
-                            <img src={item.image} alt={item.name} className="h-11 w-11 shrink-0 rounded-lg object-cover border border-accent/5 shadow-sm" />
-                          ) : (
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#800000]/10 to-[#800000]/5 text-[#800000] font-serif font-bold text-lg">
-                              {item.name.charAt(0)}
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-ink truncate">{item.name}</p>
-                            <p className="text-xs text-muted">{getMenuCategoryName(item.categoryId)}</p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="font-bold text-[#800000] text-sm">₱{item.price.toFixed(2)}</p>
-                            {inCart && (
-                              <span className="inline-flex items-center justify-center rounded-full bg-[#800000] text-white text-[10px] font-bold h-5 min-w-5 px-1">
-                                {inCart.qty}
-                              </span>
-                            )}
-                          </div>
-                          <span className="absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-[#800000]/20 pointer-events-none transition-all" />
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* RIGHT: Cart & Transaction */}
-              <div className="space-y-4">
-                <AdminPanel title="Current Transaction" subtitle={posCart.length > 0 ? `${posCart.reduce((s, c) => s + c.qty, 0)} item(s)` : "No items yet"}>
-                  <div className="px-4 py-3">
-                    {posCart.length === 0 ? (
-                      <div className="text-center py-10">
-                        <p className="text-4xl mb-3">🛒</p>
-                        <p className="text-sm text-muted">Tap menu items on the left to add them to the cart.</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="max-h-[280px] overflow-y-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="text-xs text-muted border-b border-accent/10">
-                                <th className="text-left py-2 font-medium">Item</th>
-                                <th className="text-center py-2 font-medium w-24">Qty</th>
-                                <th className="text-right py-2 font-medium">Total</th>
-                                <th className="w-8"></th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-accent/5">
-                              {posCart.map((ci) => (
-                                <tr key={ci.item.id} className="text-ink">
-                                  <td className="py-2.5">
-                                    <p className="font-semibold text-xs">{ci.item.name}</p>
-                                    <p className="text-[10px] text-muted">₱{ci.item.price.toFixed(2)} each</p>
-                                  </td>
-                                  <td className="py-2.5">
-                                    <div className="flex items-center justify-center gap-1">
-                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty - 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">−</button>
-                                      <span className="w-6 text-center font-bold text-xs">{ci.qty}</span>
-                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty + 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">+</button>
-                                    </div>
-                                  </td>
-                                  <td className="py-2.5 text-right font-bold text-xs text-[#800000]">₱{(ci.item.price * ci.qty).toFixed(2)}</td>
-                                  <td className="py-2.5">
-                                    <button onClick={() => posRemoveFromCart(ci.item.id)} className="text-red-400 hover:text-red-600 transition-colors cursor-pointer" title="Remove">
-                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Totals */}
-                        <div className="border-t border-accent/10 pt-3 mt-3 space-y-1.5">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted">Subtotal</span>
-                            <span className="font-semibold">₱{posSubtotal.toFixed(2)}</span>
-                          </div>
-                          {posTax > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted">Tax ({(posTaxRate * 100).toFixed(0)}%)</span>
-                              <span className="font-semibold">₱{posTax.toFixed(2)}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between text-lg font-bold border-t border-dashed border-accent/20 pt-2">
-                            <span className="text-[#800000]">TOTAL</span>
-                            <span className="text-[#800000]">₱{posTotal.toFixed(2)}</span>
-                          </div>
-                        </div>
-
-                        {/* Tendered */}
-                        <div className="mt-4 space-y-3">
-                          <AdminField label="Amount Tendered (₱)">
-                            <AdminInput
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={posTendered}
-                              onChange={(e) => setPosTendered(e.target.value)}
-                              placeholder="Enter amount given by customer..."
-                            />
-                          </AdminField>
-
-                          {posTendered && (
-                            <div className={`rounded-xl p-3 text-center font-bold text-sm ${
-                              posChange >= 0
-                                ? "bg-green-50 text-green-700 border border-green-200"
-                                : "bg-red-50 text-red-600 border border-red-200"
-                            }`}>
-                              {posChange >= 0
-                                ? `Change: ₱${posChange.toFixed(2)}`
-                                : `Insufficient: ₱${Math.abs(posChange).toFixed(2)} short`
-                              }
-                            </div>
-                          )}
-
-                          {/* Change Denomination Preview */}
-                          {posTendered && posChange > 0 && (
-                            <div className="rounded-xl border border-accent/10 bg-[#fffaf7] p-3">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-2">Change Breakdown</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {breakdownChange(posChange).map((d) => (
-                                  <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-white border border-accent/15 px-2 py-0.5 text-[11px] font-semibold text-ink shadow-sm">
-                                    <span className="text-[#800000] font-bold">{d.count}×</span> {d.label}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="mt-4 flex gap-2">
-                          <button
-                            onClick={posClearCart}
-                            className="flex-1 py-2.5 rounded-xl border border-accent/20 text-sm font-semibold text-muted hover:bg-accent/5 transition-colors cursor-pointer"
-                          >
-                            Clear Cart
-                          </button>
-                          <button
-                            onClick={posCompleteTransaction}
-                            disabled={posCart.length === 0 || posTenderedNum < posTotal || !posTendered}
-                            className="flex-[2] py-2.5 rounded-xl bg-[#800000] text-white text-sm font-bold shadow-md hover:bg-[#6b0000] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                          >
-                            Complete Transaction
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </AdminPanel>
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === "pos" && <POSCashierTab />}
 
       </main>
-
-      {/* POS RECEIPT MODAL */}
-      <AdminModal
-        open={posReceiptOpen}
-        title="Transaction Receipt"
-        onClose={() => setPosReceiptOpen(false)}
-        footer={
-          <>
-            <AdminButton variant="secondary" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print Receipt</AdminButton>
-            <AdminButton onClick={posNewTransaction}>New Transaction</AdminButton>
-          </>
-        }
-      >
-        {posReceiptData && (
-          <div className="font-mono text-xs text-ink bg-white rounded-xl border border-accent/10 p-5 max-w-[320px] mx-auto shadow-inner">
-            {/* Header */}
-            <div className="text-center border-b border-dashed border-gray-300 pb-3 mb-3">
-              <p className="font-serif text-lg font-bold text-[#800000] not-italic">Eat n&apos; Repeat Café</p>
-              <p className="text-[10px] text-muted mt-0.5">Cordova Branch</p>
-              <p className="text-[10px] text-muted">Tel: (032) 555-1234</p>
-              <p className="text-[10px] text-muted mt-1">{posReceiptData.date}</p>
-              <p className="text-[10px] text-muted">{posReceiptData.time}</p>
-              <p className="text-[10px] text-muted mt-1">Receipt #: {posReceiptData.receiptNo}</p>
-              <p className="text-[10px] text-muted">Cashier: {posReceiptData.cashier}</p>
-            </div>
-
-            {/* Items */}
-            <div className="border-b border-dashed border-gray-300 pb-3 mb-3 space-y-1">
-              <div className="flex justify-between font-bold text-[10px] text-muted uppercase">
-                <span>Item</span>
-                <span>Amount</span>
-              </div>
-              {posReceiptData.cart.map((ci) => (
-                <div key={ci.item.id}>
-                  <div className="flex justify-between">
-                    <span className="truncate mr-2">{ci.item.name}</span>
-                    <span className="shrink-0 font-semibold">₱{(ci.item.price * ci.qty).toFixed(2)}</span>
-                  </div>
-                  <p className="text-[10px] text-muted pl-2">{ci.qty} × ₱{ci.item.price.toFixed(2)}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Totals */}
-            <div className="space-y-1 border-b border-dashed border-gray-300 pb-3 mb-3">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>₱{posReceiptData.subtotal.toFixed(2)}</span>
-              </div>
-              {posReceiptData.tax > 0 && (
-                <div className="flex justify-between">
-                  <span>Tax</span>
-                  <span>₱{posReceiptData.tax.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-bold text-sm border-t border-gray-300 pt-1">
-                <span>TOTAL</span>
-                <span>₱{posReceiptData.total.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span>Amount Paid</span>
-                <span>₱{posReceiptData.tendered.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-green-700">
-                <span>Change</span>
-                <span>₱{posReceiptData.change.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Denomination Breakdown */}
-            {posReceiptData.breakdown.length > 0 && (
-              <div className="border-b border-dashed border-gray-300 pb-3 mb-3">
-                <p className="text-[10px] font-bold text-muted uppercase mb-1">Change Breakdown:</p>
-                {posReceiptData.breakdown.map((d) => (
-                  <div key={d.label} className="flex justify-between text-[10px]">
-                    <span>{d.label}</span>
-                    <span>× {d.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Footer */}
-            <div className="text-center pt-1">
-              <p className="font-serif text-xs font-semibold text-[#800000] not-italic">Thank you for dining at</p>
-              <p className="font-serif text-sm font-bold text-[#800000] not-italic">Eat n&apos; Repeat!</p>
-              <p className="text-[10px] text-muted mt-2">Please come again ♥</p>
-              <p className="text-[10px] text-muted mt-1">━━━━━━━━━━━━━━━━━━━━━━</p>
-            </div>
-          </div>
-        )}
-      </AdminModal>
 
       {/* ADD/EDIT MENU ITEM MODAL */}
       <AdminModal

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   AdminButton,
@@ -100,7 +101,7 @@ export default function DeliverySettingsPage() {
   function handlePermanentDeletePrompt(area: ServiceArea) {
     const orderCount = deliveryOrders.filter((order) => order.serviceAreaId === area.id).length;
     if (orderCount > 0) {
-      alert(`Cannot permanently delete "${area.name}" because it is linked to ${orderCount} past order(s).`);
+      toast.error(`Cannot permanently delete "${area.name}" because it is linked to ${orderCount} past order(s).`);
       return;
     }
     setAreaToDelete(area);

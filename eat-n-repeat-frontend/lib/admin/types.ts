@@ -27,6 +27,7 @@ export type RecentOrder = {
   archivedAt?: string;
   customerName?: string;
   orderType?: "dine-in" | "takeout" | "delivery";
+  orderMode?: "online" | "local";
   tableNumber?: string;
 };
 

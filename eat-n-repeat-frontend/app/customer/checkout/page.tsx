@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useLocalMode } from '@/lib/customer/useLocalMode';
+import toast from "react-hot-toast";
 
 type CartCheckoutItem = {
   id: string;
@@ -126,7 +127,7 @@ export default function CheckoutPage() {
   const isEmailError = (submitted || touched.email) && !email.trim();
   const isMobileError = (submitted || touched.mobileNumber) && (!mobileNumber.trim() || mobileNumber.trim() === '+63');
 
-  const handlePlaceOrder = (e?: React.FormEvent) => {
+  const handlePlaceOrder = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSubmitted(true);
 
@@ -135,7 +136,7 @@ export default function CheckoutPage() {
     }
 
     if (items.length === 0) {
-      alert('Your cart is empty. Please add items to order!');
+      toast.error('Your cart is empty. Please add items to order!');
       return;
     }
 
@@ -143,14 +144,43 @@ export default function CheckoutPage() {
     const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}`).join(', ');
     
     if (isLocalMode) {
+      const { getApiUrl } = await import('@/lib/config');
+      const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const orderDetails = {
+        orderNumber,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        phone: mobileNumber.trim() || 'LocalGuest',
+        address: 'Counter',
+        type: 'dine-in',
+        items: orderItemsSummary,
+        subtotal,
+        deliveryFee: 0,
+        total,
+        notes: null,
+        selectedAddons: [],
+      };
+
+      const response = await fetch(`${getApiUrl()}/api/payments/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderDetails, paymentMethod: 'Cash', orderMode: 'local' }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to process order');
+      }
+
+      // Also add to local store for immediate dashboard visibility
       addStoreOrder({
         id: `local-${Date.now()}`,
-        orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        orderId: data.orderNumber || orderNumber,
         customerName: `${firstName.trim()} ${lastName.trim()}`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         items: orderItemsSummary,
         total,
-        status: 'awaiting_payment',
+        status: 'pending',
         paid: false,
         paymentMethod: 'cash',
         orderType: 'dine-in'
