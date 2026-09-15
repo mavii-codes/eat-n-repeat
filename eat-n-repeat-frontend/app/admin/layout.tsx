@@ -5,7 +5,6 @@ import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ReviewsProvider } from "@/context/ReviewsContext";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
-import { OnlineIndicator } from "@/components/shared/OnlineIndicator";
 import { Menu, X } from "lucide-react";
 
 export default function AdminLayout({
@@ -17,6 +16,18 @@ export default function AdminLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // If verification takes longer than this, the backend is unreachable —
+  // show a retry instead of spinning forever (e.g. stale LAN IP, server down).
+  const [verifyTimedOut, setVerifyTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setVerifyTimedOut(false);
+      return;
+    }
+    const t = setTimeout(() => setVerifyTimedOut(true), 12000);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   useEffect(() => {
     if (!loading) {
@@ -36,9 +47,31 @@ export default function AdminLayout({
   if (loading || !user || user.role !== "admin") {
     return (
       <div className="admin-shell min-h-screen flex items-center justify-center text-white">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
-          <p className="font-serif text-lg text-white/70">Verifying Admin access...</p>
+        <div className="flex flex-col items-center gap-4 px-6 text-center">
+          {loading && !verifyTimedOut ? (
+            <>
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
+              <p className="font-serif text-lg text-white/70">Verifying Admin access...</p>
+            </>
+          ) : loading ? (
+            <>
+              <p className="font-serif text-lg text-white/90">Cannot reach the server</p>
+              <p className="text-sm text-white/60 max-w-sm">
+                The admin portal could not verify access. Check that the backend is running and you are on the café network, then try again.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 font-bold text-sm transition-colors"
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
+              <p className="font-serif text-lg text-white/70">Verifying Admin access...</p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -51,7 +84,6 @@ export default function AdminLayout({
           <div className="admin-shell-bg-image" />
           <div className="admin-shell-bg-overlay" />
         </div>
-        <OnlineIndicator />
         
         {/* Mobile Header */}
         <div className="lg:hidden flex items-center justify-between bg-[#1a0a0d]/90 backdrop-blur-md border-b border-white/10 px-4 py-3 sticky top-0 z-30">

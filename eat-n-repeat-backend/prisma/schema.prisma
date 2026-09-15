@@ -273,3 +273,13 @@ model CashTransaction {
   @@map("cash_transactions")
   @@index([shiftId], map: "cash_transactions_shift_id_fkey")
 }
+
+model CafeStatus {
+  id                Int       @id @default(1)
+  onlineOrdering    String    @default("AVAILABLE") @db.VarChar(30) @map("online_ordering")
+  lastHeartbeatAt   DateTime? @db.Timestamp(0) @map("last_heartbeat_at")
+  forceOverride     String?   @db.VarChar(30) @map("force_override")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("cafe_status")
+}

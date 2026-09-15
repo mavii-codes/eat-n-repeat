@@ -1,6 +1,14 @@
+import { cafeAvailabilityService } from "@/services/cafe-availability";
+
 export class GetSyncStatusService {
   async execute() {
-    return { success: true, isOffline: false };
+    const availability = await cafeAvailabilityService.resolve();
+    return {
+      success: true,
+      isOffline: availability.isOffline,
+      onlineOrdering: availability.onlineOrdering,
+      reason: availability.reason,
+    };
   }
 }
 

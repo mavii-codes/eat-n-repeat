@@ -13,14 +13,18 @@ import {
 import toast from "react-hot-toast";
 import axios from "axios";
 
+export type OnlineOrderingStatus = "AVAILABLE" | "UNAVAILABLE" | "LOCAL_ONLY";
+
 type NetworkStatusContextType = {
   isOffline: boolean;
   isLocalBackendReachable: boolean;
+  onlineOrdering: OnlineOrderingStatus;
 };
 
 const NetworkStatusContext = createContext<NetworkStatusContextType>({
   isOffline: false,
   isLocalBackendReachable: true,
+  onlineOrdering: "AVAILABLE",
 });
 
 export const useNetworkStatus = () => useContext(NetworkStatusContext);
@@ -28,7 +32,11 @@ export const useNetworkStatus = () => useContext(NetworkStatusContext);
 export function NetworkStatusProvider({ children }: { children: React.ReactNode }) {
   const [isOffline, setIsOffline] = useState(false);
   const [isLocalBackendReachable, setIsLocalBackendReachable] = useState(true);
+  const [onlineOrdering, setOnlineOrdering] = useState<OnlineOrderingStatus>("AVAILABLE");
   const syncInProgress = useRef(false);
+  // Tracks offline state across polls without stale-closure issues
+  // (the interval below is mounted once).
+  const wasOffline = useRef(false);
 
   const performSync = async () => {
     if (syncInProgress.current) return;
@@ -70,16 +78,21 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     const handleOnline = () => {
+      wasOffline.current = false;
       setIsOffline(false);
       performSync();
     };
     
-    const handleOffline = () => setIsOffline(true);
+    const handleOffline = () => {
+      wasOffline.current = true;
+      setIsOffline(true);
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     // Initial check
+    wasOffline.current = !navigator.onLine;
     setIsOffline(!navigator.onLine);
     if (navigator.onLine) {
       performSync();
@@ -91,20 +104,40 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
           const res = await fetch(`${getApiUrl()}/api/sync/status`, {
             method: "GET",
             cache: "no-store",
-            headers: { "Content-Type": "application/json" }
+            headers: { "Content-Type": "application/json" },
+            // Fail fast so a dead backend marks us offline in seconds,
+            // never an endless hang.
+            signal: AbortSignal.timeout(8000),
           });
           
           if (res.ok) {
             setIsLocalBackendReachable(true);
+            // A successful poll proves this client can reach its backend,
+            // so we are NOT offline — regardless of what the payload claims
+            // about café→cloud liveness. The server's `isOffline` flag is
+            // intentionally ignored here (backward-compat field only).
+            if (wasOffline.current) {
+              wasOffline.current = false;
+              setIsOffline(false);
+              performSync();
+            } else {
+              setIsOffline(false);
+            }
             const data = await res.json();
-            if (data.isOffline !== undefined && data.isOffline !== isOffline) {
-              setIsOffline(data.isOffline);
-              if (!data.isOffline) performSync();
+            // Backward compat: treat missing onlineOrdering as AVAILABLE
+            if (data.onlineOrdering === "UNAVAILABLE" || data.onlineOrdering === "LOCAL_ONLY" || data.onlineOrdering === "AVAILABLE") {
+              setOnlineOrdering(data.onlineOrdering);
+            } else {
+              setOnlineOrdering("AVAILABLE");
             }
           } else {
+            wasOffline.current = true;
+            setIsOffline(true);
             setIsLocalBackendReachable(false);
           }
         } catch (err) {
+          wasOffline.current = true;
+          setIsOffline(true);
           setIsLocalBackendReachable(false);
         }
       }
@@ -118,7 +151,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
   }, []);
 
   return (
-    <NetworkStatusContext.Provider value={{ isOffline, isLocalBackendReachable }}>
+    <NetworkStatusContext.Provider value={{ isOffline, isLocalBackendReachable, onlineOrdering }}>
       {children}
     </NetworkStatusContext.Provider>
   );

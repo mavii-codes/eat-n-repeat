@@ -51,17 +51,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetch(`${getApiUrl()}/api/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
+          // Fail fast: a dead/stale backend address must never spin forever.
+          signal: AbortSignal.timeout(8000),
         });
         if (res.ok) {
           const { user: apiUser } = await res.json();
           setUser(apiUser as StaffAccount);
         } else {
+          // Server answered but rejected the token → it is invalid. Drop it.
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(SESSION_KEY);
         }
       } catch {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(SESSION_KEY);
+        // Network error / timeout: server unreachable. KEEP the token —
+        // a blip must not log staff out; the login page explains the retry.
+        // (Previously this branch wiped the token, forcing a full re-login
+        // after every outage.)
       }
       setLoading(false);
     })();

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { X, Wifi, WifiOff, RefreshCw, Copy, CheckCircle2, Server, Globe } from "lucide-react";
-import { startLocalMode, stopLocalMode } from "@/lib/customer/useLocalMode";
+import { startLocalMode, stopLocalMode, useLocalMode } from "@/lib/customer/useLocalMode";
 
 type LocalModeModalProps = {
   isOpen: boolean;
@@ -17,6 +17,9 @@ export function LocalModeModal({ isOpen, onClose }: LocalModeModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
   const [copied, setCopied] = useState(false);
+  // This browser's own mode — opening this modal must NOT flip it.
+  // Activation happens only via the explicit button below.
+  const isLocalMode = useLocalMode();
 
   const fetchNetworkInfo = async () => {
     setLoading(true);
@@ -30,9 +33,11 @@ export function LocalModeModal({ isOpen, onClose }: LocalModeModalProps) {
       if (data.error) {
         throw new Error(data.error);
       }
-      setNetworkInfo({ ip: data.ip, url: `${data.url}?mode=local` });
-      
-      startLocalMode();
+      const customerUrl = new URL(data.url);
+      customerUrl.searchParams.set("mode", "local");
+      setNetworkInfo({ ip: data.ip, url: customerUrl.toString() });
+      // NOTE: intentionally NOT calling startLocalMode() here.
+      // Merely viewing the QR must not flip this browser's mode.
     } catch (err: any) {
       setError(err.message || "An unknown error occurred");
     } finally {
@@ -204,12 +209,22 @@ export function LocalModeModal({ isOpen, onClose }: LocalModeModalProps) {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh IP / QR
           </button>
-          <button
-            onClick={handleStopLocalMode}
-            className="bg-stone-800 hover:bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-colors"
-          >
-            Switch to Online Mode
-          </button>
+          {isLocalMode ? (
+            <button
+              onClick={handleStopLocalMode}
+              className="bg-stone-800 hover:bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-colors"
+            >
+              Switch to Online Mode
+            </button>
+          ) : (
+            <button
+              onClick={() => startLocalMode()}
+              disabled={!networkInfo}
+              className="bg-[#63131d] hover:bg-[#4a0e15] disabled:opacity-40 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-colors"
+            >
+              Activate Local Mode on this device
+            </button>
+          )}
         </div>
       </div>
     </div>,

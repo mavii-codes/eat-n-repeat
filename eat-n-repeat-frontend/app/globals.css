@@ -49,6 +49,18 @@ body {
   font-family: var(--font-dm-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Clickable affordance: Tailwind v4 defaults buttons to the arrow cursor,
+   so declare the hand globally instead of per-button. Disabled controls
+   keep the forbidden cursor so clickability always reads correctly. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+button:disabled,
+button[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 .font-script {
   font-family: var(--font-pacifico), cursive;
 }

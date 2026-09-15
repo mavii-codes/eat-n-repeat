@@ -23,20 +23,51 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # --- Auto-detect LAN IP ---
 if (-not $LanIp) {
-    $candidates = Get-NetIPAddress -AddressFamily IPv4 |
-        Where-Object {
-            $_.IPAddress -ne "127.0.0.1" -and
-            $_.PrefixOrigin -ne "WellKnown" -and
-            (
-                $_.IPAddress.StartsWith("192.168.") -or
-                $_.IPAddress.StartsWith("10.") -or
-                $_.IPAddress -match "^172\.(1[6-9]|2[0-9]|3[01])\."
-            )
-        } |
-        Sort-Object -Property InterfaceIndex |
-        Select-Object -First 1
+    # Exclude virtual/VM adapter names and VirtualBox OUI (08:00:27)
+    $excludeIfaceRe = "virtual|vbox|host-only|vmware|docker|wsl|veth|vpn|hamachi|tailscale"
+    $preferIfaceRe  = "wi-?fi|wlan|eth|en"
 
-    if (-not $candidates) {
+    # Step 1: Get adapters that are Up and not virtual
+    $adapters = Get-NetAdapter | Where-Object {
+        $_.Status -eq "Up" -and $_.Name -notmatch $excludeIfaceRe
+    }
+
+    $candidates = @()
+    $preferred  = $null
+
+    foreach ($adapter in $adapters) {
+        # Skip VirtualBox host-only adapter by MAC OUI
+        if ($adapter.MacAddress -match "^08-00-27") { continue }
+
+        $ips = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        foreach ($ip in $ips) {
+            $addr = $ip.IPAddress
+            # Skip loopback
+            if ($addr -eq "127.0.0.1") { continue }
+            # Skip link-local (APIPA)
+            if ($addr -match "^169\.254\.") { continue }
+            # Skip VirtualBox host-only network range
+            if ($addr -match "^192\.168\.56\.") { continue }
+            # Only keep RFC-1918 private ranges
+            if (-not ($addr.StartsWith("192.168.") -or $addr.StartsWith("10.") -or $addr -match "^172\.(1[6-9]|2[0-9]|3[01])\.")) { continue }
+
+            $candidates += $addr
+
+            # First Wi-Fi/WLAN/Ethernet match wins
+            if ((-not $preferred) -and $adapter.Name -match $preferIfaceRe) {
+                $preferred = $addr
+            }
+        }
+    }
+
+    # Prefer real Wi-Fi/Ethernet, fall back to first candidate
+    if ($preferred) {
+        $LanIp = $preferred
+    } elseif ($candidates.Count -gt 0) {
+        $LanIp = $candidates[0]
+    }
+
+    if (-not $LanIp) {
         Write-Host ""
         Write-Host "  ERROR: Could not detect a LAN IP address." -ForegroundColor Red
         Write-Host "  Make sure you are connected to Wi-Fi, or supply one manually:" -ForegroundColor Yellow
@@ -44,8 +75,6 @@ if (-not $LanIp) {
         Write-Host ""
         exit 1
     }
-
-    $LanIp = $candidates.IPAddress
 }
 
 # --- Display banner ---
@@ -83,7 +112,10 @@ Write-Host "  Starting backend..." -ForegroundColor Yellow
 $backendJob = Start-Job -ScriptBlock {
     param($dir)
     Set-Location $dir
-    npm start 2>&1
+    # NOTE: backend must run from source via tsx (npm run dev).
+    # `npm start` (node dist/) is broken: plain tsc does not rewrite the `@/*`
+    # path alias, so dist crashes with ERR_MODULE_NOT_FOUND on boot.
+    npm run dev 2>&1
 } -ArgumentList $backendDir
 
 # Give the backend a moment to boot

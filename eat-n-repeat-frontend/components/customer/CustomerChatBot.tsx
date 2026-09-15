@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Coffee, MessageSquare, Bot, Send } from 'lucide-react';
+import { useAdminData } from '@/context/AdminDataContext';
+import { useLocalMode } from '@/lib/customer/useLocalMode';
 
 type MessageSender = 'bot' | 'user' | 'system';
 
@@ -32,9 +34,80 @@ const INITIAL_MESSAGES: Message[] = [
     id: '1',
     sender: 'bot',
     text: "Maji! Welcome to Eat n' RepEat Café! I'm your Barista AI assistant. Looking for handcrafted coffee, flame-grilled rice bowls, or anything else? Ask me anything!",
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    timestamp: '12:00 AM', // deterministic placeholder; overwritten on client after mount
   },
 ];
+
+// ── Barista intent engine (local, offline-safe, no keys) ─────────────────────
+// Word-boundary patterns so "great" never matches "eat", etc.
+type BotMenuItem = {
+  id: string;
+  name: string;
+  price: number;
+  categoryId: string;
+  available?: boolean;
+  archived?: boolean;
+};
+type BotMenuCategory = { id: string; name: string };
+
+const INTENT_PATTERNS: { id: string; patterns: RegExp[] }[] = [
+  { id: 'cart', patterns: [/\border\b/, /\bcart\b/, /my items/, /\bcheckout\b/] },
+  { id: 'price', patterns: [/how much/, /\bprice\b/, /\bcost\b/, /magkano/, /how-much/] },
+  { id: 'coffee', patterns: [/\bcoffee\b/, /\bdrinks?\b/, /\blatte\b/, /\bbrew\b/, /\bboba\b/, /milk tea/, /\bespresso\b/, /\bmatcha\b/, /\bfrappe\b/] },
+  { id: 'recommend', patterns: [/best ?seller/, /\bpopular\b/, /recommend/, /signature/, /must try/, /favorites?/] },
+  { id: 'meals', patterns: [/\bmeals?\b/, /\brice\b/, /\bfood\b/, /\bulam\b/, /\bbudget\b/, /under \d+/, /below \d+/] },
+  { id: 'hours', patterns: [/\bhours?\b/, /\bopen\b/, /\blocation\b/, /\baddress\b/, /\bwhere\b/, /\bbranch\b/, /aby road/] },
+  { id: 'delivery', patterns: [/\bdelivery\b/, /\bdeliver\b/, /\brider\b/, /shipping fee/, /\bdelivery fee\b/] },
+];
+
+// Priority order doubles as tie-break (first wins ties).
+const INTENT_PRIORITY = ['cart', 'hours', 'delivery', 'coffee', 'recommend', 'meals', 'price'];
+
+function detectIntent(text: string): string {
+  let best = 'fallback';
+  let bestScore = 0;
+  for (const id of INTENT_PRIORITY) {
+    const def = INTENT_PATTERNS.find((d) => d.id === id)!;
+    let score = 0;
+    for (const p of def.patterns) {
+      if (p.test(text)) score += 1;
+    }
+    if (score > bestScore) {
+      best = id;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function activeMenuItems(menuItems: BotMenuItem[]): BotMenuItem[] {
+  return (menuItems || []).filter((m) => !m.archived && m.available !== false);
+}
+
+function categoryName(cats: BotMenuCategory[], id: string): string {
+  return cats.find((c) => c.id === id)?.name ?? 'Menu';
+}
+
+function peso(n: number): string {
+  return `₱${Number(n).toFixed(2)}`;
+}
+
+function findMenuItem(text: string, menu: BotMenuItem[]): BotMenuItem | undefined {
+  const fullHits = menu
+    .filter((m) => m.name.length >= 4 && text.includes(m.name.toLowerCase()))
+    .sort((a, b) => b.name.length - a.name.length);
+  if (fullHits[0]) return fullHits[0];
+  // Token overlap: "spam egg comfort bowl" still finds "Spam & Egg Comfort Bowl".
+  const STOP = new Set(['and', 'the', 'of', 'with', 'for', 'our', 'its', 'a', 'an', 'to']);
+  const words = (s: string) =>
+    s.toLowerCase().replace(/&/g, 'and').split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP.has(w));
+  const textWords = new Set(words(text));
+  const partial = menu
+    .map((m) => ({ m, hits: words(m.name).filter((w) => textWords.has(w)).length, total: words(m.name).length }))
+    .filter((c) => c.total >= 2 && c.hits === c.total)
+    .sort((a, b) => b.total - a.total);
+  return partial[0]?.m;
+}
 
 export function CustomerChatBot() {
   const [isOpen, setIsOpen] = useState(false);
@@ -43,6 +116,8 @@ export function CustomerChatBot() {
   const [isTyping, setIsTyping] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { menuItems, menuCategories } = useAdminData();
+  const isLocalMode = useLocalMode();
 
   useEffect(() => {
     const handleCartState = (e: any) => setIsCartOpen(e.detail);
@@ -65,6 +140,17 @@ export function CustomerChatBot() {
       scrollToBottom();
     }
   }, [messages, isOpen, isTyping]);
+
+  // Replace deterministic placeholder timestamp with real time after hydration
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === '1'
+          ? { ...m, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+          : m,
+      ),
+    );
+  }, []);
 
   const handleSendMessage = (textToSend?: string) => {
     const query = (textToSend || input).trim();
@@ -127,72 +213,106 @@ export function CustomerChatBot() {
       };
     }
 
-    if (text.includes('coffee') || text.includes('drink') || text.includes('latte') || text.includes('brew')) {
-      return {
-        id: Date.now().toString(),
-        sender: 'bot',
-        text: "Here are our top handcrafted drinks! Our House Special Latte is freshly espresso-brewed daily with rich velvety milk.",
-        timestamp: now,
-        recommendations: [
-          { name: 'House Special Latte', price: 145.00, badge: 'Bestseller', category: 'Coffee' },
-          { name: 'Brown Sugar Boba Milk', price: 149.00, badge: 'Popular', category: 'Boba' },
-          { name: 'Spanish Iced Latte', price: 155.00, badge: 'Chef Pick', category: 'Coffee' },
-        ],
-      };
-    }
-
-    if (text.includes('best seller') || text.includes('bestseller') || text.includes('popular') || text.includes('recommend')) {
-      return {
-        id: Date.now().toString(),
-        sender: 'bot',
-        text: "These are Cordova's most loved dishes at Eat n' RepEat Café! Prepared fresh to order with house recipes:",
-        timestamp: now,
-        recommendations: [
-          { name: 'Signature Chicken Inasal Rice Bowl', price: 189.00, badge: 'Must Try', category: 'Rice Bowls' },
-          { name: 'House Special Latte', price: 145.00, badge: 'Bestseller', category: 'Coffee' },
-          { name: 'Spam & Egg Comfort Bowl', price: 165.00, badge: 'Favorite', category: 'Comfort Food' },
-        ],
-      };
-    }
-
-    if (text.includes('rice') || text.includes('meal') || text.includes('food') || text.includes('eat') || text.includes('under') || text.includes('200')) {
-      return {
-        id: Date.now().toString(),
-        sender: 'bot',
-        text: "Looking for a filling meal under ₱200? Check out these savory rice bowls and sides:",
-        timestamp: now,
-        recommendations: [
-          { name: 'Signature Chicken Inasal Rice Bowl', price: 189.00, badge: 'Hot Seller', category: 'Meals' },
-          { name: 'Spam & Egg Comfort Bowl', price: 165.00, badge: 'Comfort', category: 'Meals' },
-          { name: 'Garlic Parmesan Truffle Fries', price: 109.00, badge: 'Side', category: 'Snacks' },
-        ],
-      };
-    }
-
-    if (text.includes('hour') || text.includes('open') || text.includes('location') || text.includes('address') || text.includes('where') || text.includes('branch')) {
-      return {
-        id: Date.now().toString(),
-        sender: 'bot',
-        text: "[Store Location]: Near Aby Road, Poblacion, Cordova, Cebu.\n[Operating Hours]: Open Monday to Sunday, 7:00 AM – 10:00 PM. Drop by or order online for fast pickup & delivery!",
-        timestamp: now,
-      };
-    }
-
-    if (text.includes('delivery') || text.includes('ship') || text.includes('rider') || text.includes('fee') || text.includes('time')) {
-      return {
-        id: Date.now().toString(),
-        sender: 'bot',
-        text: "[Express Delivery Service]: We deliver direct to your doorstep anywhere in Cordova area within 20–30 minutes! Enjoy FREE delivery on orders over ₱599.",
-        timestamp: now,
-      };
-    }
-
-    return {
+    const menu = activeMenuItems(menuItems as BotMenuItem[]);
+    const cats = (menuCategories ?? []) as BotMenuCategory[];
+    const botText = (text: string, recommendations?: Message['recommendations']) => ({
       id: Date.now().toString(),
-      sender: 'bot',
-      text: "Thanks for reaching out! You can ask me about coffee brews, rice bowls, or our best sellers.",
+      sender: 'bot' as const,
+      text,
       timestamp: now,
-    };
+      ...(recommendations ? { recommendations } : {}),
+    });
+
+    let intent = detectIntent(text);
+    // A specifically-named menu item beats a generic category intent.
+    if (
+      (intent === 'coffee' || intent === 'recommend' || intent === 'meals' || intent === 'fallback') &&
+      findMenuItem(text, menu)
+    ) {
+      intent = 'price';
+    }
+
+    if (intent === 'coffee') {
+      const picks = menu
+        .filter(
+          (m) =>
+            /coffee|drink|beverage|boba|milk tea|matcha|espresso/i.test(categoryName(cats, m.categoryId)) ||
+            /latte|coffee|boba|milk|brew|espresso|matcha|choco|frappe/i.test(m.name),
+        )
+        .slice(0, 3);
+      if (picks.length === 0) {
+        return botText('Our drinks menu is being updated right now — please check the Menu page for what is brewing today.');
+      }
+      return botText(
+        `Here are our handcrafted drinks, made fresh to order:\n\n${picks.map((m) => `* ${m.name} — ${peso(m.price)}`).join('\n')}`,
+        picks.map((m) => ({ name: m.name, price: m.price, category: categoryName(cats, m.categoryId) })),
+      );
+    }
+
+    if (intent === 'recommend') {
+      const coffees = menu.filter((m) => /coffee|drink|beverage|boba/i.test(categoryName(cats, m.categoryId)));
+      const rest = menu.filter((m) => !coffees.includes(m));
+      const picks = [coffees[0], rest[0], coffees[1] ?? rest[1]].filter((m): m is BotMenuItem => Boolean(m)).slice(0, 3);
+      if (picks.length === 0) {
+        return botText("Our menu is being updated right now — please check the Menu page for today's lineup.");
+      }
+      return botText(
+        `These are crowd favorites at Eat n' RepEat Café, prepared fresh to order:\n\n${picks.map((m) => `* ${m.name} — ${peso(m.price)}`).join('\n')}`,
+        picks.map((m) => ({ name: m.name, price: m.price, category: categoryName(cats, m.categoryId) })),
+      );
+    }
+
+    if (intent === 'meals') {
+      const capMatch = text.match(/(?:under|below|max)\s*(\d+)|(\d+)\s*(?:pesos|php|₱)/);
+      const cap = capMatch ? Number(capMatch[1] ?? capMatch[2]) : 200;
+      const picks = menu
+        .filter((m) => m.price <= cap)
+        .sort((a, b) => b.price - a.price)
+        .slice(0, 3);
+      if (picks.length === 0) {
+        return botText(`Nothing on the menu sits under ${peso(cap)} right now — try asking for our best sellers instead.`);
+      }
+      return botText(
+        `Filling picks under ${peso(cap)}:\n\n${picks.map((m) => `* ${m.name} — ${peso(m.price)}`).join('\n')}`,
+        picks.map((m) => ({ name: m.name, price: m.price, category: categoryName(cats, m.categoryId) })),
+      );
+    }
+
+    if (intent === 'price') {
+      const hit = findMenuItem(text, menu);
+      if (hit) {
+        return botText(
+          `The ${hit.name} is ${peso(hit.price)} (${categoryName(cats, hit.categoryId)}). It's available today — tap Order on its menu card to add it to your cart.`,
+          [{ name: hit.name, price: hit.price, category: categoryName(cats, hit.categoryId) }],
+        );
+      }
+      const picks = [...menu].sort((a, b) => b.price - a.price).slice(0, 3);
+      return botText(
+        'Which item did you mean? Here are some popular picks and their prices — tap one to order:',
+        picks.map((m) => ({ name: m.name, price: m.price, category: categoryName(cats, m.categoryId) })),
+      );
+    }
+
+    if (intent === 'hours') {
+      return botText(
+        "[Store Location]: Near Aby Road, Poblacion, Cordova, Cebu.\n[Operating Hours]: Open Monday to Sunday, 7:00 AM – 10:00 PM. Drop by or order online for fast pickup & delivery!",
+      );
+    }
+
+    if (intent === 'delivery') {
+      if (isLocalMode) {
+        return botText(
+          "We're serving in-café right now: connect to the café Wi-Fi, scan the QR code, and order as a guest — we'll call your name when it's ready. Cash and dine-in only in Local Café Mode.",
+        );
+      }
+      return botText(
+        '[Express Delivery Service]: We deliver direct to your doorstep anywhere in Cordova area within 20–30 minutes! Enjoy FREE delivery on orders over ₱599.',
+      );
+    }
+
+    return botText(
+      'Thanks for reaching out! You can ask me about coffee brews, rice bowls, prices, or our best sellers. Try: Best Sellers, Meals under ₱200, or Branch & Hours.',
+    );
   };
 
   return (

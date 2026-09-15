@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useLocalMode } from '@/lib/customer/useLocalMode';
+import { useNetworkStatus } from '@/context/NetworkStatusContext';
 import toast from "react-hot-toast";
 
 type CartCheckoutItem = {
@@ -39,6 +40,10 @@ export default function CheckoutPage() {
   const { addDeliveryOrder, addStoreOrder } = useAdminData();
   const { data: session, status } = useSession();
   const isLocalMode = useLocalMode();
+  const { onlineOrdering } = useNetworkStatus();
+
+  const isOnlineOrder = !isLocalMode;
+  const isOnlineOrderingUnavailable = isOnlineOrder && onlineOrdering !== "AVAILABLE";
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
@@ -140,7 +145,14 @@ export default function CheckoutPage() {
       return;
     }
 
-    // Process order
+    // Block online orders when online ordering is unavailable
+    if (isOnlineOrderingUnavailable) {
+      toast.error("Online Ordering Temporarily Unavailable \u2014 Eat n\u2019 RepEat Caf\u00e9 is currently unable to receive online orders. Please try again later or visit the caf\u00e9.", { duration: 8000 });
+      return;
+    }
+
+    // Process order (wrapped: network aborts must toast, never strand the UI)
+    try {
     const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}`).join(', ');
     
     if (isLocalMode) {
@@ -165,6 +177,7 @@ export default function CheckoutPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderDetails, paymentMethod: 'Cash', orderMode: 'local' }),
+        signal: AbortSignal.timeout(15000),
       });
 
       const data = await response.json();
@@ -186,8 +199,56 @@ export default function CheckoutPage() {
         orderType: 'dine-in'
       });
     } else {
+      // Online order — submit to cloud
+      const { getApiUrl } = await import('@/lib/config');
+      const accessToken = (session as any)?.accessToken as string | undefined;
+      const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const orderDetails = {
+        orderNumber,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        phone: mobileNumber.trim(),
+        address: 'Near Aby Road, Poblacion, Cordova, Cebu',
+        serviceAreaId: 'sa-2',
+        type: 'pickup',
+        items: orderItemsSummary,
+        subtotal,
+        deliveryFee: 0,
+        total,
+        notes: null,
+        selectedAddons: [],
+      };
+
+      const backendPaymentMethod = paymentMethod === 'gcash' ? 'GCash' : 'Cash';
+
+      const response = await fetch(`${getApiUrl()}/api/payments/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod, orderMode: 'online' }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 503 && data.error === 'ONLINE_ORDERING_UNAVAILABLE') {
+          toast.error("Online Ordering Temporarily Unavailable \u2014 Eat n\u2019 RepEat Caf\u00e9 is currently unable to receive online orders. Please try again later or visit the caf\u00e9.", { duration: 8000 });
+          setSubmitted(false);
+          return;
+        }
+        throw new Error(data.error || 'Failed to process order');
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to process order');
+      }
+
+      // Only add local optimistic state after confirmed success
       addDeliveryOrder({
-        orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        orderNumber: data.orderNumber || orderNumber,
         customerName: `${firstName.trim()} ${lastName.trim()}`,
         phone: mobileNumber.trim(),
         address: 'Near Aby Road, Poblacion, Cordova, Cebu',
@@ -203,6 +264,15 @@ export default function CheckoutPage() {
 
     localStorage.removeItem('eat-n-repeat-cart');
     setOrderSuccess(true);
+    } catch (err: any) {
+      console.error('Place order error:', err);
+      setSubmitted(false);
+      toast.error(
+        err?.name === 'AbortError'
+          ? 'Server unreachable — check the café connection and try again.'
+          : err?.message || 'Failed to process order. Please try again.'
+      );
+    }
   };
 
   if (orderSuccess) {

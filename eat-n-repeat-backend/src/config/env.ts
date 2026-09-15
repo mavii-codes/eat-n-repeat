@@ -6,10 +6,16 @@ function required(name: string, fallback?: string): string {
   return value;
 }
 
+/** Raw comma-separated CLIENT_ORIGIN value. */
+const rawOrigins = required("CLIENT_ORIGIN", "http://localhost:3000");
+
 export const env = {
   port: Number(process.env.PORT ?? 4000),
   nodeEnv: process.env.NODE_ENV ?? "development",
-  clientOrigin: required("CLIENT_ORIGIN", "http://localhost:3000"),
+  /** Primary (first) origin — kept for backward compat. */
+  clientOrigin: rawOrigins.split(",")[0].trim(),
+  /** All configured origins, split on comma. */
+  clientOrigins: rawOrigins.split(",").map((o) => o.trim()),
   jwtSecret: required("JWT_SECRET", "development-only-secret-change-me"),
   databaseUrl: required("DATABASE_URL", "mysql://root:@127.0.0.1:3306/eat_n_repeat"),
   xendit: {

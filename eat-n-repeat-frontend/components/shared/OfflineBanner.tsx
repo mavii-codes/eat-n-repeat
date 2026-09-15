@@ -14,8 +14,8 @@ export function OfflineBanner() {
         <div className="flex items-center justify-center gap-2 text-amber-900 font-medium">
           <WifiOff className="w-4 h-4 shrink-0" />
           <span>
-            <strong>Offline Café Mode:</strong> The café internet is currently unavailable. 
-            Please connect to the café Wi-Fi to continue ordering locally.
+            <strong>Offline Café Mode:</strong> The café internet is currently unavailable.
+            Please connect to the café Wi-Fi and scan the café QR code to open local ordering.
           </span>
         </div>
       )}

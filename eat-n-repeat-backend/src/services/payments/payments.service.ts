@@ -1,6 +1,7 @@
 import { paymentsRepository } from "@/repositories/payments.repository";
 import { xenditClient } from "@/lib/xendit";
 import { v4 as uuidv4 } from "uuid";
+import { cafeAvailabilityService } from "@/services/cafe-availability";
 
 export class ServiceError extends Error {
   status: number;
@@ -31,6 +32,18 @@ export async function checkout(
     const method = (paymentMethod || "").toLowerCase();
     if (method !== "cash") {
       throw new ServiceError("Only cash payments are accepted in Local Mode.", 400);
+    }
+  }
+
+  // ── Online Ordering Availability Gate ──
+  // Only gate non-local orders; local orders bypass availability check.
+  if (orderMode !== "local") {
+    const availability = await cafeAvailabilityService.resolve();
+    if (availability.onlineOrdering !== "AVAILABLE") {
+      throw new ServiceError(
+        `ONLINE_ORDERING_UNAVAILABLE: Online ordering is currently unavailable. ${availability.reason ?? "Please try again later."}`,
+        503
+      );
     }
   }
 
@@ -175,6 +188,18 @@ export async function retryPayment(orderId: string) {
 
   if (payment.status === "PAID") {
     throw new ServiceError("Order is already paid", 400);
+  }
+
+  // ── Online Ordering Availability Gate ──
+  // Only gate non-local orders; local orders bypass availability check.
+  if (order.orderMode !== "local") {
+    const availability = await cafeAvailabilityService.resolve();
+    if (availability.onlineOrdering !== "AVAILABLE") {
+      throw new ServiceError(
+        `ONLINE_ORDERING_UNAVAILABLE: Online ordering is currently unavailable. ${availability.reason ?? "Please try again later."}`,
+        503
+      );
+    }
   }
 
   // Create new Xendit invoice

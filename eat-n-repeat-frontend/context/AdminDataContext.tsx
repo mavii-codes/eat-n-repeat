@@ -170,6 +170,17 @@ type AdminDataContextValue = AdminDataState & {  fetchActiveCashShift: () => Pr
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
 
+function formatItems(raw: any): string {
+  if (typeof raw !== 'string' || !raw.startsWith('[')) return raw;
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr) && arr.length > 0) {
+      return arr.map((i: any) => `${i.quantity ?? 1}x ${i.name ?? i.menuItemId}`).join(', ');
+    }
+  } catch {}
+  return raw;
+}
+
 export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<AdminDataState>(initialAdminData);
 
@@ -207,7 +218,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         const { getApiUrl } = await import('@/lib/config');
         const token = localStorage.getItem('eat-n-repeat-staff-token');
         const response = await fetch(`${getApiUrl()}/api/admin-orders`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          // Fail fast: stale/dead backend must not stall the dashboard.
+          signal: AbortSignal.timeout(12000),
         });
 
         if (!response.ok) return;
@@ -232,7 +245,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
                   phone: o.phone,
                   address: o.address,
                   serviceAreaId: o.serviceAreaId,
-                  items: o.items,
+                  items: formatItems(o.items),
                   subtotal: orderSubtotal,
                   deliveryFee: orderDeliveryFee,
                   total: orderTotal,
@@ -254,7 +267,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
                   id: o.id,
                   orderId: o.orderNumber,
                   time: new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  items: o.items,
+                  items: formatItems(o.items),
                   total: orderTotal,
                   status: statusMap[o.status] ?? o.status,
                   paid: orderPaid,
@@ -277,7 +290,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         }
         
         const staffRes = await fetch(`${getApiUrl()}/api/staff`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: AbortSignal.timeout(12000),
         });
         if (staffRes.ok) {
           const staffResult = await staffRes.json();

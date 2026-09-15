@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import * as service from "@/services/sync";
+import { cafeAvailabilityService } from "@/services/cafe-availability";
 
 export class SyncController {
   async getStatus(_req: Request, res: Response) {
@@ -26,6 +27,16 @@ export class SyncController {
     } catch (err) {
       console.error("Offline Sync Error:", err);
       return res.status(500).json({ success: false, error: "Offline Sync failed" });
+    }
+  }
+
+  async heartbeat(req: Request, res: Response) {
+    try {
+      await cafeAvailabilityService.recordHeartbeat();
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("Heartbeat Error:", err);
+      return res.status(500).json({ success: false, error: "Heartbeat failed" });
     }
   }
 }

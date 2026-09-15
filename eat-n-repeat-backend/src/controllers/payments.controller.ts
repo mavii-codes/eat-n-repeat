@@ -6,9 +6,10 @@ export class PaymentsController {
   async checkout(req: AuthenticatedRequest, res: Response) {
     try {
       const customerId = req.auth?.userId;
-      const { orderDetails, paymentMethod } = req.body;
+      const { orderDetails, paymentMethod, orderMode } = req.body;
+      const safeOrderMode = orderMode === "local" ? "local" : "online";
 
-      const result = await paymentsService.checkout({ orderDetails, paymentMethod }, customerId);
+      const result = await paymentsService.checkout({ orderDetails, paymentMethod, orderMode: safeOrderMode }, customerId);
 
       if ((result as any).invoiceUrl) {
         return res.json({

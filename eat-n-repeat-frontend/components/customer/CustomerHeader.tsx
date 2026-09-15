@@ -286,6 +286,16 @@ export function CustomerHeader({
                       <p className="text-xs text-stone-500 truncate">{session.user.email}</p>
                     </div>
                   </div>
+                ) : isLocalMode ? (
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-full border-2 border-white shadow-md overflow-hidden bg-stone-100 shrink-0 flex items-center justify-center">
+                      <User className="w-6 h-6 text-stone-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-bold text-stone-800 truncate">Local Guest</p>
+                      <p className="text-xs text-stone-500 truncate">Order as guest</p>
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-full border-2 border-white shadow-md overflow-hidden bg-stone-100 shrink-0 flex items-center justify-center">

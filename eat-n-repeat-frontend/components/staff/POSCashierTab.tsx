@@ -348,14 +348,22 @@ export function POSCashierTab() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(paymentPayload),
+        // Fail fast instead of freezing on a dead route.
+        signal: AbortSignal.timeout(15000),
       });
 
       const data = await res.json();
 
+      // Handle 503 ONLINE_ORDERING_UNAVAILABLE for online orders
+      if (res.status === 503 && data.error === "ONLINE_ORDERING_UNAVAILABLE") {
+        toast.error("Online Ordering Temporarily Unavailable \u2014 Eat n\u2019 RepEat Caf\u00e9 is currently unable to receive online orders. Please try again later or visit the caf\u00e9.", { duration: 8000 });
+        return;
+      }
+
       if (data.success || data.orderId) {
         const orderNum = data.orderNumber || data.orderId;
 
-        // Add to local store orders for dashboard sync
+        // Only add to local store if the order actually succeeded
         addStoreOrder({
           orderId: orderNum,
           time: new Date().toLocaleTimeString("en-US", {

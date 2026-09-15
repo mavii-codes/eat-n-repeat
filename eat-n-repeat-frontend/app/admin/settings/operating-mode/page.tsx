@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Globe,
@@ -19,17 +19,26 @@ import {
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { useLocalMode, startLocalMode, stopLocalMode } from "@/lib/customer/useLocalMode";
 import { useNetworkStatus } from "@/context/NetworkStatusContext";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
+import { getApiUrl } from "@/lib/config";
 import toast from "react-hot-toast";
+
+type CafeAvailabilityMode = "AUTO" | "FORCE_AVAILABLE" | "FORCE_UNAVAILABLE";
 
 export default function OperatingModePage() {
   const isLocalMode = useLocalMode();
-  const { isOffline } = useNetworkStatus();
+  const { isOffline, onlineOrdering } = useNetworkStatus();
+  const { confirm } = useConfirm();
 
   const [networkInfo, setNetworkInfo] = useState<{ ip: string; url: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<"start" | "stop" | null>(null);
+
+  // Online ordering override state
+  const [overrideMode, setOverrideMode] = useState<CafeAvailabilityMode>("AUTO");
+  const [savingOverride, setSavingOverride] = useState(false);
 
   const fetchNetworkInfo = async () => {
     setLoading(true);
@@ -74,6 +83,45 @@ export default function OperatingModePage() {
     setConfirmDialog(null);
     toast.success("Switched to Online Mode");
   };
+
+  const handleOverrideChange = useCallback(async (newMode: CafeAvailabilityMode) => {
+    // Confirm before force-unavailable since it blocks customer ordering
+    if (newMode === "FORCE_UNAVAILABLE") {
+      const ok = await confirm({
+        title: "Force Online Ordering Unavailable?",
+        message: "This will block all customers from placing online orders. They will see a \"Temporarily Unavailable\" message. Are you sure you want to proceed?",
+        variant: "danger",
+        confirmLabel: "Force Unavailable",
+      });
+      if (!ok) return;
+    }
+
+    setSavingOverride(true);
+    try {
+      const token = localStorage.getItem("eat-n-repeat-admin-token");
+      const res = await fetch(`${getApiUrl()}/api/admin/cafe-availability`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ mode: newMode }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to update availability");
+      }
+
+      setOverrideMode(newMode);
+      const label = newMode === "AUTO" ? "Automatic" : newMode === "FORCE_AVAILABLE" ? "Force Available" : "Force Unavailable";
+      toast.success(`Online ordering mode set to ${label}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update availability");
+    } finally {
+      setSavingOverride(false);
+    }
+  }, [confirm]);
 
   return (
     <>
@@ -388,22 +436,82 @@ export default function OperatingModePage() {
             {[
               { icon: Server, label: "Cloud Server", status: "Connected", ok: true },
               { icon: Database, label: "Database", status: "Connected", ok: true },
-              { icon: ShoppingBag, label: "Online Ordering", status: "Available", ok: true },
+              { icon: ShoppingBag, label: "Online Ordering", status: onlineOrdering === "AVAILABLE" ? "Available" : onlineOrdering === "UNAVAILABLE" ? "Unavailable" : "Local Only", ok: onlineOrdering === "AVAILABLE" },
               { icon: CreditCard, label: "Payments", status: "Available", ok: true },
             ].map((item) => (
               <div key={item.label} className="rounded-2xl border border-white/60 bg-white/80 backdrop-blur-md shadow-sm p-5">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="h-9 w-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+                  <div className={`h-9 w-9 rounded-xl ${item.ok ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"} flex items-center justify-center`}>
                     <item.icon className="h-4 w-4" />
                   </div>
                   <p className="text-xs font-bold text-stone-600">{item.label}</p>
                 </div>
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${item.ok ? "text-emerald-600" : "text-red-600"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${item.ok ? "bg-emerald-500" : "bg-red-500"}`} />
                   {item.status}
                 </span>
               </div>
             ))}
+          </div>
+
+          {/* Online Ordering Override Control */}
+          <div className="rounded-2xl border border-white/60 bg-white/80 backdrop-blur-md shadow-sm p-6">
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#800000]/50 mb-1.5">
+                  Online Ordering Override
+                </p>
+                <p className="text-sm text-stone-500">
+                  Control whether customers can place online orders. Overrides the automatic availability check.
+                </p>
+              </div>
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider ${
+                onlineOrdering === "AVAILABLE"
+                  ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+                  : "bg-red-50 border border-red-200 text-red-700"
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${onlineOrdering === "AVAILABLE" ? "bg-emerald-500" : "bg-red-500"} ${onlineOrdering === "AVAILABLE" ? "" : "animate-pulse"}`} />
+                Effective: {onlineOrdering === "AVAILABLE" ? "Available" : onlineOrdering === "UNAVAILABLE" ? "Unavailable" : "Local Only"}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {([
+                { value: "AUTO" as CafeAvailabilityMode, label: "Automatic", desc: "Determined by server health and network status" },
+                { value: "FORCE_AVAILABLE" as CafeAvailabilityMode, label: "Force Available", desc: "Always allow online orders regardless of server status" },
+                { value: "FORCE_UNAVAILABLE" as CafeAvailabilityMode, label: "Force Unavailable", desc: "Block all online customer orders with an unavailable message" },
+              ]).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  disabled={savingOverride}
+                  onClick={() => handleOverrideChange(opt.value)}
+                  className={`w-full text-left p-4 rounded-xl border transition-all ${
+                    overrideMode === opt.value
+                      ? opt.value === "FORCE_UNAVAILABLE"
+                        ? "border-red-400 bg-red-50/50 ring-1 ring-red-400"
+                        : opt.value === "FORCE_AVAILABLE"
+                        ? "border-emerald-400 bg-emerald-50/50 ring-1 ring-emerald-400"
+                        : "border-[#800000]/40 bg-[#800000]/5 ring-1 ring-[#800000]/20"
+                      : "border-stone-200 hover:border-stone-300 bg-white"
+                  } ${savingOverride ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={`text-sm font-bold ${overrideMode === opt.value ? "text-stone-900" : "text-stone-700"}`}>
+                        {opt.label}
+                      </p>
+                      <p className="text-xs text-stone-500 mt-0.5">{opt.desc}</p>
+                    </div>
+                    {overrideMode === opt.value && (
+                      <CheckCircle2 className={`h-5 w-5 shrink-0 ${
+                        opt.value === "FORCE_UNAVAILABLE" ? "text-red-600" : opt.value === "FORCE_AVAILABLE" ? "text-emerald-600" : "text-[#800000]"
+                      }`} />
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Switch to Local */}

@@ -45,6 +45,10 @@ export function CartDrawer({
   const { data: session } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const isLocalMode = useLocalMode();
+  const { onlineOrdering } = useNetworkStatus();
+
+  const isOnlineOrder = !isLocalMode;
+  const isOnlineOrderingUnavailable = isOnlineOrder && onlineOrdering !== "AVAILABLE";
 
   useEffect(() => {
     if (isLocalMode && fulfillmentType !== 'dine-in') {
@@ -55,6 +59,10 @@ export function CartDrawer({
   const handleGoToCheckout = () => {
     if (!session?.user && !isLocalMode) {
       setShowAuthModal(true);
+      return;
+    }
+    if (isOnlineOrderingUnavailable) {
+      toast.error("Online Ordering Temporarily Unavailable \u2014 Eat n\u2019 RepEat Caf\u00e9 is currently unable to receive online orders. Please try again later or visit the caf\u00e9.", { duration: 8000 });
       return;
     }
     try {
@@ -211,11 +219,24 @@ export function CartDrawer({
           ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod, orderMode: isLocalMode ? "local" : "online" }),
+        // Fail fast: a blackholed route (wrong network, server down) must
+        // never freeze the spinner — abort into the friendly catch below.
+        signal: AbortSignal.timeout(15000),
       });
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
+      if (!response.ok) {
+        // Handle 503 ONLINE_ORDERING_UNAVAILABLE specifically
+        if (response.status === 503 && data.error === "ONLINE_ORDERING_UNAVAILABLE") {
+          setIsSubmitting(false);
+          toast.error("Online Ordering Temporarily Unavailable \u2014 Eat n\u2019 RepEat Caf\u00e9 is currently unable to receive online orders. Please try again later or visit the caf\u00e9.", { duration: 8000 });
+          return;
+        }
+        throw new Error(data.error || 'Failed to process checkout');
+      }
+
+      if (!data.success) {
         throw new Error(data.error || 'Failed to process checkout');
       }
 
@@ -262,7 +283,12 @@ export function CartDrawer({
     } catch (error: any) {
       console.error('Checkout error:', error);
       setIsSubmitting(false);
-      toast.error(error.message || 'Something went wrong. Please try again.');
+      const timedOut = error?.name === 'AbortError';
+      toast.error(
+        timedOut
+          ? 'Server unreachable — check the café connection and try again.'
+          : error.message || 'Something went wrong. Please try again.'
+      );
     }
   };
 
@@ -748,27 +774,38 @@ export function CartDrawer({
               </div>
 
               {session?.user || isLocalMode ? (
-                <button
-                  type="submit"
-                  form="checkout-form"
-                  disabled={isSubmitting}
-                  className={`w-full py-3.5 px-4 text-white rounded-xl font-black text-sm shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2 ${
-                    isSubmitting 
-                      ? 'bg-stone-400 cursor-not-allowed' 
-                      : 'bg-[#B91C1C] hover:bg-[#991B1B]'
-                  }`}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Processing...
-                    </>
-                  ) : paymentMethod === 'gcash' ? (
-                    `Pay with GCash - ₱${total.toFixed(2)}`
-                  ) : (
-                    `Place Order - ₱${total.toFixed(2)}`
+                <>
+                  {isOnlineOrderingUnavailable && (
+                    <div className="rounded-xl bg-red-50 border border-red-200 p-3 mb-1">
+                      <p className="text-xs font-semibold text-red-800 leading-relaxed">
+                        Online Ordering Temporarily Unavailable &mdash; Eat n&rsquo; RepEat Caf&eacute; is currently unable to receive online orders. Please try again later or visit the caf&eacute;.
+                      </p>
+                    </div>
                   )}
-                </button>
+                  <button
+                    type="submit"
+                    form="checkout-form"
+                    disabled={isSubmitting || isOnlineOrderingUnavailable}
+                    className={`w-full py-3.5 px-4 text-white rounded-xl font-black text-sm shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2 ${
+                      isSubmitting || isOnlineOrderingUnavailable
+                        ? 'bg-stone-400 cursor-not-allowed'
+                        : 'bg-[#B91C1C] hover:bg-[#991B1B]'
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Processing...
+                      </>
+                    ) : isOnlineOrderingUnavailable ? (
+                      'Online Ordering Temporarily Unavailable'
+                    ) : paymentMethod === 'gcash' ? (
+                      `Pay with GCash - ₱${total.toFixed(2)}`
+                    ) : (
+                      `Place Order - ₱${total.toFixed(2)}`
+                    )}
+                  </button>
+                </>
 
               ) : (
                 <button
