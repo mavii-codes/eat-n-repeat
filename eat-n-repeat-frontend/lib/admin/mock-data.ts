@@ -434,5 +434,6 @@ export const initialAdminData: AdminDataState = {
       archivedAt: "2026-06-23T08:00:00",
     },
   ],
+  activeCashShift: null,
 
 };

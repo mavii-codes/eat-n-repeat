@@ -14,6 +14,7 @@ export type RecentOrder = {
   orderId: string;
   customerName?: string;
   orderType?: string;
+  orderMode?: string;
   time: string;
   items: string;
   total: number;
@@ -71,6 +72,41 @@ export type StockCategory = {
   name: string;
 };
 
+export type Addon = {
+  id: string;
+  name: string;
+  price: number;
+  available: boolean;
+  createdAt: string;
+};
+
+export type AddonInput = Omit<Addon, "id" | "createdAt">;
+
+export type CashShift = {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  start_time: string;
+  end_time?: string;
+  starting_float: number | string;
+  expected_cash: number | string;
+  actual_cash?: number | string;
+  difference?: number | string;
+  status: 'open' | 'matched' | 'short' | 'over';
+};
+
+export type CashTransaction = {
+  id: string;
+  shift_id: string;
+  order_id?: string;
+  type: 'sale' | 'refund' | 'float_adjustment' | 'float_addition';
+  amount: number | string;
+  admin_id?: string;
+  admin_name?: string;
+  reason?: string;
+  timestamp: string;
+};
+
 export type StockItem = {
   id: string;
   name: string;
@@ -87,6 +123,7 @@ export type StockRequest = {
   ingredientId: string;
   ingredientName: string;
   currentQuantity: number;
+  unit?: string;
   threshold: number;
   message: string;
   status: "Pending" | "Approved" | "Rejected";
@@ -96,7 +133,7 @@ export type StockRequest = {
 
 export type StockRequestInput = Omit<StockRequest, "id" | "status" | "adminNote" | "createdAt">;
 
-export type StaffRole = "admin" | "head_staff" | "staff";
+export type StaffRole = "admin" | "head_staff" | "staff" | "delivery_rider";
 
 export type StaffAccount = {
   id: string;
@@ -106,6 +143,10 @@ export type StaffAccount = {
   password?: string;
   role: StaffRole;
   status: "active" | "inactive";
+  availability?: "Online" | "Offline" | "On Duty" | "Off Duty" | "On Leave";
+  contactNumber?: string;
+  lastActive?: string;
+  createdAt?: string;
   archived: boolean;
   archivedAt?: string;
 };
@@ -138,6 +179,7 @@ export type AdminDataState = {
   serviceAreas: ServiceArea[];
   deliverySettings: DeliverySettings;
   storeOrders: RecentOrder[];
+  activeCashShift: CashShift | null;
 
 };
 

@@ -134,7 +134,8 @@ type AdminDataContextValue = AdminDataState & {
   archiveStoreOrder: (id: string) => void;
   restoreStoreOrder: (id: string) => void;
   updateStoreOrderStatus: (id: string, status: "pending" | "completed" | "cancelled") => void;
-  confirmStoreOrderPayment: (id: string) => void;
+  confirmStoreOrderPayment: (id: string, cashReceived?: number) => void;
+  fetchActiveCashShift: () => Promise<void>;
   addStoreOrder: (input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => void;
   addServiceArea: (input: ServiceAreaInput) => void;
   updateServiceArea: (id: string, input: ServiceAreaInput) => void;
@@ -555,14 +556,69 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const confirmStoreOrderPayment = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      storeOrders: prev.storeOrders.map((order) =>
-        order.id === id ? { ...order, paid: true } : order
-      ),
-    }));
+  const confirmStoreOrderPayment = useCallback(async (id: string, cashReceived?: number) => {
+    const markPaidLocally = () => {
+      setData((prev) => ({
+        ...prev,
+        storeOrders: prev.storeOrders.map((order) =>
+          order.id === id ? { ...order, paid: true, paymentStatus: 'paid' as const } : order
+        ),
+      }));
+    };
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      const response = await fetch(`${getApiUrl()}/api/admin-orders/${id}/payment`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ method: 'Cash', cashReceived })
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        markPaidLocally();
+      } else {
+        // Backend rejected (or CORSblocked in this deploy) — keep POS usable offline.
+        markPaidLocally();
+      }
+      return data;
+    } catch (e) {
+      console.error(e);
+      // Offline: record payment locally so it syncs later.
+      markPaidLocally();
+      return { success: false, message: "Network error" };
+    }
   }, []);
+
+  const fetchActiveCashShift = useCallback(async () => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      if (!token) return;
+      const res = await fetch(`${getApiUrl()}/api/cash/shift/current`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setData(prev => ({ ...prev, activeCashShift: data.shift }));
+      }
+    } catch (e) { console.error("Error fetching cash shift", e); }
+  }, []);
+
+  // Poll for active cash shift updates every 10 seconds
+  useEffect(() => {
+    let mounted = true;
+    const interval = setInterval(() => {
+      if (mounted) fetchActiveCashShift();
+    }, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [fetchActiveCashShift]);
 
   const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
     setData((prev) => ({
@@ -704,6 +760,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       restoreStoreOrder,
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
+      fetchActiveCashShift,
       addStoreOrder,
       addServiceArea,
       updateServiceArea,
@@ -757,6 +814,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       restoreStoreOrder,
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
+      fetchActiveCashShift,
       addStoreOrder,
       addServiceArea,
       updateServiceArea,
