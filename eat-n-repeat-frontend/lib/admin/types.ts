@@ -7,14 +7,24 @@ export type AdminNotification = {
   timestamp: string;
 };
 
+export type PaymentVerificationStatus = "pending" | "paid" | "failed" | "cancelled" | "refunded";
+
 export type RecentOrder = {
   id: string;
   orderId: string;
+  customerName?: string;
+  orderType?: string;
   time: string;
   items: string;
   total: number;
-  status: "pending" | "completed" | "cancelled";
+  status: "pending" | "awaiting_payment" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
+  notes?: string;
   paid?: boolean;
+  paymentMethod?: string;
+  paymentStatus?: PaymentVerificationStatus;
+  xenditReference?: string;
+  xenditInvoiceId?: string;
+  paidAt?: string;
   archived: boolean;
   archivedAt?: string;
 };
@@ -51,6 +61,7 @@ export type MenuItem = {
   categoryId: string;
   available: boolean;
   image?: string;
+  stockItemId?: string;
   archived: boolean;
   archivedAt?: string;
 };
@@ -167,13 +178,18 @@ export type ServiceArea = {
   name: string;
   barangay: string;
   deliveryFee: number;
+  distanceKm?: number;
   active: boolean;
+  archived?: boolean;
+  archivedAt?: string;
 };
 
 export type DeliverySettings = {
   baseDeliveryFee: number;
   freeDeliveryMinimum: number;
   maxDeliveryRadiusKm: number;
+  freeDeliveryRadiusKm?: number;
+  perKmFee?: number;
 };
 
 export type DeliveryOrderInput = Omit<DeliveryOrder, "id" | "archived" | "archivedAt">;

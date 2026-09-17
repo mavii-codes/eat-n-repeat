@@ -273,6 +273,8 @@ export const initialAdminData: AdminDataState = {
     baseDeliveryFee: 49,
     freeDeliveryMinimum: 500,
     maxDeliveryRadiusKm: 5,
+    freeDeliveryRadiusKm: 3,
+    perKmFee: 10,
   },
   serviceAreas: [
     {
@@ -280,6 +282,7 @@ export const initialAdminData: AdminDataState = {
       name: "Gabi",
       barangay: "Gabi, Cordova",
       deliveryFee: 49,
+      distanceKm: 1.5,
       active: true,
     },
     {
@@ -287,6 +290,7 @@ export const initialAdminData: AdminDataState = {
       name: "Poblacion",
       barangay: "Poblacion, Cordova",
       deliveryFee: 39,
+      distanceKm: 0.5,
       active: true,
     },
     {
@@ -294,6 +298,7 @@ export const initialAdminData: AdminDataState = {
       name: "Day-as",
       barangay: "Day-as, Cordova",
       deliveryFee: 59,
+      distanceKm: 2.0,
       active: true,
     },
     {
@@ -301,6 +306,7 @@ export const initialAdminData: AdminDataState = {
       name: "Buagsong",
       barangay: "Buagsong, Cordova",
       deliveryFee: 69,
+      distanceKm: 2.5,
       active: false,
     },
   ],

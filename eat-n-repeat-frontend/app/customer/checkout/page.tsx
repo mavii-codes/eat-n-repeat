@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
+import { useLocalMode } from '@/lib/customer/useLocalMode';
 
 type CartCheckoutItem = {
   id: string;
@@ -34,8 +35,9 @@ const defaultCheckoutItems: CartCheckoutItem[] = [
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { addDeliveryOrder } = useAdminData();
+  const { addDeliveryOrder, addStoreOrder } = useAdminData();
   const { data: session, status } = useSession();
+  const isLocalMode = useLocalMode();
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
@@ -140,19 +142,33 @@ export default function CheckoutPage() {
     // Process order
     const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}`).join(', ');
     
-    addDeliveryOrder({
-      orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
-      customerName: `${firstName.trim()} ${lastName.trim()}`,
-      phone: mobileNumber.trim(),
-      address: 'Near Aby Road, Poblacion, Cordova, Cebu',
-      serviceAreaId: 'sa-2',
-      items: orderItemsSummary,
-      subtotal,
-      deliveryFee: 0,
-      total,
-      status: 'pending',
-      orderedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    });
+    if (isLocalMode) {
+      addStoreOrder({
+        orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        items: orderItemsSummary,
+        total,
+        status: 'awaiting_payment',
+        paid: false,
+        paymentMethod: 'cash',
+        orderType: 'dine-in'
+      });
+    } else {
+      addDeliveryOrder({
+        orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        phone: mobileNumber.trim(),
+        address: 'Near Aby Road, Poblacion, Cordova, Cebu',
+        serviceAreaId: 'sa-2',
+        items: orderItemsSummary,
+        subtotal,
+        deliveryFee: 0,
+        total,
+        status: 'pending',
+        orderedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      });
+    }
 
     localStorage.removeItem('eat-n-repeat-cart');
     setOrderSuccess(true);
@@ -165,10 +181,22 @@ export default function CheckoutPage() {
           <div className="w-16 h-16 bg-[#FFF1E0] text-[#B91C1C] rounded-full flex items-center justify-center text-3xl mx-auto">
             ✓
           </div>
-          <h2 className="text-2xl font-black text-stone-900">Order Placed Successfully!</h2>
+          <h2 className="text-2xl font-black text-stone-900">
+            {isLocalMode ? 'Payment Required' : 'Order Placed Successfully!'}
+          </h2>
           <p className="text-sm text-stone-600">
-            Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
-            <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.
+            {isLocalMode ? (
+              <>
+                Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
+                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received. <br /><br />
+                <strong className="text-stone-900 text-base">Please proceed to the cashier to complete your payment.</strong>
+              </>
+            ) : (
+              <>
+                Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
+                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.
+              </>
+            )}
           </p>
           <div className="pt-4 space-y-2">
             <Link
@@ -334,7 +362,9 @@ export default function CheckoutPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-lg">💳</span>
                     <span>
-                      {paymentMethod === 'cod'
+                      {isLocalMode
+                        ? 'Cash (Pay at Cashier)'
+                        : paymentMethod === 'cod'
                         ? 'Cash on Delivery (COD)'
                         : paymentMethod === 'gcash'
                         ? 'GCash E-Wallet'
@@ -348,28 +378,41 @@ export default function CheckoutPage() {
 
                 {showPaymentOptions && (
                   <div className="mt-2 bg-white rounded-xl border border-stone-200 shadow-lg p-2 space-y-1">
-                    {[
-                      { id: 'cod', label: '💵 Cash on Delivery (COD)' },
-                      { id: 'gcash', label: '📱 GCash E-Wallet' },
-                      { id: 'maya', label: '📱 Maya E-Wallet' },
-                      { id: 'card', label: '💳 Credit / Debit Card' },
-                    ].map((opt) => (
+                    {isLocalMode ? (
                       <button
-                        key={opt.id}
                         type="button"
                         onClick={() => {
-                          setPaymentMethod(opt.id as any);
+                          setPaymentMethod('cod');
                           setShowPaymentOptions(false);
                         }}
-                        className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition ${
-                          paymentMethod === opt.id
-                            ? 'bg-rose-50 text-[#B91C1C]'
-                            : 'hover:bg-stone-50 text-stone-700'
-                        }`}
+                        className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition bg-rose-50 text-[#B91C1C]`}
                       >
-                        {opt.label}
+                        💵 Cash (Pay at Cashier)
                       </button>
-                    ))}
+                    ) : (
+                      [
+                        { id: 'cod', label: '💵 Cash on Delivery (COD)' },
+                        { id: 'gcash', label: '📱 GCash E-Wallet' },
+                        { id: 'maya', label: '📱 Maya E-Wallet' },
+                        { id: 'card', label: '💳 Credit / Debit Card' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            setPaymentMethod(opt.id as any);
+                            setShowPaymentOptions(false);
+                          }}
+                          className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition ${
+                            paymentMethod === opt.id
+                              ? 'bg-rose-50 text-[#B91C1C]'
+                              : 'hover:bg-stone-50 text-stone-700'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -491,7 +534,7 @@ export default function CheckoutPage() {
         </div>
       </main>
 
-      {status === 'unauthenticated' && (
+      {status === 'unauthenticated' && !isLocalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-amber-200/80 shadow-2xl space-y-6 text-center animate-in fade-in-50 zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-[#FFF1E0] text-[#E85A1C] rounded-full flex items-center justify-center text-3xl mx-auto shadow-2xs">
