@@ -1,7 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "installCommand": "cd eat-n-repeat-frontend && npm install",
-  "buildCommand": "cd eat-n-repeat-frontend && npm run build",
-  "outputDirectory": "eat-n-repeat-frontend/.next"
-}
