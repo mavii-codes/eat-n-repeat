@@ -13,6 +13,9 @@ import type {
   AdminDataState,
   DeliveryOrder,
   DeliveryOrderInput,
+  AvailabilityStatus,
+  DeliveryTeamMember,
+  AssignmentLogEntry,
   DeliverySettings,
   DeliveryStatus,
   MenuCategory,
@@ -28,13 +31,21 @@ import type {
   StockCategoryInput,
   StockItem,
   StockItemInput,
+  StockRequest,
+  StockRequestInput,
+  StockHistoryLog,
   SystemSettings,
+  CashShift,
 } from "@/lib/admin/types";
 
 const STORAGE_KEY = "eat-n-repeat-admin-data";
 
 function createId(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  // Fallback for insecure contexts (e.g. LAN IP over HTTP)
+  return `${prefix}-${Math.random().toString(36).substring(2, 10)}`;
 }
 
 function archiveTimestamp() {
@@ -80,7 +91,10 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
       data.deliveryOrders,
       initialAdminData.deliveryOrders,
     ),
-    serviceAreas: data.serviceAreas ?? initialAdminData.serviceAreas,
+    serviceAreas: ensureArchived(
+      data.serviceAreas,
+      initialAdminData.serviceAreas,
+    ),
     deliverySettings:
       data.deliverySettings ?? initialAdminData.deliverySettings,
     storeOrders: ensureArchived(
@@ -94,7 +108,7 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
   };
 }
 
-type AdminDataContextValue = AdminDataState & {
+type AdminDataContextValue = AdminDataState & {  fetchActiveCashShift: () => Promise<void>;
   addMenuItem: (input: MenuItemInput) => void;
   updateMenuItem: (id: string, input: MenuItemInput) => void;
   deleteMenuItem: (id: string) => void;
@@ -108,9 +122,11 @@ type AdminDataContextValue = AdminDataState & {
   addStockItem: (input: StockItemInput) => void;
   updateStockItem: (id: string, input: StockItemInput) => void;
   deleteStockItem: (id: string) => void;
+  archiveStockItem: (id: string) => void;
   addStockCategory: (input: StockCategoryInput) => void;
   updateStockCategory: (id: string, input: StockCategoryInput) => void;
   deleteStockCategory: (id: string) => boolean;
+  archiveStockCategory: (id: string) => void;
   addStaffAccount: (input: StaffAccountInput) => void;
   updateStaffAccount: (id: string, input: StaffAccountInput) => void;
   deleteStaffAccount: (id: string) => void;
@@ -122,30 +138,48 @@ type AdminDataContextValue = AdminDataState & {
   getMenuItemsByCategory: (categoryId: string) => MenuItem[];
   getStockItemsByCategory: (categoryId: string) => StockItem[];
   updateDeliveryStatus: (id: string, status: DeliveryStatus) => void;
+  updateDeliveryPerson: (id: string, person: string) => void;
+  updateDeliveryTeamMemberStatus: (id: string, status: AvailabilityStatus) => void;
+  reassignDeliveryOrder: (orderId: string, newPersonId: string, reassignNote?: string) => void;
+  addStockRequest: (input: StockRequestInput) => void;
+  updateStockRequestStatus: (id: string, status: "Pending" | "Approved" | "Rejected", adminNote?: string) => void;
   addDeliveryOrder: (input: DeliveryOrderInput) => void;
   deleteDeliveryOrder: (id: string) => void;
   archiveDeliveryOrder: (id: string) => void;
   restoreDeliveryOrder: (id: string) => void;
   archiveStoreOrder: (id: string) => void;
   restoreStoreOrder: (id: string) => void;
-  updateStoreOrderStatus: (id: string, status: "pending" | "completed" | "cancelled") => void;
-  confirmStoreOrderPayment: (id: string) => void;
-  addStoreOrder: (input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => void;
+  updateStoreOrderStatus: (id: string, status: "completed" | "cancelled") => void;
+  confirmStoreOrderPayment: (id: string, cashReceived?: number) => void;
+  addStoreOrder: (input: any) => void;
+  processOfflineStoreOrder: (order: any, deductions: {stockItemId: string, qty: number}[]) => Promise<void>;
   addServiceArea: (input: ServiceAreaInput) => void;
   updateServiceArea: (id: string, input: ServiceAreaInput) => void;
-  deleteServiceArea: (id: string) => boolean;
+  deleteServiceArea: (id: string) => void;
+  archiveServiceArea: (id: string) => void;
+  restoreServiceArea: (id: string) => void;
   updateDeliverySettings: (settings: DeliverySettings) => void;
-  getServiceAreaName: (serviceAreaId: string) => string;
+  getServiceAreaName: (id: string) => string;
   getActiveDeliveryOrders: () => DeliveryOrder[];
   getDeliveryHistory: () => DeliveryOrder[];
   getActiveMenuItems: () => MenuItem[];
   getActiveMenuCategories: () => MenuCategory[];
   getActiveStaffAccounts: () => StaffAccount[];
   getActiveStoreOrders: () => RecentOrder[];
-
 };
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
+
+function formatItems(raw: any): string {
+  if (typeof raw !== 'string' || !raw.startsWith('[')) return raw;
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr) && arr.length > 0) {
+      return arr.map((i: any) => `${i.quantity ?? 1}x ${i.name ?? i.menuItemId}`).join(', ');
+    }
+  } catch {}
+  return raw;
+}
 
 export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<AdminDataState>(initialAdminData);
@@ -156,27 +190,201 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const parsed = JSON.parse(stored) as Partial<AdminDataState>;
-      const hasMissingCreds =
-        !parsed.staffAccounts ||
-        parsed.staffAccounts.length === 0 ||
-        parsed.staffAccounts.some((acc) => !acc.username || !acc.password);
-
-      if (hasMissingCreds) {
-        console.warn("Legacy local storage detected. Resetting to initial mock data...");
-        localStorage.removeItem(STORAGE_KEY);
-        setData(initialAdminData);
-        return;
-      }
-
       setData(normalizeStoredData(parsed));
     } catch {
       setData(initialAdminData);
     }
   }, []);
 
+  // Listen to cross-tab storage changes to keep customer and admin portals in sync
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue) as Partial<AdminDataState>;
+          setData(normalizeStoredData(parsed));
+        } catch {}
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
+  // Poll live orders from the database
+  useEffect(() => {
+    let mounted = true;
+    const fetchOrders = async () => {
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const token = localStorage.getItem('eat-n-repeat-staff-token');
+        const response = await fetch(`${getApiUrl()}/api/admin-orders`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          // Fail fast: stale/dead backend must not stall the dashboard.
+          signal: AbortSignal.timeout(12000),
+        });
+
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.success && result.orders && mounted) {
+          setData(prev => {
+            const liveDeliveryOrders: any[] = [];
+            const liveStoreOrders: any[] = [];
+
+            result.orders.forEach((o: any) => {
+              const orderTotal = Number(o.total) || 0;
+              const orderSubtotal = Number(o.subtotal) || 0;
+              const orderDeliveryFee = Number(o.deliveryFee) || 0;
+              const paymentStatus = o.payments?.[0]?.status === 'PAID' ? 'paid' : 'pending';
+              const orderPaid = paymentStatus === 'paid';
+
+              if (o.type === 'delivery') {
+                liveDeliveryOrders.push({
+                  id: o.id,
+                  orderNumber: o.orderNumber,
+                  customerName: o.customerName,
+                  phone: o.phone,
+                  address: o.address,
+                  serviceAreaId: o.serviceAreaId,
+                  items: formatItems(o.items),
+                  subtotal: orderSubtotal,
+                  deliveryFee: orderDeliveryFee,
+                  total: orderTotal,
+                  status: o.status,
+                  deliveryPerson: o.deliveryPerson,
+                  assignedRole: o.assignedRole,
+                  orderedAt: o.createdAt,
+                  archived: o.archived,
+                  paymentStatus,
+                  paid: orderPaid
+                });
+              } else {
+                const statusMap: Record<string, string> = {
+                  pending: 'pending', pending_payment: 'pending', preparing: 'pending', confirmed: 'pending',
+                  delivered: 'completed', completed: 'completed',
+                  cancelled: 'cancelled',
+                };
+                liveStoreOrders.push({
+                  id: o.id,
+                  orderId: o.orderNumber,
+                  time: new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  items: formatItems(o.items),
+                  total: orderTotal,
+                  status: statusMap[o.status] ?? o.status,
+                  paid: orderPaid,
+                  archived: o.archived,
+                  customerName: o.customerName,
+                  orderType: o.type === 'dine-in' ? 'dine-in' : 'takeout',
+                  orderMode: (o as any).orderMode || "online",
+                  tableNumber: o.type === 'dine-in' ? o.address : undefined,
+                  paymentStatus
+                });
+              }
+            });
+
+            return {
+              ...prev,
+              deliveryOrders: liveDeliveryOrders,
+              storeOrders: liveStoreOrders
+            };
+          });
+        }
+        
+        const staffRes = await fetch(`${getApiUrl()}/api/staff`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: AbortSignal.timeout(12000),
+        });
+        if (staffRes.ok) {
+          const staffResult = await staffRes.json();
+          if (staffResult.users && mounted) {
+            setData(prev => ({
+              ...prev,
+              staffAccounts: staffResult.users.map((u: any) => ({
+                id: u.id,
+                name: u.name,
+                username: u.username,
+                email: u.email,
+                role: u.role === 'cashier' ? 'staff' : u.role,
+                status: u.status,
+                archived: u.archived,
+                // frontend required fields:
+                availability: "Offline", 
+                contactNumber: "",
+                createdAt: u.created_at || new Date().toISOString(),
+                lastActive: "Never",
+              }))
+            }));
+          }
+        }
+
+      } catch (e) {}
+    };
+
+    fetchOrders();
+    const interval = setInterval(fetchOrders, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
+
+  // Sync Offline Data
+  const syncOfflineData = useCallback(async () => {
+    try {
+      const { getPendingOfflineOrders, getPendingStockTransactions, markOrdersSynced, markStockTransactionsSynced } = await import('@/lib/offlineSync');
+      const pendingOrders = await getPendingOfflineOrders();
+      const pendingTxs = await getPendingStockTransactions();
+      
+      if (pendingOrders.length === 0 && pendingTxs.length === 0) return;
+      
+      const { getApiUrl } = await import('@/lib/config');
+      const res = await fetch(`${getApiUrl()}/api/sync/offline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offline_orders: pendingOrders,
+          offline_stock_transactions: pendingTxs
+        })
+      });
+      
+      if (res.ok) {
+        await markOrdersSynced(pendingOrders.map(o => o.id));
+        await markStockTransactionsSynced(pendingTxs.map(t => t.id));
+      }
+    } catch (e) {
+      console.error("Offline sync failed:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    
+    // Attempt sync on mount
+    syncOfflineData();
+
+    // Listen for online events
+    const handleOnline = () => {
+      if (mounted) syncOfflineData();
+    };
+    
+    window.addEventListener('online', handleOnline);
+    
+    // Also try periodically in case online event missed
+    const interval = setInterval(() => {
+      if (mounted && navigator.onLine) {
+        syncOfflineData();
+      }
+    }, 15000);
+    
+    return () => {
+      mounted = false;
+      window.removeEventListener('online', handleOnline);
+      clearInterval(interval);
+    };
+  }, [syncOfflineData]);
 
   const addMenuItem = useCallback((input: MenuItemInput) => {
     setData((prev) => ({
@@ -349,55 +557,112 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     return deleted;
   }, []);
 
-  const addStaffAccount = useCallback((input: StaffAccountInput) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: [
-        ...prev.staffAccounts,
-        { ...input, id: createId("sf"), archived: false },
-      ],
-    }));
+  const addStaffAccount = useCallback(async (input: StaffAccountInput) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      const res = await fetch(`${getApiUrl()}/api/staff`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(input)
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setData((prev) => ({
+          ...prev,
+          staffAccounts: [
+            ...prev.staffAccounts,
+            { ...input, id: result.user.id, archived: result.user.archived },
+          ],
+        }));
+      }
+    } catch (e) { console.error(e); }
   }, []);
 
   const updateStaffAccount = useCallback(
-    (id: string, input: StaffAccountInput) => {
-      setData((prev) => ({
-        ...prev,
-        staffAccounts: prev.staffAccounts.map((account) =>
-          account.id === id ? { ...account, ...input, id } : account,
-        ),
-      }));
+    async (id: string, input: StaffAccountInput) => {
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const token = localStorage.getItem('eat-n-repeat-staff-token');
+        const res = await fetch(`${getApiUrl()}/api/staff/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(input)
+        });
+        if (res.ok) {
+          setData((prev) => ({
+            ...prev,
+            staffAccounts: prev.staffAccounts.map((account) =>
+              account.id === id ? { ...account, ...input, id } : account,
+            ),
+          }));
+        }
+      } catch (e) { console.error(e); }
     },
     [],
   );
 
-  const deleteStaffAccount = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: prev.staffAccounts.filter((account) => account.id !== id),
-    }));
+  const deleteStaffAccount = useCallback(async (id: string) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/staff/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      setData((prev) => ({
+        ...prev,
+        staffAccounts: prev.staffAccounts.filter((account) => account.id !== id),
+      }));
+    } catch (e) { console.error(e); }
   }, []);
 
-  const archiveStaffAccount = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: prev.staffAccounts.map((account) =>
-        account.id === id
-          ? { ...account, archived: true, archivedAt: archiveTimestamp() }
-          : account,
-      ),
-    }));
+  const archiveStaffAccount = useCallback(async (id: string) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/staff/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      setData((prev) => ({
+        ...prev,
+        staffAccounts: prev.staffAccounts.map((account) =>
+          account.id === id
+            ? { ...account, archived: true, archivedAt: archiveTimestamp(), status: 'inactive' }
+            : account,
+        ),
+      }));
+    } catch (e) { console.error(e); }
   }, []);
 
-  const restoreStaffAccount = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      staffAccounts: prev.staffAccounts.map((account) =>
-        account.id === id
-          ? { ...account, archived: false, archivedAt: undefined }
-          : account,
-      ),
-    }));
+  const restoreStaffAccount = useCallback(async (id: string) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/staff/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ status: 'active', archived: false })
+      });
+      setData((prev) => ({
+        ...prev,
+        staffAccounts: prev.staffAccounts.map((account) =>
+          account.id === id
+            ? { ...account, archived: false, archivedAt: undefined, status: 'active' }
+            : account,
+        ),
+      }));
+    } catch (e) { console.error(e); }
   }, []);
 
   const updateSystemSettings = useCallback((settings: SystemSettings) => {
@@ -433,7 +698,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateDeliveryStatus = useCallback(
-    (id: string, status: DeliveryStatus) => {
+    async (id: string, status: DeliveryStatus) => {
       setData((prev) => ({
         ...prev,
         deliveryOrders: prev.deliveryOrders.map((order) =>
@@ -449,6 +714,19 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             : order,
         ),
       }));
+
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const token = localStorage.getItem('eat-n-repeat-staff-token');
+        await fetch(`${getApiUrl()}/api/admin-orders/${id}/status`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ status })
+        });
+      } catch (e) { console.error(e); }
     },
     [],
   );
@@ -514,25 +792,86 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const updateStoreOrderStatus = useCallback((id: string, status: "pending" | "completed" | "cancelled") => {
+  const updateStoreOrderStatus = useCallback(async (id: string, status: "pending" | "completed" | "cancelled") => {
     setData((prev) => ({
       ...prev,
       storeOrders: prev.storeOrders.map((order) =>
         order.id === id ? { ...order, status } : order
       ),
     }));
+
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      await fetch(`${getApiUrl()}/api/admin-orders/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ status })
+      });
+    } catch (e) { console.error(e); }
   }, []);
 
-  const confirmStoreOrderPayment = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      storeOrders: prev.storeOrders.map((order) =>
-        order.id === id ? { ...order, paid: true } : order
-      ),
-    }));
+  const confirmStoreOrderPayment = useCallback(async (id: string, cashReceived?: number) => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      const response = await fetch(`${getApiUrl()}/api/admin-orders/${id}/payment`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ method: 'Cash', cashReceived })
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setData((prev) => ({
+          ...prev,
+          storeOrders: prev.storeOrders.map((order) =>
+            order.id === id ? { ...order, paid: true, paymentStatus: 'paid' } : order
+          ),
+        }));
+      }
+      return data;
+    } catch (e) { 
+      console.error(e); 
+      return { success: false, message: "Network error" };
+    }
   }, []);
 
-  const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
+  
+  const fetchActiveCashShift = useCallback(async () => {
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
+      if (!token) return;
+      const res = await fetch(`${getApiUrl()}/api/cash/shift/current`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setData(prev => ({ ...prev, activeCashShift: data.shift }));
+      }
+    } catch (e) { console.error("Error fetching cash shift", e); }
+  }, []);
+
+  // Poll for active cash shift updates every 10 seconds
+  useEffect(() => {
+    let mounted = true;
+    const interval = setInterval(() => {
+      if (mounted) fetchActiveCashShift();
+    }, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [fetchActiveCashShift]);
+
+const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
     setData((prev) => ({
       ...prev,
       storeOrders: [
@@ -542,10 +881,59 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const processOfflineStoreOrder = useCallback(async (order: any, deductions: {stockItemId: string, qty: number}[]) => {
+    const { saveOfflineOrder, saveOfflineStockTransaction } = await import('@/lib/offlineSync');
+    const createTxId = () => `tx-${Math.random().toString(36).substring(2, 9)}-${Date.now()}`;
+    
+    // 1. Save to IDB
+    await saveOfflineOrder({
+      id: order.orderId,
+      time: order.time,
+      items: order.items,
+      total: order.total,
+      status: order.status,
+      paid: order.paid,
+      notes: order.notes,
+    });
+
+    for (const d of deductions) {
+      await saveOfflineStockTransaction({
+        id: createTxId(),
+        stockItemId: d.stockItemId,
+        quantityDeducted: d.qty,
+        orderId: order.orderId,
+        staffId: 'sf-1', // Fallback or current user
+      });
+    }
+    
+    // 2. Update Local State Immediately
+    setData((prev) => {
+      let newStock = [...prev.stockItems];
+      deductions.forEach(d => {
+        newStock = newStock.map(si => 
+          si.id === d.stockItemId ? { ...si, quantity: Math.max(0, si.quantity - d.qty) } : si
+        );
+      });
+      return {
+        ...prev,
+        storeOrders: [
+          ...prev.storeOrders,
+          { ...order, id: order.orderId, archived: false },
+        ],
+        stockItems: newStock
+      };
+    });
+    
+    // 3. Try to sync in background
+    if (navigator.onLine) {
+      setTimeout(syncOfflineData, 100);
+    }
+  }, [syncOfflineData]);
+
   const addServiceArea = useCallback((input: ServiceAreaInput) => {
     setData((prev) => ({
       ...prev,
-      serviceAreas: [...prev.serviceAreas, { ...input, id: createId("sa") }],
+      serviceAreas: [...prev.serviceAreas, { ...input, id: createId("sa"), archived: false }],
     }));
   }, []);
 
@@ -554,7 +942,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       setData((prev) => ({
         ...prev,
         serviceAreas: prev.serviceAreas.map((area) =>
-          area.id === id ? { ...input, id } : area,
+          area.id === id ? { ...area, ...input } : area,
         ),
       }));
     },
@@ -575,6 +963,24 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       };
     });
     return deleted;
+  }, []);
+
+  const archiveServiceArea = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      serviceAreas: prev.serviceAreas.map((area) =>
+        area.id === id ? { ...area, archived: true, archivedAt: archiveTimestamp() } : area,
+      ),
+    }));
+  }, []);
+
+  const restoreServiceArea = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      serviceAreas: prev.serviceAreas.map((area) =>
+        area.id === id ? { ...area, archived: false, archivedAt: undefined } : area,
+      ),
+    }));
   }, []);
 
   const updateDeliverySettings = useCallback((settings: DeliverySettings) => {
@@ -632,6 +1038,60 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
 
 
 
+  
+  const updateDeliveryPerson = useCallback((id: string, person: string) => {
+    setData((prev) => ({
+      ...prev,
+      deliveryOrders: prev.deliveryOrders.map((o) => (o.id === id ? { ...o, deliveryPerson: person } : o)),
+    }));
+  }, []);
+
+  const updateDeliveryTeamMemberStatus = useCallback((id: string, status: AvailabilityStatus) => {
+    setData((prev) => ({
+      ...prev,
+      deliveryTeam: prev.deliveryTeam.map((m) => (m.id === id ? { ...m, status } : m)),
+    }));
+  }, []);
+
+  const reassignDeliveryOrder = useCallback((orderId: string, newPersonId: string, reassignNote?: string) => {
+    setData((prev) => ({
+      ...prev,
+      deliveryOrders: prev.deliveryOrders.map((o) => (o.id === orderId ? { ...o, deliveryPerson: newPersonId } : o)),
+    }));
+  }, []);
+
+  const addStockRequest = useCallback((input: StockRequestInput) => {
+    setData((prev) => ({
+      ...prev,
+      stockRequests: [...(prev.stockRequests || []), { ...input, id: createId("sr"), status: "Pending", createdAt: new Date().toISOString() }]
+    }));
+  }, []);
+
+  const updateStockRequestStatus = useCallback((id: string, status: "Pending" | "Approved" | "Rejected", adminNote?: string) => {
+    setData((prev) => ({
+      ...prev,
+      stockRequests: (prev.stockRequests || []).map(req => req.id === id ? { ...req, status, adminNote: adminNote !== undefined ? adminNote : req.adminNote } : req)
+    }));
+  }, []);
+
+  const archiveStockItem = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      stockItems: prev.stockItems.map((item) =>
+        item.id === id ? { ...item, archived: true, archivedAt: new Date().toISOString() } : item
+      ),
+    }));
+  }, []);
+
+  const archiveStockCategory = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      stockCategories: prev.stockCategories.map((c) =>
+        c.id === id ? { ...c, archived: true, archivedAt: new Date().toISOString() } : c
+      ),
+    }));
+  }, []);
+
   const value = useMemo<AdminDataContextValue>(
     () => ({
       ...data,
@@ -648,9 +1108,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addStockItem,
       updateStockItem,
       deleteStockItem,
+      archiveStockItem,
       addStockCategory,
       updateStockCategory,
       deleteStockCategory,
+      archiveStockCategory,
       addStaffAccount,
       updateStaffAccount,
       deleteStaffAccount,
@@ -662,6 +1124,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getMenuItemsByCategory,
       getStockItemsByCategory,
       updateDeliveryStatus,
+      updateDeliveryPerson,
+      updateDeliveryTeamMemberStatus,
+      reassignDeliveryOrder,
+      addStockRequest,
+      updateStockRequestStatus,
       addDeliveryOrder,
       deleteDeliveryOrder,
       archiveDeliveryOrder,
@@ -671,9 +1138,13 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
       addStoreOrder,
+      processOfflineStoreOrder,
+      fetchActiveCashShift,
       addServiceArea,
       updateServiceArea,
       deleteServiceArea,
+      archiveServiceArea,
+      restoreServiceArea,
       updateDeliverySettings,
       getServiceAreaName,
       getActiveDeliveryOrders,
@@ -682,7 +1153,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getActiveMenuCategories,
       getActiveStaffAccounts,
       getActiveStoreOrders,
-
     }),
     [
       data,
@@ -699,9 +1169,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addStockItem,
       updateStockItem,
       deleteStockItem,
+      archiveStockItem,
       addStockCategory,
       updateStockCategory,
       deleteStockCategory,
+      archiveStockCategory,
       addStaffAccount,
       updateStaffAccount,
       deleteStaffAccount,
@@ -713,6 +1185,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getMenuItemsByCategory,
       getStockItemsByCategory,
       updateDeliveryStatus,
+      updateDeliveryPerson,
+      updateDeliveryTeamMemberStatus,
+      reassignDeliveryOrder,
+      addStockRequest,
+      updateStockRequestStatus,
       addDeliveryOrder,
       deleteDeliveryOrder,
       archiveDeliveryOrder,
@@ -725,6 +1202,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addServiceArea,
       updateServiceArea,
       deleteServiceArea,
+      archiveServiceArea,
+      restoreServiceArea,
       updateDeliverySettings,
       getServiceAreaName,
       getActiveDeliveryOrders,
@@ -733,7 +1212,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getActiveMenuCategories,
       getActiveStaffAccounts,
       getActiveStoreOrders,
-
     ],
   );
 
