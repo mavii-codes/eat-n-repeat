@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 import { DM_Sans, Geist_Mono, Pacifico, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
@@ -24,46 +24,18 @@ const pacifico = Pacifico({
 });
 
 export const metadata: Metadata = {
-  title: {
-    template: "%s | Eat n RepEat Cafe",
-    default: "Eat n RepEat Cafe | Cordova, Cebu",
-  },
+  title: "Eat n' Repeat | Admin Portal",
   description:
-    "Eat n RepEat Cafe — coffee, meals, milk tea, snacks, and more in Cordova, Cebu.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://eatnrepeat.vercel.app"),
-  openGraph: {
-    title: "Eat n RepEat Cafe | Cordova, Cebu",
-    description: "Eat n RepEat Cafe — coffee, meals, milk tea, snacks, and more in Cordova, Cebu.",
-    url: "/",
-    siteName: "Eat n RepEat Cafe",
-    locale: "en_PH",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Eat n RepEat Cafe | Cordova, Cebu",
-    description: "Eat n RepEat Cafe — coffee, meals, milk tea, snacks, and more in Cordova, Cebu.",
-  },
+    "Owner admin portal for Eat n' Repeat Cordova — sales, inventory, and system management.",
   icons: {
     icon: "/logo.png?v=2",
     apple: "/logo.png?v=2",
   },
 };
 
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-};
-
 import { AdminDataProvider } from "@/context/AdminDataContext";
 import { AuthProvider } from "@/context/AuthContext";
-import { SessionProvider } from "@/lib/customer/auth-provider";
-import { NetworkStatusProvider } from "@/context/NetworkStatusContext";
 import { OnlineIndicator } from "@/components/shared/OnlineIndicator";
-import { OfflineBanner } from "@/components/shared/OfflineBanner";
-import { ConfirmProvider } from "@/components/shared/ConfirmDialog";
-import { Toaster } from "react-hot-toast";
 
 export default function RootLayout({
   children,
@@ -76,32 +48,10 @@ export default function RootLayout({
       className={`${dmSans.variable} ${geistMono.variable} ${playfair.variable} ${pacifico.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <Toaster
-          position="top-center"
-          toastOptions={{
-            duration: 3000,
-            style: {
-              background: '#1c1917',
-              color: '#fafaf9',
-              borderRadius: '12px',
-              fontSize: '13px',
-              fontWeight: 600,
-              padding: '12px 16px',
-              boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
-            },
-            success: { iconTheme: { primary: '#22c55e', secondary: '#fff' } },
-            error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
-          }}
-        />
-        <NetworkStatusProvider>
-          <OfflineBanner />
-          <OnlineIndicator />
-          <ConfirmProvider>
-            <AdminDataProvider>
-              <AuthProvider><SessionProvider>{children}</SessionProvider></AuthProvider>
-            </AdminDataProvider>
-          </ConfirmProvider>
-        </NetworkStatusProvider>
+        <OnlineIndicator />
+        <AdminDataProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </AdminDataProvider>
       </body>
     </html>
   );

@@ -1,71 +1,24 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
 import { HeroCarousel } from '@/components/customer/HeroCarousel';
+import { InfoCards } from '@/components/customer/InfoCards';
 import { MenuCard, type CustomerMenuItem } from '@/components/customer/MenuCard';
-import { MenuItemDetailsModal } from '@/components/customer/MenuItemDetailsModal';
 import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
-import { useReviews } from '@/context/ReviewsContext';
 import Link from 'next/link';
-import { Flame, Bike, Activity, Search, Heart } from 'lucide-react';
-import { useSession } from 'next-auth/react';
-
-type SortOption = 'rating' | 'price-asc' | 'price-desc' | 'name';
 
 export default function CustomerHome() {
   const { menuItems, menuCategories } = useAdminData();
-  const { getAverageRating } = useReviews();
 
   // State
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortBy, setSortBy] = useState<SortOption>('rating');
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [isInitialized, setIsInitialized] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('eat-n-repeat-cart');
-      if (saved) {
-        try {
-          setCartItems(JSON.parse(saved));
-        } catch (e) {}
-      }
-      setIsInitialized(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isInitialized && typeof window !== 'undefined') {
-      localStorage.setItem('eat-n-repeat-cart', JSON.stringify(cartItems));
-    }
-  }, [cartItems, isInitialized]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [favorites, setFavorites] = useState<string[]>([]);
-  const [selectedDetailItem, setSelectedDetailItem] = useState<CustomerMenuItem | null>(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const { data: session } = useSession();
-  const accessToken = (session as any)?.accessToken as string | undefined;
-
-  useEffect(() => {
-    if (session?.user && accessToken) {
-      import('@/lib/config').then(({ getApiUrl }) => {
-        fetch(`${getApiUrl()}/api/customer-favorites`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (Array.isArray(data)) setFavorites(data);
-          })
-          .catch(console.error);
-      });
-    } else {
-      setFavorites([]);
-    }
-  }, [session, accessToken]);
 
   // Category mapping
   const activeCategories = useMemo(() => {
@@ -73,7 +26,7 @@ export default function CustomerHome() {
     return ['All', ...categoryList];
   }, [menuCategories]);
 
-  // Menu items mapping with dynamic ratings & badges
+  // Menu items mapping from AdminDataContext with fallbacks
   const formattedMenuItems = useMemo<CustomerMenuItem[]>(() => {
     const activeItems = menuItems.filter((item) => !item.archived);
     if (activeItems.length === 0) return [];
@@ -81,21 +34,18 @@ export default function CustomerHome() {
     return activeItems.map((item, index) => {
       const categoryObj = menuCategories.find((c) => c.id === item.categoryId);
       const categoryName = categoryObj?.name || 'General';
-
-      const liveSummary = getAverageRating(item.id);
-      const rating = liveSummary.totalReviews > 0 ? liveSummary.averageRating : 4.7 + (index % 3) * 0.1;
-      const reviews = liveSummary.totalReviews > 0 ? liveSummary.totalReviews : 20 + index * 7;
-
+      
+      // Designate specific popular items across different categories as Bestsellers by ID
       const isBestseller = ['mi-1', 'mi-4', 'mi-5', 'mi-7'].includes(item.id);
       const isStaffPick = ['mi-2'].includes(item.id);
       const isPopular = ['mi-8'].includes(item.id);
 
       const badge = isBestseller
-        ? 'Bestseller'
+        ? '⭐ Bestseller'
         : isStaffPick
-        ? 'Staff Pick'
+        ? '🔥 Staff Pick'
         : isPopular
-        ? 'Popular'
+        ? '🍟 Popular'
         : undefined;
 
       return {
@@ -105,24 +55,22 @@ export default function CustomerHome() {
         price: item.price,
         image: item.image,
         category: categoryName,
-        rating,
-        reviews,
+        rating: 4.7 + (index % 3) * 0.1,
+        reviews: 20 + index * 7,
         badge,
         available: item.available,
       };
     });
-  }, [menuItems, menuCategories, getAverageRating]);
+  }, [menuItems, menuCategories]);
 
-  // Filtered best sellers to highlight at top
+  // Filtered best sellers to highlight at the top of the portal
   const bestSellers = useMemo(() => {
-    return formattedMenuItems.filter(
-      (item) => (item.rating ?? 0) >= 4.8 || item.badge === 'Bestseller'
-    );
+    return formattedMenuItems.filter((item) => item.badge === '⭐ Bestseller');
   }, [formattedMenuItems]);
 
-  // Filtered and sorted menu items (Auto highest-rated first by default)
+  // Filtered menu items
   const filteredItems = useMemo(() => {
-    const filtered = formattedMenuItems.filter((item) => {
+    return formattedMenuItems.filter((item) => {
       const matchesCategory =
         selectedCategory === 'All' ||
         item.category?.toLowerCase() === selectedCategory.toLowerCase();
@@ -131,21 +79,7 @@ export default function CustomerHome() {
         item.description.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCategory && matchesSearch;
     });
-
-    // Auto sort items
-    return filtered.sort((a, b) => {
-      if (sortBy === 'rating') {
-        const ratingA = a.rating ?? 0;
-        const ratingB = b.rating ?? 0;
-        if (ratingB !== ratingA) return ratingB - ratingA;
-        return (b.reviews ?? 0) - (a.reviews ?? 0);
-      }
-      if (sortBy === 'price-asc') return a.price - b.price;
-      if (sortBy === 'price-desc') return b.price - a.price;
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      return 0;
-    });
-  }, [formattedMenuItems, selectedCategory, searchQuery, sortBy]);
+  }, [formattedMenuItems, selectedCategory, searchQuery]);
 
   // Cart operations
   const handleAddToCart = (item: CustomerMenuItem) => {
@@ -178,46 +112,21 @@ export default function CustomerHome() {
     setCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== id));
   };
 
-  const handleClearCart = () => setCartItems([]);
+  const handleClearCart = () => {
+    setCartItems([]);
+  };
 
-  const handleToggleFavorite = async (id: string) => {
-    if (!session?.user) {
-      setShowAuthModal(true);
-      return;
-    }
-    const isFav = favorites.includes(id);
-    // Optimistic update
-    setFavorites((prev) => (isFav ? prev.filter((favId) => favId !== id) : [...prev, id]));
-
-    try {
-      const { getApiUrl } = await import('@/lib/config');
-      if (isFav) {
-        await fetch(`${getApiUrl()}/api/customer-favorites/${id}`, { 
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-      } else {
-        await fetch(`${getApiUrl()}/api/customer-favorites`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}` 
-          },
-          body: JSON.stringify({ menuItemId: id }),
-        });
-      }
-    } catch (error) {
-      console.error('Failed to toggle favorite', error);
-      // Revert if API fails
-      setFavorites((prev) => (!isFav ? prev.filter((favId) => favId !== id) : [...prev, id]));
-    }
+  const handleToggleFavorite = (id: string) => {
+    setFavorites((prev) =>
+      prev.includes(id) ? prev.filter((favId) => favId !== id) : [...prev, id]
+    );
   };
 
   const totalCartCount = cartItems.reduce((acc, ci) => acc + ci.quantity, 0);
   const totalCartSubtotal = cartItems.reduce((acc, ci) => acc + ci.menuItem.price * ci.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col justify-between selection:bg-[#B91C1C] selection:text-white w-full max-w-full overflow-x-hidden">
+    <div className="min-h-screen bg-stone-50 text-stone-900 flex flex-col justify-between selection:bg-rose-900 selection:text-white">
       {/* Header */}
       <CustomerHeader
         searchQuery={searchQuery}
@@ -230,7 +139,7 @@ export default function CustomerHome() {
         favoritesCount={favorites.length}
       />
 
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-10 space-y-6 sm:space-y-12 flex-1 w-full max-w-full overflow-x-hidden">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-8 sm:space-y-12 flex-1">
         {/* Promotional Hero Banner */}
         <HeroCarousel
           onSelectCategory={(cat) => {
@@ -240,24 +149,65 @@ export default function CustomerHome() {
           }}
         />
 
+        {/* 4 Info Badges matching Screenshot (Ready In, Free Delivery, Rated, Loved By) */}
+        <InfoCards />
+
+        {/* Fulfillment Status Banner on Mobile */}
+        <div className="md:hidden bg-white p-3.5 rounded-2xl border border-amber-200 shadow-2xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">
+              {fulfillmentType === 'delivery' ? '🚚' : fulfillmentType === 'pickup' ? '🛍️' : '🍽️'}
+            </span>
+            <span className="text-xs font-extrabold capitalize text-[#451a03]">
+              {fulfillmentType} Mode
+            </span>
+          </div>
+          <div className="flex bg-[#FFF1E0] p-1 rounded-xl">
+            <button
+              onClick={() => setFulfillmentType('delivery')}
+              className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg transition ${
+                fulfillmentType === 'delivery' ? 'bg-[#B91C1C] text-white' : 'text-[#451a03]'
+              }`}
+            >
+              Delivery
+            </button>
+            <button
+              onClick={() => setFulfillmentType('pickup')}
+              className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg transition ${
+                fulfillmentType === 'pickup' ? 'bg-[#B91C1C] text-white' : 'text-[#451a03]'
+              }`}
+            >
+              Pick-Up
+            </button>
+            <button
+              onClick={() => setFulfillmentType('dine-in')}
+              className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg transition ${
+                fulfillmentType === 'dine-in' ? 'bg-[#B91C1C] text-white' : 'text-[#451a03]'
+              }`}
+            >
+              Dine-In
+            </button>
+          </div>
+        </div>
+
         {/* Best Sellers Section */}
         {selectedCategory === 'All' && searchQuery === '' && bestSellers.length > 0 && (
-          <section className="space-y-6 bg-[#FFF9F2] p-4 sm:p-8 rounded-2xl sm:rounded-[2rem] border border-amber-200/80 shadow-2xs w-full">
+          <section className="space-y-6 bg-[#FFF9F2] p-6 sm:p-8 rounded-[2rem] border border-amber-200/80 shadow-2xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-200/60 pb-4">
               <div>
-                <h2 className="text-xl sm:text-3xl font-black text-[#451a03] tracking-tight flex items-center gap-2">
-                  <span>Highest Rated &amp; Best Sellers</span>
+                <h2 className="text-2xl sm:text-3xl font-black text-[#451a03] tracking-tight flex items-center gap-2">
+                  <span>🔥 Best Sellers</span>
+                  <span className="text-[10px] bg-[#B91C1C] text-white px-2.5 py-0.5 rounded-full uppercase tracking-wider font-extrabold animate-pulse">
+                    Must Try
+                  </span>
                 </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-[#B91C1C] text-white uppercase tracking-wider">
-                  Must Try
-                </span>
                 <p className="text-xs sm:text-sm text-stone-600 mt-1">
-                  Our top customer favorites automatically calculated from customer reviews.
+                  Our most popular and highly-rated items loved by Cordova.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {bestSellers.map((item) => (
                 <MenuCard
                   key={`bestseller-${item.id}`}
@@ -265,7 +215,6 @@ export default function CustomerHome() {
                   isFavorite={favorites.includes(item.id)}
                   onAddToCart={handleAddToCart}
                   onToggleFavorite={handleToggleFavorite}
-                  onViewDetails={(selected) => setSelectedDetailItem(selected)}
                 />
               ))}
             </div>
@@ -273,10 +222,10 @@ export default function CustomerHome() {
         )}
 
         {/* Main Menu Ordering Section */}
-        <section id="menu-section" className="space-y-6 pt-2 sm:pt-4 w-full">
+        <section id="menu-section" className="space-y-6 pt-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-amber-200/60 pb-4">
             <div>
-              <h2 className="text-xl sm:text-3xl font-black text-[#451a03] tracking-tight">
+              <h2 className="text-2xl sm:text-3xl font-black text-[#451a03] tracking-tight">
                 Our Delicious Menu
               </h2>
               <p className="text-xs sm:text-sm text-stone-600 mt-1">
@@ -284,39 +233,23 @@ export default function CustomerHome() {
               </p>
             </div>
 
-            {/* Controls: Quick Stats & Auto Rating Sort selector */}
-            <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
-              <div className="text-xs font-bold text-stone-600 bg-white px-3.5 py-2 rounded-full border border-amber-200/80 shadow-2xs">
-                Showing <span className="font-extrabold text-[#B91C1C]">{filteredItems.length}</span> items
-              </div>
-
-              {/* Sort Selector */}
-              <div className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-amber-200/80 shadow-2xs">
-                <span className="text-xs text-stone-500 font-extrabold">Sort:</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortOption)}
-                  className="bg-transparent text-xs font-black text-[#451a03] focus:outline-none cursor-pointer"
-                >
-                  <option value="rating">Highest Rated First</option>
-                  <option value="price-asc">Price: Low to High</option>
-                  <option value="price-desc">Price: High to Low</option>
-                  <option value="name">Name: A to Z</option>
-                </select>
-              </div>
+            {/* Quick Stats Pill */}
+            <div className="text-xs font-bold text-stone-600 bg-white px-4 py-2 rounded-full border border-amber-200/80 shadow-2xs self-start sm:self-auto">
+              Showing <span className="font-extrabold text-[#B91C1C]">{filteredItems.length}</span> items
+              {selectedCategory !== 'All' && ` in ${selectedCategory}`}
             </div>
           </div>
 
-          {/* Sticky Category Scrollbar */}
-          <div className="sticky top-14 sm:top-20 z-30 bg-[#FFF8F0]/95 backdrop-blur-md py-2.5 -mx-3 px-3 sm:mx-0 sm:px-0 w-full overflow-hidden">
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 max-w-full">
+          {/* Sticky Category Scrollbar (Warm Cafe Style Category Tabs) */}
+          <div className="sticky top-20 z-30 bg-[#FFF8F0]/95 backdrop-blur-md py-3 -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar pb-1">
               {activeCategories.map((category) => {
                 const isActive = selectedCategory.toLowerCase() === category.toLowerCase();
                 return (
                   <button
                     key={category}
                     onClick={() => setSelectedCategory(category)}
-                    className={`px-4 py-2 sm:px-5 sm:py-2.5 rounded-full font-extrabold text-xs sm:text-sm whitespace-nowrap transition-all duration-200 shadow-2xs border ${
+                    className={`px-5 py-2.5 rounded-full font-extrabold text-xs sm:text-sm whitespace-nowrap transition-all duration-200 shadow-2xs border ${
                       isActive
                         ? 'bg-[#B91C1C] text-white border-[#B91C1C] shadow-red-500/20 scale-105'
                         : 'bg-white text-stone-700 border-amber-200/80 hover:border-amber-400 hover:bg-amber-50/50'
@@ -339,13 +272,12 @@ export default function CustomerHome() {
                   isFavorite={favorites.includes(item.id)}
                   onAddToCart={handleAddToCart}
                   onToggleFavorite={handleToggleFavorite}
-                  onViewDetails={(selected) => setSelectedDetailItem(selected)}
                 />
               ))}
             </div>
           ) : (
             <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-amber-300 p-8 shadow-2xs">
-              <Search className="w-12 h-12 text-stone-400 mx-auto mb-4" strokeWidth={1.5} />
+              <div className="text-5xl mb-4">🔍</div>
               <h3 className="text-xl font-extrabold text-[#451a03] mb-1">No items found</h3>
               <p className="text-sm text-stone-600 mb-6">
                 Try searching for a different item or switch category tabs.
@@ -366,8 +298,8 @@ export default function CustomerHome() {
         {/* Feature Highlights Section */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-8 border-t border-stone-200">
           <div className="p-6 bg-white rounded-2xl border border-stone-200 shadow-xs flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-              <Flame className="w-6 h-6" />
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center text-2xl shrink-0">
+              🔥
             </div>
             <div>
               <h4 className="font-bold text-stone-900 text-sm mb-1">Freshly Prepared</h4>
@@ -378,8 +310,8 @@ export default function CustomerHome() {
           </div>
 
           <div className="p-6 bg-white rounded-2xl border border-stone-200 shadow-xs flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
-              <Bike className="w-6 h-6" />
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center text-2xl shrink-0">
+              🛵
             </div>
             <div>
               <h4 className="font-bold text-stone-900 text-sm mb-1">Express Delivery</h4>
@@ -390,8 +322,8 @@ export default function CustomerHome() {
           </div>
 
           <div className="p-6 bg-white rounded-2xl border border-stone-200 shadow-xs flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
-              <Activity className="w-6 h-6" />
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-2xl shrink-0">
+              ✨
             </div>
             <div>
               <h4 className="font-bold text-stone-900 text-sm mb-1">Real-Time Tracking</h4>
@@ -418,7 +350,7 @@ export default function CustomerHome() {
               <ul className="space-y-2 text-xs text-amber-100/80 font-medium">
                 <li><Link href="/customer" className="hover:text-amber-300 transition">Online Menu &amp; Order</Link></li>
                 <li><Link href="/customer/orders" className="hover:text-amber-300 transition">Track My Orders</Link></li>
-                <li><Link href="/customer/favorites" className="hover:text-amber-300 transition">My Favorites</Link></li>
+                <li><Link href="/customer/favorites" className="hover:text-amber-300 transition">My Rewards &amp; Favorites</Link></li>
               </ul>
             </div>
             <div>
@@ -437,62 +369,10 @@ export default function CustomerHome() {
             </div>
           </div>
           <div className="border-t border-[#592205] pt-6 text-center text-xs text-amber-200/50">
-            © {2026} Eat n' RepEat Café Cordova. All rights reserved.
+            © {new Date().getFullYear()} Eat n' RepEat Café Cordova. All rights reserved.
           </div>
         </div>
       </footer>
-
-      {/* Item Details Modal */}
-      <MenuItemDetailsModal
-        item={selectedDetailItem}
-        isOpen={Boolean(selectedDetailItem)}
-        onClose={() => setSelectedDetailItem(null)}
-        onAddToCart={handleAddToCart}
-      />
-
-      {/* Guest Favorites Modal */}
-      {showAuthModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-amber-200/80 shadow-2xl space-y-6 text-center animate-in fade-in-50 zoom-in-95 duration-200">
-            <div className="mx-auto w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-2 shadow-inner">
-              <Heart className="w-8 h-8 fill-current" />
-            </div>
-            
-            <div className="space-y-2">
-              <h2 className="text-xl sm:text-2xl font-black text-[#451a03]">
-                Sign in to save favorites
-              </h2>
-              <p className="text-xs sm:text-sm text-stone-600 leading-relaxed font-semibold">
-                Create an account or sign in to save your favorite menu items.
-              </p>
-            </div>
-            
-            <div className="space-y-3 pt-2">
-              <Link
-                href="/customer/login"
-                onClick={() => setShowAuthModal(false)}
-                className="block w-full py-3 bg-[#B91C1C] hover:bg-[#991B1B] text-white rounded-xl font-black text-sm shadow-md transition hover:scale-[1.02] active:scale-95 text-center"
-              >
-                Sign In
-              </Link>
-              <Link
-                href="/customer/register"
-                onClick={() => setShowAuthModal(false)}
-                className="block w-full py-3 bg-white text-stone-850 border border-stone-300 hover:bg-stone-50 rounded-xl font-black text-sm transition hover:scale-[1.02] active:scale-95 text-center"
-              >
-                Create Account
-              </Link>
-              <button
-                type="button"
-                onClick={() => setShowAuthModal(false)}
-                className="block w-full py-2.5 text-xs text-stone-500 hover:text-stone-800 font-extrabold hover:underline"
-              >
-                Continue Browsing
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Slide-over Cart Drawer */}
       <CartDrawer

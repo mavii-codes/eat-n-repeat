@@ -4,10 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
 import { useAuth } from "@/context/AuthContext";
-import { useState } from "react";
-import { useLocalMode, startLocalMode, stopLocalMode } from "@/lib/customer/useLocalMode";
-import { LocalModeModal } from "@/components/admin/LocalModeModal";
-import { Server } from "lucide-react";
 
 const navGroups = [
   {
@@ -40,23 +36,6 @@ const navGroups = [
     ],
   },
   {
-    label: "Finance",
-    items: [
-      {
-        href: "/admin/cash",
-        label: "Cash Management",
-        description: "Shifts & Reconciliation",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <rect x="2" y="5" width="20" height="14" rx="2" />
-            <circle cx="12" cy="12" r="3" />
-            <path d="M2 9h20M2 15h20" />
-          </svg>
-        ),
-      },
-    ],
-  },
-  {
     label: "Operations",
     items: [
       {
@@ -76,16 +55,6 @@ const navGroups = [
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
             <path d="M4 7h7v7H4zM13 7h7v4h-7zM13 14h7v3h-7z" />
-          </svg>
-        ),
-      },
-      {
-        href: "/admin/addons",
-        label: "Add-ons",
-        description: "Manage extras",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <path d="M12 5v14M5 12h14" />
           </svg>
         ),
       },
@@ -162,16 +131,6 @@ const navGroups = [
           </svg>
         ),
       },
-      {
-        href: "/admin/reviews",
-        label: "Customer Reviews",
-        description: "Manage customer feedback",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-        ),
-      },
 
     ],
   },
@@ -189,18 +148,6 @@ const navGroups = [
           </svg>
         ),
       },
-      {
-        href: "/admin/settings/operating-mode",
-        label: "Operating Mode",
-        description: "Online / Local mode",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <circle cx="12" cy="12" r="10" />
-            <line x1="2" y1="12" x2="22" y2="12" />
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-          </svg>
-        ),
-      },
     ],
   },
 ];
@@ -208,15 +155,12 @@ const navGroups = [
 function isActive(pathname: string, href: string) {
   if (href === "/admin") return pathname === "/admin";
   if (href === "/admin/delivery") return pathname === "/admin/delivery";
-  if (href === "/admin/settings") return pathname === "/admin/settings";
   return pathname.startsWith(href);
 }
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const isLocalMode = useLocalMode();
-  const [isLocalModeModalOpen, setIsLocalModeModalOpen] = useState(false);
 
   return (
     <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
@@ -268,38 +212,6 @@ export function AdminSidebar() {
       </nav>
 
       <div className="border-t border-white/8 px-6 py-5 space-y-4">
-        {/* SYSTEM MODE SWITCH */}
-        <div className="px-4 pt-4">
-          <div className={`rounded-xl border p-3 ${isLocalMode ? 'bg-amber-500/15 border-amber-500/30' : 'bg-emerald-500/15 border-emerald-500/30'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Server className={`h-4 w-4 ${isLocalMode ? 'text-amber-400' : 'text-emerald-400'}`} />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/70">System Mode</span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className={`text-xs font-bold ${isLocalMode ? 'text-amber-300' : 'text-emerald-300'}`}>
-                {isLocalMode ? 'LOCAL MODE ACTIVE' : 'ONLINE MODE'}
-              </span>
-              <button
-                onClick={() => {
-                  if (isLocalMode) {
-                    stopLocalMode();
-                  } else {
-                    setIsLocalModeModalOpen(true);
-                  }
-                }}
-                className={`text-[10px] font-bold px-2.5 py-1 rounded-lg transition-colors ${
-                  isLocalMode
-                    ? 'bg-white/10 text-white/80 hover:bg-white/20'
-                    : 'bg-white/10 text-white/80 hover:bg-white/20'
-                }`}
-              >
-                {isLocalMode ? 'Switch to Online' : 'Switch to Local'}
-              </button>
-            </div>
-          </div>
-        </div>
         {user && (
           <div className="rounded-xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm flex flex-col gap-2">
             <div>
@@ -323,7 +235,6 @@ export function AdminSidebar() {
           </p>
         </div>
       </div>
-      <LocalModeModal isOpen={isLocalModeModalOpen} onClose={() => setIsLocalModeModalOpen(false)} />
     </aside>
   );
 }

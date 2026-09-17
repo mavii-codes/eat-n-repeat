@@ -5,14 +5,11 @@ import {
   useContext,
   useEffect,
   useState,
-  useCallback,
 } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminData } from "@/context/AdminDataContext";
-import { getApiUrl } from "@/lib/config";
 import type { StaffAccount, StaffAccountInput } from "@/lib/admin/types";
 
-const TOKEN_KEY = "eat-n-repeat-staff-token";
 const SESSION_KEY = "eat-n-repeat-auth-session";
 
 type AuthContextValue = {
@@ -34,82 +31,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<StaffAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { updateStaffAccount } = useAdminData();
+  const { staffAccounts, updateStaffAccount } = useAdminData();
   const router = useRouter();
 
-  // Restore session from JWT token on mount
+  // Load session from local storage on mount
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) {
-      // Clean up legacy session key
-      localStorage.removeItem(SESSION_KEY);
-      setLoading(false);
-      return;
-    }
-
-    (async () => {
+    const storedSession = localStorage.getItem(SESSION_KEY);
+    if (storedSession) {
       try {
-        const res = await fetch(`${getApiUrl()}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-          // Fail fast: a dead/stale backend address must never spin forever.
-          signal: AbortSignal.timeout(8000),
-        });
-        if (res.ok) {
-          const { user: apiUser } = await res.json();
-          setUser(apiUser as StaffAccount);
+        const parsedUser = JSON.parse(storedSession) as StaffAccount;
+        // Verify user still exists, is active, and is not archived in the master admin list
+        const activeStaff = staffAccounts.find(
+          (acc) => acc.id === parsedUser.id && !acc.archived && acc.status === "active"
+        );
+        if (activeStaff) {
+          setUser(activeStaff);
         } else {
-          // Server answered but rejected the token → it is invalid. Drop it.
-          localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(SESSION_KEY);
         }
       } catch {
-        // Network error / timeout: server unreachable. KEEP the token —
-        // a blip must not log staff out; the login page explains the retry.
-        // (Previously this branch wiped the token, forcing a full re-login
-        // after every outage.)
+        localStorage.removeItem(SESSION_KEY);
       }
-      setLoading(false);
-    })();
-  }, []);
+    }
+    setLoading(false);
+  }, [staffAccounts]);
 
-  const clearError = useCallback(() => setError(null), []);
+  const clearError = () => setError(null);
 
-  const login = useCallback(async (usernameOrEmail: string, passwordInput: string): Promise<boolean> => {
+  const login = async (usernameOrEmail: string, passwordInput: string): Promise<boolean> => {
     setError(null);
-    try {
-      const res = await fetch(`${getApiUrl()}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier: usernameOrEmail.trim(), password: passwordInput }),
-      });
+    console.log("LOGIN ATTEMPT:", { usernameOrEmail, passwordInput, staffAccounts });
+    // Find account
+    const matchedAccount = staffAccounts.find(
+      (acc) =>
+        (acc.username?.toLowerCase() === usernameOrEmail.trim().toLowerCase() ||
+          acc.email?.toLowerCase() === usernameOrEmail.trim().toLowerCase()) &&
+        !acc.archived
+    );
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.message || "Invalid username/email or password.");
-        return false;
-      }
-
-      localStorage.setItem(TOKEN_KEY, data.token);
-      setUser(data.user as StaffAccount);
-      return true;
-    } catch {
-      setError("Unable to reach the server. Please try again.");
+    if (!matchedAccount) {
+      setError("Invalid username/email or password.");
       return false;
     }
-  }, []);
 
-  const logout = useCallback(() => {
+    if (matchedAccount.status !== "active") {
+      setError("This account is currently inactive. Please contact the administrator.");
+      return false;
+    }
+
+    // Verify password
+    if (matchedAccount.password !== passwordInput) {
+      setError("Invalid username/email or password.");
+      return false;
+    }
+
+    // Set user
+    setUser(matchedAccount);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(matchedAccount));
+    return true;
+  };
+
+  const logout = () => {
     setUser(null);
-    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(SESSION_KEY);
     router.push("/login");
-  }, [router]);
+  };
 
   const isAuthenticated = user !== null;
   const isAdmin = user?.role === "admin";
 
-  const changePassword = useCallback((newPassword: string) => {
+  const changePassword = (newPassword: string) => {
     if (!user) return;
 
     const input: StaffAccountInput = {
@@ -119,28 +110,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password: newPassword,
       role: user.role,
       status: user.status,
-      availability: user.availability || "Offline",
     };
 
     updateStaffAccount(user.id, input);
-  }, [user, updateStaffAccount]);
 
-  const updateProfile = useCallback((name: string, email: string, username: string) => {
+    const updatedUser = { ...user, password: newPassword };
+    setUser(updatedUser);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
+  };
+
+  const updateProfile = (name: string, email: string, username: string) => {
     if (!user) return;
 
     const input: StaffAccountInput = {
       name,
       username,
       email,
+      password: user.password || "staff123",
       role: user.role,
       status: user.status,
-      availability: user.availability || "Offline",
     };
 
     updateStaffAccount(user.id, input);
 
-    setUser({ ...user, name, email, username });
-  }, [user, updateStaffAccount]);
+    const updatedUser = { ...user, name, email, username };
+    setUser(updatedUser);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
+  };
 
   return (
     <AuthContext.Provider

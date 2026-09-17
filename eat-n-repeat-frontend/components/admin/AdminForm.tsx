@@ -37,7 +37,6 @@ type AdminButtonProps = {
   type?: "button" | "submit";
   onClick?: () => void;
   disabled?: boolean;
-  className?: string;
 };
 
 const variants = {
@@ -54,14 +53,13 @@ export function AdminButton({
   type = "button",
   onClick,
   disabled,
-  className = "",
 }: AdminButtonProps) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}
+      className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]}`}
     >
       {children}
     </button>

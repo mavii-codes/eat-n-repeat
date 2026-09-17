@@ -1,86 +1,51 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { useSession } from 'next-auth/react';
+import { useState } from 'react';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
 import { MenuCard, type CustomerMenuItem } from '@/components/customer/MenuCard';
 import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
-import { useAdminData } from '@/context/AdminDataContext';
-import { useReviews } from '@/context/ReviewsContext';
-import { Heart } from 'lucide-react';
 import Link from 'next/link';
 
-export default function FavoritesPage() {
-  const { menuItems, menuCategories } = useAdminData();
-  const { getAverageRating } = useReviews();
-  const { data: session, status } = useSession();
-  const accessToken = (session as any)?.accessToken as string | undefined;
+const favoriteItems: CustomerMenuItem[] = [
+  {
+    id: '1',
+    name: 'House Special Latte',
+    description: 'Silky double shot espresso with velvety steamed milk and vanilla bean',
+    price: 145,
+    image: 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
+    category: 'Coffee',
+    rating: 4.8,
+    reviews: 38,
+    badge: '⭐ Bestseller',
+  },
+  {
+    id: '2',
+    name: 'Signature Chicken Inasal Rice Bowl',
+    description: 'Flame-grilled marinated chicken thigh with annatto rice and spiced vinegar',
+    price: 189,
+    image: 'https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?w=600&auto=format&fit=crop',
+    category: 'Meals',
+    rating: 4.9,
+    reviews: 52,
+    badge: '⭐ Bestseller',
+  },
+  {
+    id: '3',
+    name: 'Uji Matcha Milktea',
+    description: 'Creamy authentic Japanese matcha topped with cheese foam',
+    price: 139,
+    image: 'https://images.unsplash.com/photo-1536256263959-770b48d82b0a?w=600&auto=format&fit=crop',
+    category: 'Milktea',
+    rating: 4.7,
+    reviews: 34,
+  },
+];
 
-  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+export default function FavoritesPage() {
+  const [favorites, setFavorites] = useState<CustomerMenuItem[]>(favoriteItems);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
-  const [isInitialized, setIsInitialized] = useState(false);
-
-  // Initialize cart from localStorage on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('eat-n-repeat-cart');
-      if (saved) {
-        try {
-          setCartItems(JSON.parse(saved));
-        } catch (e) {}
-      }
-      setIsInitialized(true);
-    }
-  }, []);
-
-  // Sync cart changes back to localStorage
-  useEffect(() => {
-    if (isInitialized && typeof window !== 'undefined') {
-      localStorage.setItem('eat-n-repeat-cart', JSON.stringify(cartItems));
-    }
-  }, [cartItems, isInitialized]);
-
-  useEffect(() => {
-    if (session?.user && accessToken) {
-      import('@/lib/config').then(({ getApiUrl }) => {
-        fetch(`${getApiUrl()}/api/customer-favorites`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (Array.isArray(data)) setFavoriteIds(data);
-          })
-          .catch(console.error);
-      });
-    } else {
-      setFavoriteIds([]);
-    }
-  }, [session, accessToken]);
-
-  const favorites = useMemo(() => {
-    return favoriteIds.map((id) => {
-      const item = menuItems.find(m => m.id === id);
-      if (!item) return null;
-      
-      const categoryObj = menuCategories.find((c) => c.id === item.categoryId);
-      const categoryName = categoryObj?.name || 'General';
-      const liveSummary = getAverageRating(item.id);
-      
-      return {
-        id: item.id,
-        name: item.name,
-        description: item.description,
-        price: item.price,
-        image: item.image,
-        category: categoryName,
-        rating: liveSummary.averageRating,
-        reviews: liveSummary.totalReviews,
-        available: item.available
-      };
-    }).filter(Boolean) as CustomerMenuItem[];
-  }, [favoriteIds, menuItems, menuCategories, getAverageRating]);
 
   const handleAddToCart = (item: CustomerMenuItem) => {
     setCartItems((prev) => {
@@ -94,18 +59,8 @@ export default function FavoritesPage() {
     });
   };
 
-  const handleToggleFavorite = async (id: string) => {
-    setFavoriteIds((prev) => prev.filter((favId) => favId !== id));
-    try {
-      const { getApiUrl } = await import('@/lib/config');
-      await fetch(`${getApiUrl()}/api/customer-favorites/${id}`, { 
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-    } catch (error) {
-      console.error('Failed to remove favorite', error);
-      setFavoriteIds((prev) => [...prev, id]);
-    }
+  const handleToggleFavorite = (id: string) => {
+    setFavorites((prev) => prev.filter((item) => item.id !== id));
   };
 
   const totalCartCount = cartItems.reduce((acc, ci) => acc + ci.quantity, 0);
@@ -122,43 +77,13 @@ export default function FavoritesPage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
         <div className="border-b border-amber-200/60 pb-4">
-          <h1 className="text-3xl font-black text-[#451a03] flex items-center gap-3">
-            Your Favorite Items <Heart className="w-7 h-7 text-[#B91C1C] fill-current" />
-          </h1>
+          <h1 className="text-3xl font-black text-[#451a03]">Your Favorite Items ❤️</h1>
           <p className="text-sm text-stone-600 mt-1">
             Quick access to the meals and drinks you love most.
           </p>
         </div>
 
-        {status === 'loading' ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
-          </div>
-        ) : !session?.user ? (
-          <div className="text-center py-24 px-4 bg-white rounded-3xl border border-amber-100 shadow-sm max-w-2xl mx-auto">
-            <div className="mx-auto w-20 h-20 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-6 shadow-inner">
-              <Heart className="w-10 h-10 fill-current" />
-            </div>
-            <h2 className="text-2xl font-black text-[#451a03] mb-3">Sign in to view favorites</h2>
-            <p className="text-stone-500 max-w-sm mx-auto mb-8 font-medium">
-              Create an account or sign in to save your favorite menu items and access them anytime.
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link
-                href="/customer/login"
-                className="w-full sm:w-auto px-8 py-3.5 bg-[#B91C1C] hover:bg-[#991B1B] text-white rounded-xl font-bold transition shadow-sm"
-              >
-                Sign In
-              </Link>
-              <Link
-                href="/customer/register"
-                className="w-full sm:w-auto px-8 py-3.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 rounded-xl font-bold transition"
-              >
-                Create Account
-              </Link>
-            </div>
-          </div>
-        ) : favorites.length > 0 ? (
+        {favorites.length > 0 ? (
           <>
             <div className="text-xs font-bold text-stone-600">
               You have <span className="font-extrabold text-[#B91C1C]">{favorites.length}</span> saved item{favorites.length !== 1 ? 's' : ''}
@@ -177,19 +102,25 @@ export default function FavoritesPage() {
             </div>
           </>
         ) : (
-          <div className="text-center py-20 px-4 bg-white rounded-3xl border border-amber-100 shadow-sm">
-            <div className="mx-auto w-20 h-20 bg-stone-50 text-stone-400 rounded-full flex items-center justify-center mb-6 shadow-inner">
-              <Heart className="w-10 h-10 stroke-[1.5]" />
-            </div>
-            <h2 className="text-2xl font-black text-[#451a03] mb-3">No favorites yet</h2>
-            <p className="text-stone-500 max-w-sm mx-auto mb-8 font-medium">
-              Tap the heart on a menu item to save it here.
+          <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-amber-300 p-8 shadow-2xs">
+            <div className="text-5xl mb-4">❤️</div>
+            <h3 className="text-xl font-extrabold text-[#451a03] mb-1">No favorites saved yet</h3>
+            <p className="text-sm text-stone-600 mb-6">
+              Click the heart icon on any food item to quickly access it here!
             </p>
             <Link
-              href="/customer/menu"
-              className="inline-flex items-center justify-center px-8 py-3.5 bg-[#B91C1C] hover:bg-[#991B1B] text-white rounded-xl font-bold transition shadow-sm"
+              href="/customer"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-[#B91C1C] text-white rounded-xl text-xs font-black hover:bg-[#991B1B] transition shadow-md hover:scale-105 group"
             >
-              Browse Menu
+              <span>Browse Menu &amp; Order Now</span>
+              <svg
+                className="w-3.5 h-3.5 text-white transition-transform group-hover:translate-x-1 duration-200"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
             </Link>
           </div>
         )}

@@ -3,8 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { ReviewsProvider } from "@/context/ReviewsContext";
-import { StaffNotificationProvider } from "@/context/StaffNotificationContext";
+import { OnlineIndicator } from "@/components/shared/OnlineIndicator";
 
 export default function StaffLayout({
   children,
@@ -32,10 +31,9 @@ export default function StaffLayout({
   }
 
   return (
-    <ReviewsProvider>
-      <StaffNotificationProvider>
-        {children}
-      </StaffNotificationProvider>
-    </ReviewsProvider>
+    <>
+      <OnlineIndicator />
+      {children}
+    </>
   );
 }

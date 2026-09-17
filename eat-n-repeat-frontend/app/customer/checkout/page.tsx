@@ -6,9 +6,6 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
-import { useLocalMode } from '@/lib/customer/useLocalMode';
-import { useNetworkStatus } from '@/context/NetworkStatusContext';
-import toast from "react-hot-toast";
 
 type CartCheckoutItem = {
   id: string;
@@ -37,13 +34,8 @@ const defaultCheckoutItems: CartCheckoutItem[] = [
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { addDeliveryOrder, addStoreOrder } = useAdminData();
+  const { addDeliveryOrder } = useAdminData();
   const { data: session, status } = useSession();
-  const isLocalMode = useLocalMode();
-  const { onlineOrdering } = useNetworkStatus();
-
-  const isOnlineOrder = !isLocalMode;
-  const isOnlineOrderingUnavailable = isOnlineOrder && onlineOrdering !== "AVAILABLE";
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
@@ -132,7 +124,7 @@ export default function CheckoutPage() {
   const isEmailError = (submitted || touched.email) && !email.trim();
   const isMobileError = (submitted || touched.mobileNumber) && (!mobileNumber.trim() || mobileNumber.trim() === '+63');
 
-  const handlePlaceOrder = async (e?: React.FormEvent) => {
+  const handlePlaceOrder = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSubmitted(true);
 
@@ -141,138 +133,29 @@ export default function CheckoutPage() {
     }
 
     if (items.length === 0) {
-      toast.error('Your cart is empty. Please add items to order!');
+      alert('Your cart is empty. Please add items to order!');
       return;
     }
 
-    // Block online orders when online ordering is unavailable
-    if (isOnlineOrderingUnavailable) {
-      toast.error("Online Ordering Temporarily Unavailable \u2014 Eat n\u2019 RepEat Caf\u00e9 is currently unable to receive online orders. Please try again later or visit the caf\u00e9.", { duration: 8000 });
-      return;
-    }
-
-    // Process order (wrapped: network aborts must toast, never strand the UI)
-    try {
+    // Process order
     const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}`).join(', ');
     
-    if (isLocalMode) {
-      const { getApiUrl } = await import('@/lib/config');
-      const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
-
-      const orderDetails = {
-        orderNumber,
-        customerName: `${firstName.trim()} ${lastName.trim()}`,
-        phone: mobileNumber.trim() || 'LocalGuest',
-        address: 'Counter',
-        type: 'dine-in',
-        items: orderItemsSummary,
-        subtotal,
-        deliveryFee: 0,
-        total,
-        notes: null,
-        selectedAddons: [],
-      };
-
-      const response = await fetch(`${getApiUrl()}/api/payments/checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderDetails, paymentMethod: 'Cash', orderMode: 'local' }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to process order');
-      }
-
-      // Also add to local store for immediate dashboard visibility
-      addStoreOrder({
-        id: `local-${Date.now()}`,
-        orderId: data.orderNumber || orderNumber,
-        customerName: `${firstName.trim()} ${lastName.trim()}`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        items: orderItemsSummary,
-        total,
-        status: 'pending',
-        paid: false,
-        paymentMethod: 'cash',
-        orderType: 'dine-in'
-      });
-    } else {
-      // Online order — submit to cloud
-      const { getApiUrl } = await import('@/lib/config');
-      const accessToken = (session as any)?.accessToken as string | undefined;
-      const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
-
-      const orderDetails = {
-        orderNumber,
-        customerName: `${firstName.trim()} ${lastName.trim()}`,
-        phone: mobileNumber.trim(),
-        address: 'Near Aby Road, Poblacion, Cordova, Cebu',
-        serviceAreaId: 'sa-2',
-        type: 'pickup',
-        items: orderItemsSummary,
-        subtotal,
-        deliveryFee: 0,
-        total,
-        notes: null,
-        selectedAddons: [],
-      };
-
-      const backendPaymentMethod = paymentMethod === 'gcash' ? 'GCash' : 'Cash';
-
-      const response = await fetch(`${getApiUrl()}/api/payments/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-        },
-        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod, orderMode: 'online' }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 503 && data.error === 'ONLINE_ORDERING_UNAVAILABLE') {
-          toast.error("Online Ordering Temporarily Unavailable \u2014 Eat n\u2019 RepEat Caf\u00e9 is currently unable to receive online orders. Please try again later or visit the caf\u00e9.", { duration: 8000 });
-          setSubmitted(false);
-          return;
-        }
-        throw new Error(data.error || 'Failed to process order');
-      }
-
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to process order');
-      }
-
-      // Only add local optimistic state after confirmed success
-      addDeliveryOrder({
-        orderNumber: data.orderNumber || orderNumber,
-        customerName: `${firstName.trim()} ${lastName.trim()}`,
-        phone: mobileNumber.trim(),
-        address: 'Near Aby Road, Poblacion, Cordova, Cebu',
-        serviceAreaId: 'sa-2',
-        items: orderItemsSummary,
-        subtotal,
-        deliveryFee: 0,
-        total,
-        status: 'pending',
-        orderedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      });
-    }
+    addDeliveryOrder({
+      orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+      customerName: `${firstName.trim()} ${lastName.trim()}`,
+      phone: mobileNumber.trim(),
+      address: 'Near Aby Road, Poblacion, Cordova, Cebu',
+      serviceAreaId: 'sa-2',
+      items: orderItemsSummary,
+      subtotal,
+      deliveryFee: 0,
+      total,
+      status: 'pending',
+      orderedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
 
     localStorage.removeItem('eat-n-repeat-cart');
     setOrderSuccess(true);
-    } catch (err: any) {
-      console.error('Place order error:', err);
-      setSubmitted(false);
-      toast.error(
-        err?.name === 'AbortError'
-          ? 'Server unreachable — check the café connection and try again.'
-          : err?.message || 'Failed to process order. Please try again.'
-      );
-    }
   };
 
   if (orderSuccess) {
@@ -282,22 +165,10 @@ export default function CheckoutPage() {
           <div className="w-16 h-16 bg-[#FFF1E0] text-[#B91C1C] rounded-full flex items-center justify-center text-3xl mx-auto">
             ✓
           </div>
-          <h2 className="text-2xl font-black text-stone-900">
-            {isLocalMode ? 'Payment Required' : 'Order Placed Successfully!'}
-          </h2>
+          <h2 className="text-2xl font-black text-stone-900">Order Placed Successfully!</h2>
           <p className="text-sm text-stone-600">
-            {isLocalMode ? (
-              <>
-                Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
-                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received. <br /><br />
-                <strong className="text-stone-900 text-base">Please proceed to the cashier to complete your payment.</strong>
-              </>
-            ) : (
-              <>
-                Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
-                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.
-              </>
-            )}
+            Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
+            <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.
           </p>
           <div className="pt-4 space-y-2">
             <Link
@@ -463,9 +334,7 @@ export default function CheckoutPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-lg">💳</span>
                     <span>
-                      {isLocalMode
-                        ? 'Cash (Pay at Cashier)'
-                        : paymentMethod === 'cod'
+                      {paymentMethod === 'cod'
                         ? 'Cash on Delivery (COD)'
                         : paymentMethod === 'gcash'
                         ? 'GCash E-Wallet'
@@ -479,41 +348,28 @@ export default function CheckoutPage() {
 
                 {showPaymentOptions && (
                   <div className="mt-2 bg-white rounded-xl border border-stone-200 shadow-lg p-2 space-y-1">
-                    {isLocalMode ? (
+                    {[
+                      { id: 'cod', label: '💵 Cash on Delivery (COD)' },
+                      { id: 'gcash', label: '📱 GCash E-Wallet' },
+                      { id: 'maya', label: '📱 Maya E-Wallet' },
+                      { id: 'card', label: '💳 Credit / Debit Card' },
+                    ].map((opt) => (
                       <button
+                        key={opt.id}
                         type="button"
                         onClick={() => {
-                          setPaymentMethod('cod');
+                          setPaymentMethod(opt.id as any);
                           setShowPaymentOptions(false);
                         }}
-                        className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition bg-rose-50 text-[#B91C1C]`}
+                        className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition ${
+                          paymentMethod === opt.id
+                            ? 'bg-rose-50 text-[#B91C1C]'
+                            : 'hover:bg-stone-50 text-stone-700'
+                        }`}
                       >
-                        💵 Cash (Pay at Cashier)
+                        {opt.label}
                       </button>
-                    ) : (
-                      [
-                        { id: 'cod', label: '💵 Cash on Delivery (COD)' },
-                        { id: 'gcash', label: '📱 GCash E-Wallet' },
-                        { id: 'maya', label: '📱 Maya E-Wallet' },
-                        { id: 'card', label: '💳 Credit / Debit Card' },
-                      ].map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setPaymentMethod(opt.id as any);
-                            setShowPaymentOptions(false);
-                          }}
-                          className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition ${
-                            paymentMethod === opt.id
-                              ? 'bg-rose-50 text-[#B91C1C]'
-                              : 'hover:bg-stone-50 text-stone-700'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
@@ -635,7 +491,7 @@ export default function CheckoutPage() {
         </div>
       </main>
 
-      {status === 'unauthenticated' && !isLocalMode && (
+      {status === 'unauthenticated' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-amber-200/80 shadow-2xl space-y-6 text-center animate-in fade-in-50 zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-[#FFF1E0] text-[#E85A1C] rounded-full flex items-center justify-center text-3xl mx-auto shadow-2xs">

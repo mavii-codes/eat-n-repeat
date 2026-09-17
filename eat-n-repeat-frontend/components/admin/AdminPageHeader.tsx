@@ -2,10 +2,9 @@ type AdminPageHeaderProps = {
   title: string;
   subtitle: string;
   badge?: string;
-  action?: React.ReactNode;
 };
 
-export function AdminPageHeader({ title, subtitle, badge, action }: AdminPageHeaderProps) {
+export function AdminPageHeader({ title, subtitle, badge }: AdminPageHeaderProps) {
   const today = new Date().toLocaleDateString("en-PH", {
     weekday: "long",
     month: "long",
@@ -25,14 +24,11 @@ export function AdminPageHeader({ title, subtitle, badge, action }: AdminPageHea
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-7 text-muted">{subtitle}</p>
       </div>
-      <div className="flex flex-col sm:items-end gap-3">
-        {action}
-        <div className="rounded-xl border border-accent/10 bg-accent-light/60 px-4 py-3 text-right">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent/70">
-            Today
-          </p>
-          <p className="mt-1 text-sm font-medium text-ink">{today}</p>
-        </div>
+      <div className="rounded-xl border border-accent/10 bg-accent-light/60 px-4 py-3 text-right">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent/70">
+          Today
+        </p>
+        <p className="mt-1 text-sm font-medium text-ink">{today}</p>
       </div>
     </div>
   );

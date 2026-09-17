@@ -5,12 +5,8 @@ type RecentOrdersTableProps = {
   onArchive?: (order: RecentOrder) => void;
 };
 
-const statusStyles: Record<string, string> = {
+const statusStyles = {
   pending: "bg-amber-100 text-amber-800 ring-1 ring-amber-200",
-  awaiting_payment: "bg-yellow-100 text-yellow-800 ring-1 ring-yellow-200",
-  confirmed: "bg-blue-100 text-blue-800 ring-1 ring-blue-200",
-  preparing: "bg-orange-100 text-orange-800 ring-1 ring-orange-200",
-  ready: "bg-purple-100 text-purple-800 ring-1 ring-purple-200",
   completed: "bg-green-100 text-green-800 ring-1 ring-green-200",
   cancelled: "bg-red-100 text-red-800 ring-1 ring-red-200",
 };
@@ -63,7 +59,7 @@ export function RecentOrdersTable({ orders, onArchive }: RecentOrdersTableProps)
               </tr>
             ) : (
               orders.map((order) => (
-                <tr key={order.id} className={`border-b border-accent/5 last:border-0 ${order.status === 'awaiting_payment' ? 'bg-yellow-50/50 border-yellow-200/50' : ''}`}>
+                <tr key={order.id} className="border-b border-accent/5 last:border-0">
                   <td className="px-4 py-3 font-medium text-accent">
                     {order.orderId}
                   </td>
@@ -76,7 +72,7 @@ export function RecentOrdersTable({ orders, onArchive }: RecentOrdersTableProps)
                     <span
                       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusStyles[order.status]}`}
                     >
-                      {order.status === 'awaiting_payment' ? 'Payment Pending' : order.status.replace('_', ' ')}
+                      {order.status}
                     </span>
                   </td>
                   {onArchive && (

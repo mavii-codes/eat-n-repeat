@@ -47,7 +47,7 @@ export default function ArchivesPage() {
     [menuCategories],
   );
   const archivedStaff = useMemo(
-    () => staffAccounts.filter((staff) => staff.archived),
+    () => staffAccounts.filter((account) => account.archived),
     [staffAccounts],
   );
   const archivedStoreOrders = useMemo(

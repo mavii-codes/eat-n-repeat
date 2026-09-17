@@ -1,10 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
-import { useLocalMode } from '@/lib/customer/useLocalMode';
-import { useReviews } from '@/context/ReviewsContext';
-import { Star, Flame, Milk } from 'lucide-react';
+import { useState } from 'react';
 
 export type CustomerMenuItem = {
   id: string;
@@ -17,22 +14,11 @@ export type CustomerMenuItem = {
   reviews?: number;
   badge?: string;
   available?: boolean;
-  calories?: string;
-  allergens?: string[];
-  spiceLevel?: string;
-  servingSize?: string;
-  notes?: string;
-  prepTime?: string;
-  deliveryTime?: string;
-  ingredients?: string[];
-  categoryIcon?: string;
-  customizations?: any; // We will use CustomizationConfig type where needed
 };
 
 type MenuCardProps = CustomerMenuItem & {
   onAddToCart?: (item: CustomerMenuItem) => void;
   onToggleFavorite?: (id: string) => void;
-  onViewDetails?: (item: CustomerMenuItem) => void;
   isFavorite?: boolean;
 };
 
@@ -43,81 +29,41 @@ export function MenuCard({
   price,
   image,
   category,
-  rating: propRating = 4.8,
-  reviews: propReviews = 32,
+  rating = 4.8,
+  reviews = 32,
   badge,
   available = true,
-  calories,
-  allergens,
-  spiceLevel,
-  servingSize,
   onAddToCart,
   onToggleFavorite,
-  onViewDetails,
   isFavorite = false,
-  customizations,
 }: MenuCardProps) {
-  const isLocalMode = useLocalMode();
-  const { getAverageRating } = useReviews();
-  const liveSummary = getAverageRating(id);
-  
-  // Use live review data if available, otherwise fall back to prop defaults
-  const rating = liveSummary.totalReviews > 0 ? liveSummary.averageRating : propRating;
-  const reviews = liveSummary.totalReviews > 0 ? liveSummary.totalReviews : propReviews;
-
-  // Requirement: If average rating >= 4.5 with at least 10 reviews, auto show "Top Rated" badge
-  const isAutoTopRated = rating >= 4.5 && reviews >= 10;
-  const effectiveBadge = isAutoTopRated ? 'Top Rated' : badge;
-
+  const [favorite, setFavorite] = useState(isFavorite);
   const [added, setAdded] = useState(false);
 
   const fallbackImage = 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop';
-  const initialDisplayImage = image && image.trim().length > 0 ? image : fallbackImage;
-  const [imgSrc, setImgSrc] = useState(initialDisplayImage);
-
-  useEffect(() => {
-    setImgSrc(image && image.trim().length > 0 ? image : fallbackImage);
-  }, [image]);
+  const displayImage = image && image.trim().length > 0 ? image : fallbackImage;
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setFavorite(!favorite);
     if (onToggleFavorite) {
       onToggleFavorite(id);
-    }
-  };
-
-  const handleCardClick = () => {
-    if (onViewDetails) {
-      onViewDetails({
-        id,
-        name,
-        description,
-        price,
-        image: imgSrc,
-        category,
-        rating,
-        reviews,
-        badge: effectiveBadge,
-        available,
-        calories,
-        allergens,
-        spiceLevel,
-        servingSize,
-        customizations,
-      });
     }
   };
 
   const handleAddClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!available) return;
-    handleCardClick();
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1200);
+    if (onAddToCart) {
+      onAddToCart({ id, name, description, price, image: displayImage, category, rating, reviews, badge, available });
+    }
   };
 
   return (
     <div
-      onClick={handleCardClick}
-      className={`group relative rounded-3xl overflow-hidden bg-white border transition-all duration-300 flex flex-col justify-between cursor-pointer ${
+      className={`group relative rounded-3xl overflow-hidden bg-white border transition-all duration-300 flex flex-col justify-between ${
         available
           ? 'border-[#F2E1D0] hover:border-[#B91C1C]/50 hover:shadow-xl hover:shadow-red-500/10'
           : 'border-stone-200 opacity-75 grayscale-[0.2]'
@@ -127,28 +73,20 @@ export function MenuCard({
       <div>
         <div className="relative h-52 w-full overflow-hidden bg-[#FAF3EA]">
           <Image
-            src={imgSrc}
+            src={displayImage}
             alt={name}
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
             className="object-cover object-center group-hover:scale-105 transition-transform duration-500"
-            unoptimized
-            onError={() => setImgSrc(fallbackImage)}
+            unoptimized={displayImage.startsWith('data:')}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
 
           {/* Top Badges */}
           <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
-            {effectiveBadge && (
-              <span
-                className={`text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md uppercase tracking-wide flex items-center gap-1 ${
-                  isAutoTopRated
-                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-amber-500/30 animate-pulse'
-                    : 'bg-[#B91C1C]'
-                }`}
-              >
-                <Star className="w-3 h-3 fill-current" />
-                {effectiveBadge}
+            {badge && (
+              <span className="bg-[#B91C1C] text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md uppercase tracking-wide">
+                {badge}
               </span>
             )}
             {category && (
@@ -158,8 +96,7 @@ export function MenuCard({
             )}
           </div>
 
-          {/* Favorite Button - hidden in local mode */}
-          {!isLocalMode && (
+          {/* Favorite Button */}
           <button
             type="button"
             onClick={handleFavoriteClick}
@@ -168,9 +105,9 @@ export function MenuCard({
           >
             <svg
               className={`w-5 h-5 transition-colors ${
-                isFavorite ? 'fill-rose-600 text-rose-600' : 'text-stone-400 hover:text-stone-600'
+                favorite ? 'fill-rose-600 text-rose-600' : 'text-stone-400 hover:text-stone-600'
               }`}
-              fill={isFavorite ? 'currentColor' : 'none'}
+              fill={favorite ? 'currentColor' : 'none'}
               stroke="currentColor"
               viewBox="0 0 24 24"
             >
@@ -182,7 +119,6 @@ export function MenuCard({
               />
             </svg>
           </button>
-          )}
 
           {/* Price Tag Overlay */}
           <div className="absolute bottom-3 left-3 z-10 bg-[#B91C1C] text-white text-sm font-extrabold px-3 py-1 rounded-xl shadow-lg border border-red-400/20">
@@ -203,29 +139,7 @@ export function MenuCard({
               {description}
             </p>
 
-            {/* Quick Nutrition & Allergen Tags */}
-            <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
-              {calories && (
-                <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-extrabold px-2 py-0.5 rounded-md flex items-center gap-0.5">
-                  <Flame className="w-3 h-3" /> {calories}
-                </span>
-              )}
-              {allergens && allergens.length > 0 && (
-                <span className="bg-amber-50 text-stone-700 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-md truncate max-w-[140px] flex items-center gap-0.5">
-                  <Milk className="w-3 h-3" /> {allergens.join(', ')}
-                </span>
-              )}
-              {spiceLevel && spiceLevel !== 'None' && (
-                <span className="bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-extrabold px-2 py-0.5 rounded-md flex items-center gap-0.5">
-                  <svg className="w-3 h-3 text-rose-600 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M18.8 6c-.4-.5-1-.7-1.7-.6-.8.1-1.6.5-2.2 1.1-.9.9-1.3 2.1-1.7 3.2-.3 1-.7 2-1.3 2.8-.7.9-1.6 1.7-2.7 2.1-1.2.4-2.5.3-3.6-.3-.6-.3-1.1-.8-1.5-1.4-.4-.6-.6-1.3-.7-2 0-.2-.1-.4-.2-.5-.1-.1-.3-.2-.5-.1-.2 0-.4.1-.5.2-.1.2-.1.4-.1.6.1 1 .4 1.9.9 2.7.5.8 1.2 1.4 2 1.8 1.4.7 3 .7 4.5.3 1.4-.4 2.6-1.3 3.5-2.4.8-1 1.3-2.1 1.7-3.3.4-1.2.9-2.3 1.8-3.2.7-.7 1.5-1.1 2.4-1.2.6-.1 1.1.1 1.4.5.3.3.4.8.2 1.2-.5 1-1.3 1.9-2.2 2.6-1.6 1.3-3.6 2.1-5.6 2.5-.5.1-.9.2-1.4.2-.2 0-.4.1-.5.3s-.1.4 0 .5c.1.2.3.3.5.3.6 0 1.1-.1 1.7-.2 2.2-.4 4.3-1.3 6.1-2.7 1.1-.8 2-1.9 2.5-3.2.3-.8.2-1.7-.4-2.3zM13 2c-.6 0-1 .4-1 1v2.1c-1.1.2-2.1.7-3 1.3l.8 1.3c.7-.4 1.4-.6 2.2-.7V3c0-.6.4-1 1-1zm0 3c-.6 0-1 .4-1 1v.1c.3 0 .6-.1.9-.1h.1V6c0-.6-.4-1-1-1z"/>
-                  </svg>
-                  {spiceLevel}
-                </span>
-              )}
-            </div>
-
-            {/* Rating Stars & Review Click indicator */}
+            {/* Rating Stars */}
             <div className="flex items-center gap-1.5 mt-3">
               <div className="flex text-amber-500">
                 {[...Array(5)].map((_, i) => (
@@ -243,9 +157,6 @@ export function MenuCard({
               </div>
               <span className="text-[11px] font-bold text-stone-700">{rating.toFixed(1)}</span>
               <span className="text-[11px] text-stone-400">({reviews})</span>
-              <span className="text-[10px] text-[#B91C1C] font-semibold ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                Details &rarr;
-              </span>
             </div>
           </div>
         </div>
@@ -267,13 +178,19 @@ export function MenuCard({
         >
           {!available ? (
             'Sold Out'
+          ) : added ? (
+            <>
+              <svg className="w-4 h-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+              Added to Cart!
+            </>
           ) : (
             <>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
-              View Details
+              + Add to Order
             </>
           )}
         </button>
@@ -281,3 +198,4 @@ export function MenuCard({
     </div>
   );
 }
+

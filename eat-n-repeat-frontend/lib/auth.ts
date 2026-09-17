@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { type AuthOptions } from "next-auth";
+import { verifyCustomerPassword } from "@/lib/customer/customer-store";
 
 export const authOptions: AuthOptions = {
   secret: process.env.NEXTAUTH_SECRET ?? "eat-n-repeat-dev-secret-change-in-production",
@@ -18,38 +19,19 @@ export const authOptions: AuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        try {
-          const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
-          const res = await fetch(`${baseUrl}/api/customer-auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: credentials.email, password: credentials.password }),
-          });
+        const user = await verifyCustomerPassword(
+          credentials.email,
+          credentials.password,
+        );
 
-          const data = await res.json();
+        if (!user) return null;
 
-          if (!res.ok) {
-            if (data.message === "unverified_email") {
-              throw new Error("unverified_email");
-            }
-            throw new Error(data.message || "Invalid email or password.");
-          }
-
-          if (!data.token || !data.user) return null;
-
-          return {
-            id: data.user.id,
-            name: data.user.name,
-            email: data.user.email,
-            role: "customer",
-            accessToken: data.token,
-          };
-        } catch (error) {
-          if (error instanceof TypeError) {
-            throw new Error("Unable to reach the server. Please try again.");
-          }
-          throw error;
-        }
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: "customer",
+        };
       },
     }),
   ],
@@ -58,7 +40,6 @@ export const authOptions: AuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
-        token.accessToken = (user as any).accessToken;
       }
       return token;
     },
@@ -66,7 +47,6 @@ export const authOptions: AuthOptions = {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
-        (session as any).accessToken = token.accessToken;
       }
       return session;
     },
