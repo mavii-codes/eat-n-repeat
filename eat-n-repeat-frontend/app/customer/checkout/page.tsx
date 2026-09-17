@@ -6,7 +6,8 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
-import { useLocalMode } from '@/lib/customer/useLocalMode';
+import { isLocalBackend } from '@/lib/config';
+import { journalOrder } from '@/lib/offlineSync';
 
 type CartCheckoutItem = {
   id: string;
@@ -37,7 +38,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const { addDeliveryOrder, addStoreOrder } = useAdminData();
   const { data: session, status } = useSession();
-  const isLocalMode = useLocalMode();
+  const isLocalMode = isLocalBackend();
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
@@ -141,10 +142,11 @@ export default function CheckoutPage() {
 
     // Process order
     const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}`).join(', ');
+    const checkoutOrderId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     
     if (isLocalMode) {
       addStoreOrder({
-        orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        orderId: checkoutOrderId,
         customerName: `${firstName.trim()} ${lastName.trim()}`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         items: orderItemsSummary,
@@ -154,9 +156,10 @@ export default function CheckoutPage() {
         paymentMethod: 'cash',
         orderType: 'dine-in'
       });
+      journalOrder({ id: checkoutOrderId, time: new Date().toISOString(), items: orderItemsSummary, total, status: "awaiting_payment", paid: false, notes: "checkout" });
     } else {
       addDeliveryOrder({
-        orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        orderNumber: checkoutOrderId,
         customerName: `${firstName.trim()} ${lastName.trim()}`,
         phone: mobileNumber.trim(),
         address: 'Near Aby Road, Poblacion, Cordova, Cebu',

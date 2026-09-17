@@ -8,7 +8,8 @@ import { useSession } from 'next-auth/react';
 import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package } from 'lucide-react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
-import { useLocalMode } from '@/lib/customer/useLocalMode';
+import { isLocalBackend } from '@/lib/config';
+import { journalOrder } from '@/lib/offlineSync';
 import type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
 export type CartItem = {
@@ -43,7 +44,7 @@ export function CartDrawer({
   const router = useRouter();
   const { data: session } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const isLocalMode = useLocalMode();
+  const isLocalMode = isLocalBackend();
 
   useEffect(() => {
     if (isLocalMode && fulfillmentType !== 'dine-in') {
@@ -238,6 +239,7 @@ export function CartDrawer({
           status: 'pending',
           orderedAt: new Date().toISOString(),
         });
+        journalOrder({ id: data.orderNumber || orderNumber, time: new Date().toISOString(), items: orderItemsSummary, total, status: "pending", paid: false, notes: "cart" });
       } else {
         addStoreOrder({
           orderId: data.orderNumber || orderNumber,
@@ -247,6 +249,7 @@ export function CartDrawer({
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
         });
+        journalOrder({ id: data.orderNumber || orderNumber, time: new Date().toISOString(), items: orderItemsSummary, total, status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending', paid: false, notes: "cart" });
       }
 
       setIsSubmitting(false);

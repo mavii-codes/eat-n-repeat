@@ -1,0 +1,22 @@
+appId: com.eatnrepeat.local
+productName: Eat n RepEat Local
+directories:
+  output: dist
+files:
+  - main.js
+  - preload.js
+  - index.html
+  - styles.css
+  - renderer.js
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: ../eat-n-repeat-frontend/public/logo.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Eat n RepEat Local

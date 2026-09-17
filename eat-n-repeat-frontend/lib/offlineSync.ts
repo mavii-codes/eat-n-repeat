@@ -141,3 +141,12 @@ export async function clearSyncedStockTransactions() {
   }
   await tx.done;
 }
+
+// ── JOURNAL HELPER ─────────────────────
+
+export function journalOrder(o: { id: string; time: string; items: string; total: number; status: string; paid: boolean; notes?: string }): void {
+  try {
+    const p = saveOfflineOrder({ id: o.id, time: o.time, items: o.items, total: o.total, status: o.status, paid: o.paid, notes: o.notes ?? "" });
+    if (p && typeof (p as any).catch === "function") (p as any).catch(() => {});
+  } catch { /* journaling must never break a sale */ }
+}

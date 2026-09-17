@@ -5,7 +5,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
 import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { useNetworkStatus } from "@/context/NetworkStatusContext";
-import { useLocalMode } from "@/lib/customer/useLocalMode";
+import { isLocalBackend } from "@/lib/config";
+import { journalOrder } from "@/lib/offlineSync";
 import { StartShiftModal, EndShiftModal } from "@/components/staff/CashModals";
 import toast from "react-hot-toast";
 import type { MenuItem } from "@/lib/admin/types";
@@ -89,7 +90,7 @@ export function POSCashierTab() {
   } = useAdminData();
   const { confirm } = useConfirm();
   const { isOffline } = useNetworkStatus();
-  const isLocalMode = useLocalMode();
+  const isLocalMode = isLocalBackend();
 
   // ─── Shift State ───
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
@@ -378,6 +379,16 @@ export function POSCashierTab() {
           paid: true,
           notes: `${orderType.toUpperCase()} - ${customerName || "Walk-in"}`,
           orderType,
+        });
+
+        journalOrder({
+          id: orderNum,
+          time: new Date().toISOString(),
+          items: cart.map((ci) => `${ci.item.name} (${ci.qty}x)`).join(", "),
+          total,
+          status: "completed",
+          paid: true,
+          notes: "pos",
         });
 
         // Show receipt toast

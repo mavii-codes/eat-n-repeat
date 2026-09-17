@@ -4,10 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
 import { useAuth } from "@/context/AuthContext";
-import { useState } from "react";
-import { useLocalMode, startLocalMode, stopLocalMode } from "@/lib/customer/useLocalMode";
-import { LocalModeModal } from "@/components/admin/LocalModeModal";
-import { Server } from "lucide-react";
+import { isLocalBackend } from "@/lib/config";
 
 const navGroups = [
   {
@@ -189,18 +186,6 @@ const navGroups = [
           </svg>
         ),
       },
-      {
-        href: "/admin/settings/operating-mode",
-        label: "Operating Mode",
-        description: "Online / Local mode",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <circle cx="12" cy="12" r="10" />
-            <line x1="2" y1="12" x2="22" y2="12" />
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-          </svg>
-        ),
-      },
     ],
   },
 ];
@@ -215,8 +200,7 @@ function isActive(pathname: string, href: string) {
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const isLocalMode = useLocalMode();
-  const [isLocalModeModalOpen, setIsLocalModeModalOpen] = useState(false);
+  const isLocalMode = isLocalBackend();
 
   return (
     <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
@@ -268,35 +252,13 @@ export function AdminSidebar() {
       </nav>
 
       <div className="border-t border-white/8 px-6 py-5 space-y-4">
-        {/* SYSTEM MODE SWITCH */}
+        {/* SYSTEM MODE INDICATOR (auto-detected, read-only) */}
         <div className="px-4 pt-4">
           <div className={`rounded-xl border p-3 ${isLocalMode ? 'bg-amber-500/15 border-amber-500/30' : 'bg-emerald-500/15 border-emerald-500/30'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Server className={`h-4 w-4 ${isLocalMode ? 'text-amber-400' : 'text-emerald-400'}`} />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/70">System Mode</span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className={`text-xs font-bold ${isLocalMode ? 'text-amber-300' : 'text-emerald-300'}`}>
-                {isLocalMode ? 'LOCAL MODE ACTIVE' : 'ONLINE MODE'}
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-bold uppercase tracking-wider text-white/70`}>
+                {isLocalMode ? 'Local Mode' : 'Online Mode'}
               </span>
-              <button
-                onClick={() => {
-                  if (isLocalMode) {
-                    stopLocalMode();
-                  } else {
-                    setIsLocalModeModalOpen(true);
-                  }
-                }}
-                className={`text-[10px] font-bold px-2.5 py-1 rounded-lg transition-colors ${
-                  isLocalMode
-                    ? 'bg-white/10 text-white/80 hover:bg-white/20'
-                    : 'bg-white/10 text-white/80 hover:bg-white/20'
-                }`}
-              >
-                {isLocalMode ? 'Switch to Online' : 'Switch to Local'}
-              </button>
             </div>
           </div>
         </div>
@@ -323,7 +285,6 @@ export function AdminSidebar() {
           </p>
         </div>
       </div>
-      <LocalModeModal isOpen={isLocalModeModalOpen} onClose={() => setIsLocalModeModalOpen(false)} />
     </aside>
   );
 }

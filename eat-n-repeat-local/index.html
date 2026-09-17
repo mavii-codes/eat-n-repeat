@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Eat n Repeat - Local System</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div class="brand-text">
+          <h1>EAT N REPEAT</h1>
+          <p class="subtitle">Local System</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- Status Section -->
+      <section class="status-section">
+        <div class="status-row">
+          <div class="status-pill" id="pill-internet">
+            <span class="status-dot"></span>
+            <span class="status-label">Internet</span>
+          </div>
+          <div class="status-pill" id="pill-database">
+            <span class="status-dot"></span>
+            <span class="status-label">Database</span>
+          </div>
+          <div class="status-pill" id="pill-system">
+            <span class="status-dot"></span>
+            <span class="status-label">Local System</span>
+          </div>
+        </div>
+        <div class="lan-info" id="lan-info">LAN IP: --</div>
+      </section>
+
+      <!-- Controls -->
+      <section class="controls">
+        <button class="btn btn-primary" id="btn-start">START</button>
+        <button class="btn btn-danger" id="btn-stop" disabled>STOP</button>
+        <div class="divider"></div>
+        <button class="btn btn-secondary" id="btn-staff" disabled>STAFF</button>
+        <button class="btn btn-secondary" id="btn-admin" disabled>ADMIN</button>
+        <button class="btn btn-secondary" id="btn-qr" disabled>QR</button>
+      </section>
+
+      <!-- QR Panel (hidden by default) -->
+      <section class="qr-panel" id="qr-panel" style="display: none;">
+        <div class="qr-panel-header">
+          <h3>Customer QR Code</h3>
+          <button class="btn-close" id="btn-close-qr">&times;</button>
+        </div>
+        <div class="qr-content">
+          <img id="qr-image" src="" alt="Customer QR Code" />
+          <p class="qr-instructions">
+            Customers can scan this QR code with their phone camera
+            to access the ordering menu. Make sure the device is connected
+            to the same network as this computer.
+          </p>
+          <p class="qr-url" id="qr-url"></p>
+        </div>
+      </section>
+
+      <!-- Log Section -->
+      <section class="log-section">
+        <div class="log-header">
+          <h3>System Log</h3>
+          <button class="btn-text" id="btn-clear-log">Clear</button>
+        </div>
+        <div class="log-area" id="log-area"></div>
+      </section>
+    </main>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -6,9 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
 import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
-import { LocalModeModal } from "@/components/admin/LocalModeModal";
-import { useLocalMode, startLocalMode, stopLocalMode } from "@/lib/customer/useLocalMode";
-import { Server } from "lucide-react";
+import { isLocalBackend } from "@/lib/config";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
@@ -124,9 +122,8 @@ export default function StaffPortalPage() {
   const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
 
 
-  // Local Mode State
-  const isLocalMode = useLocalMode();
-  const [isLocalModeModalOpen, setIsLocalModeModalOpen] = useState(false);
+  // Local Mode State (auto-detected)
+  const isLocalMode = isLocalBackend();
 
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
@@ -437,32 +434,19 @@ export default function StaffPortalPage() {
 
         {/* FOOTER USER CARD */}
         <div className="border-t border-white/8 px-6 py-5 space-y-4">
-        {/* SYSTEM MODE SWITCH */}
+        {/* SYSTEM MODE INDICATOR (auto-detected, non-clickable) */}
         <div className="px-4 pt-4">
           <div className={`rounded-xl border p-3 ${isLocalMode ? 'bg-amber-500/15 border-amber-500/30' : 'bg-emerald-500/15 border-emerald-500/30'}`}>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <Server className={`h-4 w-4 ${isLocalMode ? 'text-amber-400' : 'text-emerald-400'}`} />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/70">System Mode</span>
+                <span className={`text-[10px] font-bold uppercase tracking-wider text-white/70`}>
+                  {isLocalMode ? 'Local Mode' : 'Online Mode'}
+                </span>
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className={`text-xs font-bold ${isLocalMode ? 'text-amber-300' : 'text-emerald-300'}`}>
-                {isLocalMode ? 'LOCAL MODE ACTIVE' : 'ONLINE MODE'}
-              </span>
-              <button
-                onClick={() => {
-                  if (isLocalMode) {
-                    stopLocalMode();
-                  } else {
-                    setIsLocalModeModalOpen(true);
-                  }
-                }}
-                className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 transition-colors"
-              >
-                {isLocalMode ? 'Switch to Online' : 'Switch to Local'}
-              </button>
-            </div>
+            <span className={`text-[10px] font-bold ${isLocalMode ? 'text-amber-300' : 'text-emerald-300'}`}>
+              {isLocalMode ? 'Cash Only' : 'All Payments'}
+            </span>
           </div>
         </div>
           <div className="rounded-xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm flex flex-col gap-2">
@@ -482,8 +466,6 @@ export default function StaffPortalPage() {
           </div>
         </div>
       </aside>
-      <LocalModeModal isOpen={isLocalModeModalOpen} onClose={() => setIsLocalModeModalOpen(false)} />
-
       {/* MAIN MAIN AREA */}
       <main className="relative z-10 pl-72 flex-1 mx-auto max-w-6xl px-8 py-8">
         

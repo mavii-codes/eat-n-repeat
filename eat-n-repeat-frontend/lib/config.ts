@@ -1,3 +1,15 @@
+export function isLocalBackend(): boolean {
+  if (typeof window === "undefined") return false;
+  const hostname = window.location.hostname;
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname.startsWith("192.168.") ||
+    hostname.startsWith("10.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+  );
+}
+
 export function getApiUrl(): string {
   // If the environment variable is explicitly set, use it.
   if (process.env.NEXT_PUBLIC_API_URL) {
