@@ -6,7 +6,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
 import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
-import { useIsLocalBackend } from "@/lib/config";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
@@ -121,9 +120,6 @@ export default function StaffPortalPage() {
   const [pwdError, setPwdError] = useState<string | null>(null);
   const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
 
-
-  // Local Mode State (auto-detected)
-  const isLocalMode = useIsLocalBackend();
 
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
@@ -434,21 +430,6 @@ export default function StaffPortalPage() {
 
         {/* FOOTER USER CARD */}
         <div className="border-t border-white/8 px-6 py-5 space-y-4">
-        {/* SYSTEM MODE INDICATOR (auto-detected, non-clickable) */}
-        <div className="px-4 pt-4">
-          <div className={`rounded-xl border p-3 ${isLocalMode ? 'bg-amber-500/15 border-amber-500/30' : 'bg-emerald-500/15 border-emerald-500/30'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-bold uppercase tracking-wider text-white/70`}>
-                  {isLocalMode ? 'Local Mode' : 'Online Mode'}
-                </span>
-              </div>
-            </div>
-            <span className={`text-[10px] font-bold ${isLocalMode ? 'text-amber-300' : 'text-emerald-300'}`}>
-              {isLocalMode ? 'Cash Only' : 'All Payments'}
-            </span>
-          </div>
-        </div>
           <div className="rounded-xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm flex flex-col gap-2">
             <div>
               <p className="text-xs font-semibold text-white/95">{user.name}</p>

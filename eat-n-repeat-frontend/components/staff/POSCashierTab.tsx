@@ -458,12 +458,6 @@ export function POSCashierTab() {
     return (
       <>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
-          {isLocalMode && (
-            <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-200 px-4 py-1.5 mb-4">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Local Mode — Cash Only</span>
-            </div>
-          )}
           <div className="w-20 h-20 rounded-2xl bg-amber-100 flex items-center justify-center mb-5 shadow-sm">
             <Clock className="w-10 h-10 text-amber-600" />
           </div>
@@ -507,12 +501,6 @@ export function POSCashierTab() {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 Shift Active
               </span>
-              {isLocalMode && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-700 border border-amber-200 uppercase tracking-wider">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  Cash Only
-                </span>
-              )}
               <div className="hidden sm:flex items-center gap-4 text-xs">
                 <div className="flex items-center gap-1.5">
                   <span className="text-stone-400 font-semibold">Float:</span>

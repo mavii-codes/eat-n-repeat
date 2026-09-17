@@ -154,12 +154,7 @@ export function CustomerHeader({
 
 
               {/* Desktop Profile Icon & Dropdown */}
-              {isLocalMode ? (
-                <div className="hidden md:flex flex-col items-end mr-2">
-                  <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider">Local Mode</span>
-                  <span className="text-[10px] text-stone-500 font-medium">Dine-in Only • Cash Only</span>
-                </div>
-              ) : session?.user ? (
+              {isLocalMode ? null : session?.user ? (
                 <div className="relative hidden md:block">
                   <button
                     type="button"

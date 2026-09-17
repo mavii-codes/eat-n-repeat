@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
 import { useAuth } from "@/context/AuthContext";
-import { useIsLocalBackend } from "@/lib/config";
 
 const navGroups = [
   {
@@ -200,7 +199,6 @@ function isActive(pathname: string, href: string) {
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const isLocalMode = useIsLocalBackend();
 
   return (
     <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
@@ -252,16 +250,6 @@ export function AdminSidebar() {
       </nav>
 
       <div className="border-t border-white/8 px-6 py-5 space-y-4">
-        {/* SYSTEM MODE INDICATOR (auto-detected, read-only) */}
-        <div className="px-4 pt-4">
-          <div className={`rounded-xl border p-3 ${isLocalMode ? 'bg-amber-500/15 border-amber-500/30' : 'bg-emerald-500/15 border-emerald-500/30'}`}>
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-bold uppercase tracking-wider text-white/70`}>
-                {isLocalMode ? 'Local Mode' : 'Online Mode'}
-              </span>
-            </div>
-          </div>
-        </div>
         {user && (
           <div className="rounded-xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm flex flex-col gap-2">
             <div>
