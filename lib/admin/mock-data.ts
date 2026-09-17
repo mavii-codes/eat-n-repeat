@@ -213,6 +213,7 @@ export const initialAdminData: AdminDataState = {
       lowStockThreshold: 6,
     },
   ],
+  stockRequests: [],
   staffAccounts: [
     {
       id: "sf-1",
