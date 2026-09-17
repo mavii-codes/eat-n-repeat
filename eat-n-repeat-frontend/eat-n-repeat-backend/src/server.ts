@@ -1,28 +1,13 @@
-import cors from "cors";
-import express from "express";
-import helmet from "helmet";
-import { config } from "./config.js";
-import { initializeDatabase } from "./database.js";
-import authRouter from "./routes/auth.js";
-import stockRouter from "./routes/stock.js";
-
-const app = express();
-
-app.use(helmet());
-app.use(cors({ origin: config.clientOrigin }));
-app.use(express.json());
-
-app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
-app.use("/api/auth", authRouter);
-app.use("/api/stock", stockRouter);
-
-app.use((_req, res) => res.status(404).json({ message: "Route not found." }));
+import app from "./app.js";
+import { env } from "./config/env.js";
+import { startHeartbeat } from "./services/sync/heartbeat.js";
 
 async function start() {
-  await initializeDatabase();
-  app.listen(config.port, () => {
-    console.log(`Eat n' Repeat API listening on http://localhost:${config.port}`);
+  app.listen(env.port, "0.0.0.0", () => {
+    console.log(`Eat n' Repeat API listening on http://0.0.0.0:${env.port}`);
   });
+
+  startHeartbeat();
 }
 
 start().catch((error: unknown) => {

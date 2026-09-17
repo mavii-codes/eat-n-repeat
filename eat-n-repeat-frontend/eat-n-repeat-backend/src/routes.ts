@@ -1,0 +1,43 @@
+import { Router } from "express";
+
+import authRouter from "./routes/auth.routes";
+import stockRouter from "./routes/stock.routes";
+import paymentsRouter from "./routes/payments.routes";
+import webhooksRouter from "./routes/webhooks.routes";
+import eventsRouter from "./routes/events.routes";
+import customerAuthRouter from "./routes/customer-auth.routes";
+import customerSettingsRouter from "./routes/customer-settings.routes";
+import customerNotificationsRouter from "./routes/customer-notifications.routes";
+import customerAddressesRouter from "./routes/customer-addresses.routes";
+import deliveryRouter from "./routes/delivery.routes";
+import staffNotificationsRouter from "./routes/staff-notifications.routes";
+import staffRouter from "./routes/staff.routes";
+import addonsRouter from "./routes/addons.routes";
+import customerFavoritesRouter from "./routes/customer-favorites.routes";
+import customerOrdersRouter from "./routes/customer-orders.routes";
+import syncRouter from "./routes/sync.routes";
+import adminOrdersRouter from "./routes/admin-orders.routes";
+import cashRouter from "./routes/cash.routes";
+import adminCafeAvailabilityRouter from "./routes/admin-cafe-availability.routes";
+
+export const routes = Router();
+
+routes.use("/auth", authRouter);
+routes.use("/stock", stockRouter);
+routes.use("/payments", paymentsRouter);
+routes.use("/webhooks", webhooksRouter);
+routes.use("/events", eventsRouter);
+routes.use("/customer-auth", customerAuthRouter);
+routes.use("/customer-settings", customerSettingsRouter);
+routes.use("/customer-notifications", customerNotificationsRouter);
+routes.use("/customer-addresses", customerAddressesRouter);
+routes.use("/customer-orders", customerOrdersRouter);
+routes.use("/delivery", deliveryRouter);
+routes.use("/staff", staffRouter);
+routes.use("/staff-notifications", staffNotificationsRouter);
+routes.use("/admin-orders", adminOrdersRouter);
+routes.use("/addons", addonsRouter);
+routes.use("/customer-favorites", customerFavoritesRouter);
+routes.use("/sync", syncRouter);
+routes.use("/cash", cashRouter);
+routes.use("/admin/cafe-availability", adminCafeAvailabilityRouter);
