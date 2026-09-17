@@ -648,7 +648,7 @@ export default function StaffPortalPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, type: "Delivery"}))]
+                        {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, orderId: o.orderNumber, time: o.orderedAt, type: "Delivery"}))]
                           .filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered")
                           .sort((a, b) => b.id.localeCompare(a.id))
                           .slice(0, 5)
@@ -678,7 +678,7 @@ export default function StaffPortalPage() {
                 <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
                   <div className="divide-y divide-accent/5 px-5 py-2">
                     {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: o.time, raw: o})), 
-                      ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderId} received`, time: o.time, raw: o}))]
+                      ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderNumber} received`, time: o.orderedAt, raw: o}))]
                       .sort((a, b) => b.id.localeCompare(a.id))
                       .slice(0, 4)
                       .map((activity, i) => (
@@ -772,7 +772,13 @@ export default function StaffPortalPage() {
         {/* TAB 2: CUSTOMER ORDERS */}
         {activeTab === "orders" && (() => {
           // Process data
-          const allOrders = [...storeOrders, ...deliveryOrders.map(d => ({
+          const allOrders = [
+            ...storeOrders.map(o => ({
+              ...o,
+              customerName: "",
+              orderType: "dine-in",
+            })),
+            ...deliveryOrders.map(d => ({
               ...d,
               id: d.id,
               orderId: d.orderNumber,
@@ -782,7 +788,8 @@ export default function StaffPortalPage() {
               customerName: d.customerName,
               subtotal: d.subtotal,
               deliveryFee: d.deliveryFee
-          }))];
+            })),
+          ];
 
           const activeOrders = allOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled");
           const historyOrders = allOrders.filter(o => o.status === "completed" || o.status === "cancelled");
@@ -792,7 +799,7 @@ export default function StaffPortalPage() {
             total: activeOrders.length,
             pending: activeOrders.filter(o => o.status === "pending").length,
             preparing: activeOrders.filter(o => o.status === "preparing").length,
-            ready: activeOrders.filter(o => o.status === "ready" || o.status === "ready_for_delivery").length,
+            ready: activeOrders.filter(o => ["ready", "ready_for_delivery"].includes(String(o.status))).length,
             completed: historyOrders.filter(o => o.status === "completed").length,
             cancelled: historyOrders.filter(o => o.status === "cancelled").length,
           };

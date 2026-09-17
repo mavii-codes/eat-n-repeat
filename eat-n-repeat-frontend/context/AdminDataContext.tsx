@@ -28,6 +28,8 @@ import type {
   StockCategoryInput,
   StockItem,
   StockItemInput,
+  StockRequest,
+  StockRequestInput,
   SystemSettings,
 } from "@/lib/admin/types";
 
@@ -62,6 +64,7 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
     menuItems: ensureArchived(data.menuItems, initialAdminData.menuItems),
     stockCategories: data.stockCategories ?? initialAdminData.stockCategories,
     stockItems: data.stockItems ?? initialAdminData.stockItems,
+    stockRequests: data.stockRequests ?? initialAdminData.stockRequests,
     staffAccounts: ensureArchived(
       (data.staffAccounts ?? initialAdminData.staffAccounts).map((account) => {
         const initial = initialAdminData.staffAccounts.find((x) => x.id === account.id);
@@ -108,6 +111,8 @@ type AdminDataContextValue = AdminDataState & {
   addStockItem: (input: StockItemInput) => void;
   updateStockItem: (id: string, input: StockItemInput) => void;
   deleteStockItem: (id: string) => void;
+  addStockRequest: (input: StockRequestInput) => void;
+  updateStockRequestStatus: (id: string, status: StockRequest["status"], adminNote?: string) => void;
   addStockCategory: (input: StockCategoryInput) => void;
   updateStockCategory: (id: string, input: StockCategoryInput) => void;
   deleteStockCategory: (id: string) => boolean;
@@ -310,6 +315,33 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       stockItems: prev.stockItems.filter((item) => item.id !== id),
     }));
   }, []);
+
+  const addStockRequest = useCallback((input: StockRequestInput) => {
+    setData((prev) => ({
+      ...prev,
+      stockRequests: [
+        ...(prev.stockRequests ?? []),
+        {
+          ...input,
+          id: createId("stock-request"),
+          status: "Pending",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    }));
+  }, []);
+
+  const updateStockRequestStatus = useCallback(
+    (id: string, status: StockRequest["status"], adminNote?: string) => {
+      setData((prev) => ({
+        ...prev,
+        stockRequests: (prev.stockRequests ?? []).map((request) =>
+          request.id === id ? { ...request, status, adminNote } : request,
+        ),
+      }));
+    },
+    [],
+  );
 
   const addStockCategory = useCallback((input: StockCategoryInput) => {
     setData((prev) => ({
@@ -648,6 +680,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addStockItem,
       updateStockItem,
       deleteStockItem,
+      addStockRequest,
+      updateStockRequestStatus,
       addStockCategory,
       updateStockCategory,
       deleteStockCategory,
@@ -699,6 +733,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addStockItem,
       updateStockItem,
       deleteStockItem,
+      addStockRequest,
+      updateStockRequestStatus,
       addStockCategory,
       updateStockCategory,
       deleteStockCategory,

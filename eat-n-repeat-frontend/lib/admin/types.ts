@@ -69,6 +69,22 @@ export type StockItem = {
   lowStockThreshold: number;
 };
 
+export type StockRequest = {
+  id: string;
+  staffId: string;
+  staffName: string;
+  ingredientId: string;
+  ingredientName: string;
+  currentQuantity: number;
+  threshold: number;
+  message: string;
+  status: "Pending" | "Approved" | "Rejected";
+  adminNote?: string;
+  createdAt: string;
+};
+
+export type StockRequestInput = Omit<StockRequest, "id" | "status" | "adminNote" | "createdAt">;
+
 export type StaffRole = "admin" | "head_staff" | "staff";
 
 export type StaffAccount = {
@@ -104,6 +120,7 @@ export type AdminDataState = {
   menuItems: MenuItem[];
   stockCategories: StockCategory[];
   stockItems: StockItem[];
+  stockRequests: StockRequest[];
   staffAccounts: StaffAccount[];
   systemSettings: SystemSettings;
   deliveryOrders: DeliveryOrder[];
