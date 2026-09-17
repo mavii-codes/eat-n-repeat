@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
 import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { useNetworkStatus } from "@/context/NetworkStatusContext";
-import { isLocalBackend } from "@/lib/config";
+import { useIsLocalBackend } from "@/lib/config";
 import { journalOrder } from "@/lib/offlineSync";
 import { StartShiftModal, EndShiftModal } from "@/components/staff/CashModals";
 import toast from "react-hot-toast";
@@ -90,7 +90,7 @@ export function POSCashierTab() {
   } = useAdminData();
   const { confirm } = useConfirm();
   const { isOffline } = useNetworkStatus();
-  const isLocalMode = isLocalBackend();
+  const isLocalMode = useIsLocalBackend();
 
   // ─── Shift State ───
   const [shiftModalOpen, setShiftModalOpen] = useState(false);

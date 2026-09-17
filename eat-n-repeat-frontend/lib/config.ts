@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export function isLocalBackend(): boolean {
   if (typeof window === "undefined") return false;
   const hostname = window.location.hostname;
@@ -8,6 +10,21 @@ export function isLocalBackend(): boolean {
     hostname.startsWith("10.") ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
   );
+}
+
+/**
+ * Hydration-safe version of isLocalBackend() for use during render.
+ * Returns false on the server AND on the client's first render (matching
+ * the server HTML), then reconciles to the real value after mount.
+ * Without this gate, localhost renders client=true vs server=false and
+ * React throws a hydration mismatch (div vs a in the header).
+ */
+export function useIsLocalBackend(): boolean {
+  const [isLocal, setIsLocal] = useState(false);
+  useEffect(() => {
+    setIsLocal(isLocalBackend());
+  }, []);
+  return isLocal;
 }
 
 export function getApiUrl(): string {

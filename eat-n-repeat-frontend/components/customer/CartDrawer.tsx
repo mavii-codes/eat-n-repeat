@@ -8,7 +8,7 @@ import { useSession } from 'next-auth/react';
 import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package } from 'lucide-react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
-import { isLocalBackend } from '@/lib/config';
+import { useIsLocalBackend } from '@/lib/config';
 import { journalOrder } from '@/lib/offlineSync';
 import type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
@@ -44,7 +44,7 @@ export function CartDrawer({
   const router = useRouter();
   const { data: session } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const isLocalMode = isLocalBackend();
+  const isLocalMode = useIsLocalBackend();
 
   useEffect(() => {
     if (isLocalMode && fulfillmentType !== 'dine-in') {

@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
 import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
-import { isLocalBackend } from "@/lib/config";
+import { useIsLocalBackend } from "@/lib/config";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
@@ -123,7 +123,7 @@ export default function StaffPortalPage() {
 
 
   // Local Mode State (auto-detected)
-  const isLocalMode = isLocalBackend();
+  const isLocalMode = useIsLocalBackend();
 
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);

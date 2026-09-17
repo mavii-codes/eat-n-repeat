@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
 import { useAuth } from "@/context/AuthContext";
-import { isLocalBackend } from "@/lib/config";
+import { useIsLocalBackend } from "@/lib/config";
 
 const navGroups = [
   {
@@ -200,7 +200,7 @@ function isActive(pathname: string, href: string) {
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const isLocalMode = isLocalBackend();
+  const isLocalMode = useIsLocalBackend();
 
   return (
     <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">

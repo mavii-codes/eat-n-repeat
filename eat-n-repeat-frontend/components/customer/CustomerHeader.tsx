@@ -12,7 +12,7 @@ import {
   Settings, CircleHelp, LogOut, LogIn, MapPin, Truck, ShoppingBag, Store, 
   X, Menu as MenuIcon, BellOff, ChevronDown, Search, Key
 } from 'lucide-react';
-import { isLocalBackend } from '@/lib/config';
+import { useIsLocalBackend } from '@/lib/config';
 
 type CustomerHeaderProps = {
   cartCount?: number;
@@ -52,7 +52,7 @@ export function CustomerHeader({
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('');
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const isLocalMode = isLocalBackend();
+  const isLocalMode = useIsLocalBackend();
 
   const handleRestrictedNavClick = (e: React.MouseEvent, href: string) => {
     // In local mode, we allow access to orders without auth (since they are guest orders)

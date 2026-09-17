@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
-import { isLocalBackend } from '@/lib/config';
+import { useIsLocalBackend } from '@/lib/config';
 import { journalOrder } from '@/lib/offlineSync';
 
 type CartCheckoutItem = {
@@ -38,7 +38,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const { addDeliveryOrder, addStoreOrder } = useAdminData();
   const { data: session, status } = useSession();
-  const isLocalMode = isLocalBackend();
+  const isLocalMode = useIsLocalBackend();
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
