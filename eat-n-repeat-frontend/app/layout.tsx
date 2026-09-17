@@ -31,6 +31,11 @@ export const metadata: Metadata = {
     icon: "/logo.png?v=2",
     apple: "/logo.png?v=2",
   },
+  // Invisible deploy tracer: proves exactly which commit serves production.
+  // Vercel injects VERCEL_GIT_COMMIT_SHA at build time; local builds say "local".
+  other: {
+    "app-build": process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+  },
 };
 
 import { AdminDataProvider } from "@/context/AdminDataContext";
