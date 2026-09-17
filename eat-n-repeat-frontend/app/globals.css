@@ -1,0 +1,185 @@
+@import "tailwindcss";
+
+:root {
+  --background: #faf6f1;
+  --foreground: #1c1c1c;
+  --card: #ffffff;
+  --muted: #6b635a;
+  --accent: #c41e3a;
+  --accent-dark: #9b1530;
+  --accent-light: #fff0f2;
+  --ink: #1c1c1c;
+  --notification: #fffbeb;
+  --notification-border: #fde68a;
+  --success: #15803d;
+
+  --admin-bg: #fde9e9;
+  --admin-sidebar: #1a0a0d;
+  --admin-sidebar-hover: rgba(255, 255, 255, 0.06);
+  --admin-sidebar-active: rgba(196, 30, 58, 0.22);
+  --admin-panel: #ffffff;
+  --admin-border: rgba(128, 0, 0, 0.1);
+  --admin-glow: rgba(196, 30, 58, 0.15);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-dark: var(--accent-dark);
+  --color-accent-light: var(--accent-light);
+  --color-ink: var(--ink);
+  --color-notification: var(--notification);
+  --color-notification-border: var(--notification-border);
+  --color-success: var(--success);
+  --color-admin-bg: var(--admin-bg);
+  --color-admin-sidebar: var(--admin-sidebar);
+  --color-admin-panel: var(--admin-panel);
+  --font-sans: var(--font-dm-sans);
+  --font-serif: var(--font-playfair);
+  --font-script: var(--font-pacifico);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--admin-bg);
+  color: var(--foreground);
+  font-family: var(--font-dm-sans), Arial, Helvetica, sans-serif;
+}
+
+.font-script {
+  font-family: var(--font-pacifico), cursive;
+}
+
+.admin-shell {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  background-color: #1a0a0d;
+}
+
+.admin-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    url("/admin-cafe-bg.jpg?v=1") center center / cover no-repeat;
+  transform: scale(1.04);
+  filter: saturate(1.08) contrast(1.05);
+}
+
+.admin-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(
+      115deg,
+      rgba(253, 233, 233, 0.94) 0%,
+      rgba(255, 248, 245, 0.88) 38%,
+      rgba(255, 240, 242, 0.82) 58%,
+      rgba(26, 10, 13, 0.72) 100%
+    ),
+    radial-gradient(circle at 18% 12%, rgba(196, 30, 58, 0.12), transparent 34%),
+    radial-gradient(circle at 88% 78%, rgba(128, 0, 0, 0.18), transparent 42%);
+  backdrop-filter: blur(1px);
+}
+
+.admin-sidebar {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(45, 10, 18, 0.96) 0%,
+      rgba(26, 10, 13, 0.94) 45%,
+      rgba(18, 5, 8, 0.97) 100%
+    );
+  backdrop-filter: blur(14px);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 12px 0 40px -20px rgba(0, 0, 0, 0.55);
+}
+
+.admin-panel {
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 20px 44px -28px rgba(80, 0, 0, 0.28);
+}
+
+.admin-stat-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 250, 250, 0.78) 100%
+  );
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 32px -24px rgba(128, 0, 0, 0.32);
+}
+
+.admin-stat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+}
+
+.admin-nav-item {
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.admin-nav-item:hover {
+  background: var(--admin-sidebar-hover);
+}
+
+.admin-nav-item-active {
+  background: var(--admin-sidebar-active);
+  box-shadow: inset 3px 0 0 #ff6b7a;
+}
+
+.admin-table-head {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 245, 245, 0.95) 0%,
+    rgba(255, 250, 250, 0.82) 100%
+  );
+}
+
+.admin-chart-bar {
+  background: linear-gradient(180deg, #e8334f 0%, var(--accent-dark) 100%);
+  border-radius: 6px 6px 2px 2px;
+  transition: transform 0.2s ease;
+}
+
+.admin-chart-bar:hover {
+  transform: scaleY(1.03);
+  transform-origin: bottom;
+}
+
+.admin-alert {
+  border-left: 3px solid #f59e0b;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 251, 235, 0.95) 0%,
+    rgba(255, 255, 255, 0.82) 100%
+  );
+  backdrop-filter: blur(8px);
+}
+
+.admin-page-title {
+  background: linear-gradient(135deg, #800000 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
