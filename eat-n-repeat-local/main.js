@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, ipcMain, shell, net } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, net, dialog } = require("electron");
 const path = require("path");
 const os = require("os");
 const net2 = require("net");
@@ -9,11 +9,77 @@ const fs = require("fs");
 const QRCode = require("qrcode");
 
 // ---------------------------------------------------------------------------
-// Constants
+// Project root resolution.
+// When installed (Program Files / LocalAppData), __dirname no longer sits
+// beside the project, so the root is resolved in order:
+//   1. persisted user choice (userData/settings.json)
+//   2. sibling lookup (dev / repo checkout layout)
+//   3. null -> renderer prompts staff to locate the folder once.
 // ---------------------------------------------------------------------------
-const BACKEND_DIR = path.join(__dirname, "..", "eat-n-repeat-backend");
-const FRONTEND_DIR = path.join(__dirname, "..", "eat-n-repeat-frontend");
-const STAMP_FILE = path.join(__dirname, ".initialized");
+let projectRoot = null;
+let BACKEND_DIR = "";
+let FRONTEND_DIR = "";
+let STAMP_FILE = "";
+
+function isValidProjectRoot(dir) {
+  try {
+    return (
+      typeof dir === "string" &&
+      dir.length > 0 &&
+      fs.existsSync(path.join(dir, "eat-n-repeat-backend", "package.json")) &&
+      fs.existsSync(path.join(dir, "eat-n-repeat-frontend", "package.json"))
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+function settingsFile() {
+  return path.join(app.getPath("userData"), "settings.json");
+}
+
+function loadPersistedRoot() {
+  try {
+    const raw = fs.readFileSync(settingsFile(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.projectRoot === "string") return parsed.projectRoot;
+  } catch (e) {
+    // No settings yet — first run.
+  }
+  return null;
+}
+
+function persistRoot(dir) {
+  try {
+    fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+    fs.writeFileSync(settingsFile(), JSON.stringify({ projectRoot: dir }, null, 2));
+  } catch (e) {
+    log("WARNING: could not persist project folder: " + e.message);
+  }
+}
+
+function setProjectDirs(root) {
+  projectRoot = root;
+  BACKEND_DIR = path.join(root, "eat-n-repeat-backend");
+  FRONTEND_DIR = path.join(root, "eat-n-repeat-frontend");
+  STAMP_FILE = path.join(root, ".initialized");
+}
+
+// Returns the resolved root, or null when staff must locate it.
+function getProjectRoot() {
+  if (projectRoot && isValidProjectRoot(projectRoot)) return projectRoot;
+  const persisted = loadPersistedRoot();
+  if (persisted && isValidProjectRoot(persisted)) {
+    setProjectDirs(persisted);
+    return projectRoot;
+  }
+  const sibling = path.resolve(__dirname, "..");
+  if (isValidProjectRoot(sibling)) {
+    setProjectDirs(sibling);
+    return projectRoot;
+  }
+  return null;
+}
 
 const BACKEND_PORT = 4000;
 const FRONTEND_PORT = 3000;
@@ -528,6 +594,16 @@ ipcMain.handle("start-system", async function () {
   broadcastStatus();
 
   try {
+    // 0. Project folder must resolve (installed apps don't sit beside it).
+    const root = getProjectRoot();
+    if (!root) {
+      log("ERROR: Project folder not set. Ask staff to locate it first.");
+      systemState = STATE.STOPPED;
+      broadcastStatus();
+      return { ok: false, needProjectRoot: true, message: "Project folder not set. Use Locate to select the Eat n RepEat folder." };
+    }
+    log("Project folder: " + root);
+
     // 1. Bootstrap
     await runBootstrap();
 
@@ -632,6 +708,33 @@ ipcMain.handle("get-qr", async function () {
   } catch (err) {
     return { ok: false, message: "QR generation failed: " + err.message };
   }
+});
+
+ipcMain.handle("get-project-root", async function () {
+  const root = getProjectRoot();
+  return { root: root, valid: !!root };
+});
+
+ipcMain.handle("choose-project-root", async function () {
+  const result = await dialog.showOpenDialog({
+    title: "Select the Eat n RepEat project folder",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { ok: false, message: "No folder selected." };
+  }
+  const dir = result.filePaths[0];
+  if (!isValidProjectRoot(dir)) {
+    log("Rejected project folder (missing backend/frontend): " + dir);
+    return {
+      ok: false,
+      message: "That folder does not contain eat-n-repeat-backend and eat-n-repeat-frontend. Please select the Eat n RepEat project folder.",
+    };
+  }
+  setProjectDirs(dir);
+  persistRoot(dir);
+  log("Project folder set: " + dir);
+  return { ok: true, root: dir };
 });
 
 ipcMain.handle("open-url", function (event, url) {

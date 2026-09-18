@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openURL: function (url) {
     return ipcRenderer.invoke("open-url", url);
   },
+  getProjectRoot: function () {
+    return ipcRenderer.invoke("get-project-root");
+  },
+  chooseProjectRoot: function () {
+    return ipcRenderer.invoke("choose-project-root");
+  },
   onLogLine: function (callback) {
     ipcRenderer.on("log-line", function (_event, line) {
       callback(line);

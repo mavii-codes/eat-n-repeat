@@ -8,6 +8,8 @@ var btnAdmin = document.getElementById("btn-admin");
 var btnQR = document.getElementById("btn-qr");
 var btnClearLog = document.getElementById("btn-clear-log");
 var btnCloseQR = document.getElementById("btn-close-qr");
+var btnLocate = document.getElementById("btn-locate");
+var projectRootEl = document.getElementById("project-root");
 
 var pillInternet = document.getElementById("pill-internet");
 var pillDatabase = document.getElementById("pill-database");
@@ -76,6 +78,17 @@ async function refreshStatus() {
   } catch (e) {
     console.error("Failed to get status:", e);
   }
+  try {
+    var proj = await window.electronAPI.getProjectRoot();
+    if (proj && proj.valid) {
+      projectRootEl.textContent = proj.root;
+    } else {
+      projectRootEl.textContent = "not set — click Locate...";
+      appendLogLine("[UI] Project folder not set. Click Locate... and select the Eat n RepEat folder, then START.");
+    }
+  } catch (e) {
+    console.error("Failed to get project root:", e);
+  }
 }
 
 function updateUI(status) {
@@ -116,6 +129,9 @@ btnStart.addEventListener("click", async function () {
     var result = await window.electronAPI.startSystem();
     if (!result.ok) {
       appendLogLine("[UI] Error: " + result.message);
+      if (result.needProjectRoot) {
+        await locateProject();
+      }
     }
   } catch (e) {
     appendLogLine("[UI] Start failed: " + e.message);
@@ -170,6 +186,23 @@ btnQR.addEventListener("click", async function () {
 btnCloseQR.addEventListener("click", function () {
   qrPanel.style.display = "none";
 });
+
+async function locateProject() {
+  try {
+    var result = await window.electronAPI.chooseProjectRoot();
+    if (result.ok) {
+      projectRootEl.textContent = result.root;
+      appendLogLine("[UI] Project folder set: " + result.root);
+    } else {
+      appendLogLine("[UI] Locate cancelled: " + result.message);
+    }
+  } catch (e) {
+    appendLogLine("[UI] Locate failed: " + e.message);
+  }
+  refreshStatus();
+}
+
+btnLocate.addEventListener("click", locateProject);
 
 btnClearLog.addEventListener("click", function () {
   logArea.innerHTML = "";
