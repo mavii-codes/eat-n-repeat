@@ -898,7 +898,6 @@ export function POSCashierTab() {
                       }`}
                     >
                       <CreditCard className="w-4 h-4" /> GCash
-                      {isOffline && " (Offline)"}
                     </button>
                   )}
                 </div>

@@ -792,11 +792,6 @@ export default function StaffPortalPage() {
                             {filteredActive.map((order) => (
                               <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10">
                                 <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}
-                                  {order.orderMode === 'local' && (
-                                    <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
-                                      LOCAL
-                                    </span>
-                                  )}
                                 </td>
                                 <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
                                 <td className="px-4 py-3">
@@ -855,11 +850,6 @@ export default function StaffPortalPage() {
                             <div className="flex justify-between items-start">
                               <div>
                                 <h3 className="font-bold text-[#800000]">{order.orderId}
-                                  {order.orderMode === 'local' && (
-                                    <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
-                                      LOCAL
-                                    </span>
-                                  )}
                                 </h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
                               </div>
@@ -971,11 +961,6 @@ export default function StaffPortalPage() {
                             {filteredHistory.map((order) => (
                               <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10 text-[#2B2523]">
                                 <td className="px-4 py-3 font-bold">{order.orderId}
-                                  {order.orderMode === 'local' && (
-                                    <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
-                                      LOCAL
-                                    </span>
-                                  )}
                                 </td>
                                 <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
                                 <td className="px-4 py-3 text-xs text-muted">{order.time}</td>
@@ -1011,11 +996,6 @@ export default function StaffPortalPage() {
                             <div className="flex justify-between items-start">
                               <div>
                                 <h3 className="font-bold text-[#800000]">{order.orderId}
-                                  {order.orderMode === 'local' && (
-                                    <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200 uppercase">
-                                      LOCAL
-                                    </span>
-                                  )}
                                 </h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
                               </div>
@@ -1055,11 +1035,6 @@ export default function StaffPortalPage() {
                           <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200 shadow-sm">
                             {selectedOrderDetails.orderType || "Dine-in"}
                           </span>
-                          {selectedOrderDetails.orderMode === 'local' && (
-                            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200 uppercase shadow-sm">
-                              LOCAL
-                            </span>
-                          )}
                         </div>
                       </div>
                       <button 
