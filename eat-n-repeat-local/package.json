@@ -1,6 +1,6 @@
 {
   "name": "eat-n-repeat-local",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Eat n Repeat Local System - Electron desktop launcher",
   "private": true,
   "main": "main.js",

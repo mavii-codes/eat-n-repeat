@@ -756,6 +756,13 @@ ipcMain.handle("open-url", function (event, url) {
 // App lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(function () {
+  let appVersion = "dev";
+  try {
+    appVersion = require("./package.json").version || appVersion;
+  } catch (e) {
+    // Fall through with default.
+  }
+  log("Eat n RepEat Local v" + appVersion + " starting.");
   createWindow();
 
   app.on("activate", function () {
