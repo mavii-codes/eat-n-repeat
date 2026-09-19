@@ -60,7 +60,8 @@ async function run() {
     }
 
     const before = await countOrphans(pool);
-    console.log(`[repair-orphans] orphaned orders.customer_id rows: ${before}`);
+    console.log(`[repair-orphans] Checking orders.customer_id...`);
+    console.log(`[repair-orphans] Found ${before} orphaned order customer reference(s).`);
     if (before > 0) {
       const sample = await sampleOrphans(pool);
       for (const row of sample) {
@@ -85,7 +86,7 @@ async function run() {
         WHERE customer_id IS NOT NULL
           AND customer_id NOT IN (SELECT id FROM customers)`
     );
-    console.log(`[repair-orphans] nulled customer_id on ${result.affectedRows} order(s).`);
+    console.log(`[repair-orphans] Set ${result.affectedRows} orphaned customer_id value(s) to NULL.`);
 
     const after = await countOrphans(pool);
     if (after !== 0) {
@@ -93,6 +94,7 @@ async function run() {
       return 1;
     }
     console.log('[repair-orphans] verified: 0 orphans remain.');
+    console.log('[repair-orphans] Complete.');
     return 0;
   } catch (err) {
     console.error('[repair-orphans] ERROR:', err.message || err);
