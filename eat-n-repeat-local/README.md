@@ -89,6 +89,21 @@ If network status changes (e.g., connected to a different Wi-Fi):
 2. Ensure both `eat-n-repeat-backend/` and `eat-n-repeat-frontend/` exist
 3. Try deleting the `.initialized` stamp file and restarting to re-run bootstrap
 
+### Foreign-Key Error on `prisma db push` (orphaned guest orders)
+
+Guest checkout writes orders with generated customer IDs that have no
+matching `customers` row. If `prisma db push` fails adding the
+`orders.customer_id` foreign key, the bootstrap automatically repairs this
+first via `eat-n-repeat-backend/prisma/repair-orphans.cjs`: it sets ONLY
+orphaned `customer_id` values to NULL (matching the relation's
+`ON DELETE SET NULL` semantics) and never deletes orders. Manual equivalent:
+
+```text
+cd eat-n-repeat-backend
+node prisma/repair-orphans.cjs            (repair)
+node prisma/repair-orphans.cjs --dry-run  (report only, writes nothing)
+```
+
 ## Uninstall
 
 1. Stop the system if running

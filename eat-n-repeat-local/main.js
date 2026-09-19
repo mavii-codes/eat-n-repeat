@@ -431,6 +431,9 @@ async function runBootstrap() {
   log("Running prisma generate...");
   await runCommand("npx prisma generate", BACKEND_DIR);
 
+  log("Repairing orphaned order references (safe, idempotent)...");
+  await runCommand("node prisma/repair-orphans.cjs", BACKEND_DIR);
+
   log("Running prisma db push...");
   await runCommand("npx prisma db push", BACKEND_DIR);
 
