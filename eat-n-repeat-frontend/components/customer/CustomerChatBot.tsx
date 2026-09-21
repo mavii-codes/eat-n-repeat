@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Coffee, MessageSquare, Bot, Send } from 'lucide-react';
+import { useIsLocalBackend } from '@/lib/config';
 
 type MessageSender = 'bot' | 'user' | 'system';
 
@@ -43,6 +44,9 @@ export function CustomerChatBot() {
   const [isTyping, setIsTyping] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Mount-gated: false on server + first client render (matches SSR), so the
+  // online-AI branch can never diverge from server HTML or fire offline.
+  const isLocal = useIsLocalBackend();
 
   useEffect(() => {
     const handleCartState = (e: any) => setIsCartOpen(e.detail);
@@ -83,8 +87,37 @@ export function CustomerChatBot() {
     if (!textToSend) setInput('');
     setIsTyping(true);
 
+    if (!isLocal) {
+      // ONLINE: server-side Gemini with live café context; any failure
+      // (no key, rate limit, timeout, offline) falls back to local replies.
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: query }),
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error('chat unavailable');
+          const data = await res.json();
+          if (!data?.reply) throw new Error('empty reply');
+          return data.reply as string;
+        })
+        .then((reply) => {
+          setMessages((prev) => [
+            ...prev,
+            { id: Date.now().toString(), sender: 'bot', text: reply, timestamp: now },
+          ]);
+          setIsTyping(false);
+        })
+        .catch(() => {
+          const response = generateBotResponse(query);
+          setMessages((prev) => [...prev, response]);
+          setIsTyping(false);
+        });
+      return;
+    }
+
     setTimeout(() => {
-      // Standard AI Response
+      // OFFLINE/LOCAL: keyword fallback only — never calls any AI service.
       const response = generateBotResponse(query);
       setMessages((prev) => [...prev, response]);
       setIsTyping(false);
