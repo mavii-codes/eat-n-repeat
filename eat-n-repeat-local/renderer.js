@@ -3,8 +3,7 @@
 // DOM elements
 var btnStart = document.getElementById("btn-start");
 var btnStop = document.getElementById("btn-stop");
-var btnStaff = document.getElementById("btn-staff");
-var btnAdmin = document.getElementById("btn-admin");
+var btnPortal = document.getElementById("btn-portal");
 var btnQR = document.getElementById("btn-qr");
 var btnClearLog = document.getElementById("btn-clear-log");
 var btnCloseQR = document.getElementById("btn-close-qr");
@@ -50,20 +49,17 @@ function setButtons(state) {
   if (state === "running") {
     btnStart.disabled = true;
     btnStop.disabled = false;
-    btnStaff.disabled = false;
-    btnAdmin.disabled = false;
+    btnPortal.disabled = false;
     btnQR.disabled = false;
   } else if (state === "starting") {
     btnStart.disabled = true;
     btnStop.disabled = false;
-    btnStaff.disabled = true;
-    btnAdmin.disabled = true;
+    btnPortal.disabled = true;
     btnQR.disabled = true;
   } else {
     btnStart.disabled = false;
     btnStop.disabled = true;
-    btnStaff.disabled = true;
-    btnAdmin.disabled = true;
+    btnPortal.disabled = true;
     btnQR.disabled = true;
   }
 }
@@ -156,16 +152,10 @@ btnStop.addEventListener("click", async function () {
   refreshStatus();
 });
 
-btnStaff.addEventListener("click", function () {
-  var staffURL = "http://" + currentLanIP + ":3000/staff";
-  window.electronAPI.openURL(staffURL);
-  appendLogLine("[UI] Opening staff portal: " + staffURL);
-});
-
-btnAdmin.addEventListener("click", function () {
-  var adminURL = "http://" + currentLanIP + ":3000/admin";
-  window.electronAPI.openURL(adminURL);
-  appendLogLine("[UI] Opening admin portal: " + adminURL);
+btnPortal.addEventListener("click", function () {
+  var portalURL = "http://" + currentLanIP + ":3000/login";
+  window.electronAPI.openURL(portalURL);
+  appendLogLine("[UI] Opening staff/admin portal: " + portalURL);
 });
 
 btnQR.addEventListener("click", async function () {
