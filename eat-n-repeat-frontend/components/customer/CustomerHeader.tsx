@@ -42,7 +42,8 @@ export function CustomerHeader({
   setFulfillmentType,
 }: CustomerHeaderProps) {
   const pathname = usePathname();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  const isSessionLoading = sessionStatus === 'loading';
   const { unreadCount } = useCustomerNotifications();
   const [showNotificationPanel, setShowNotificationPanel] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState('Near Aby Road, Poblacion, Cordova');
@@ -154,7 +155,11 @@ export function CustomerHeader({
 
 
               {/* Desktop Profile Icon & Dropdown */}
-              {isLocalMode ? null : session?.user ? (
+              {isLocalMode ? null : isSessionLoading ? (
+                <div className="hidden md:flex items-center justify-center p-2 sm:p-2.5" aria-label="Checking sign-in status">
+                  <div className="h-4 w-4 sm:h-5 sm:w-5 animate-spin rounded-full border-2 border-stone-300 border-t-[#B91C1C]" />
+                </div>
+              ) : session?.user ? (
                 <div className="relative hidden md:block">
                   <button
                     type="button"
@@ -261,7 +266,17 @@ export function CustomerHeader({
                   <Logo size="sm" variant="customer" href="/customer" />
                 </div>
 
-                {session?.user ? (
+                {isSessionLoading ? (
+                  <div className="flex items-center gap-4" aria-label="Checking sign-in status">
+                    <div className="w-14 h-14 rounded-full bg-stone-100 shadow-md overflow-hidden shrink-0 flex items-center justify-center">
+                      <div className="h-6 w-6 animate-spin rounded-full border-[3px] border-stone-300 border-t-[#B91C1C]" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="h-4 w-32 animate-pulse rounded bg-stone-200" />
+                      <div className="h-3 w-24 animate-pulse rounded bg-stone-100" />
+                    </div>
+                  </div>
+                ) : session?.user ? (
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-full border-2 border-white shadow-md overflow-hidden bg-stone-100 shrink-0 flex items-center justify-center">
                       {(session.user as any).image ? (

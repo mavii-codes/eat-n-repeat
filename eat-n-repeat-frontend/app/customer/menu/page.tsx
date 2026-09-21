@@ -26,7 +26,7 @@ export default function MenuPage() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [selectedDetailItem, setSelectedDetailItem] = useState<CustomerMenuItem | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
   useEffect(() => {
@@ -159,6 +159,7 @@ export default function MenuPage() {
   const handleClearCart = () => setCartItems([]);
 
   const handleToggleFavorite = async (id: string) => {
+    if (sessionStatus === 'loading') return;
     if (!session?.user) {
       setShowAuthModal(true);
       return;
