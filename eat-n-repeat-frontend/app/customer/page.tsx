@@ -439,6 +439,8 @@ export default function CustomerHome() {
           </div>
           <div className="border-t border-[#592205] pt-6 text-center text-xs text-amber-200/50">
             © {new Date().getFullYear()} Eat n' RepEat Café Cordova. All rights reserved.
+            {' · '}
+            <Link href="/login" className="hover:text-amber-300 transition">Staff</Link>
           </div>
         </div>
       </footer>
