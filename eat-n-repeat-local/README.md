@@ -104,6 +104,23 @@ node prisma/repair-orphans.cjs            (repair)
 node prisma/repair-orphans.cjs --dry-run  (report only, writes nothing)
 ```
 
+### Foreign-Key/index Error on `prisma db push` (legacy index names)
+
+Very old local databases (raw-SQL era) may carry a leftover plain index
+named `cash_tx_shift_fk` on `cash_transactions(shift_id)` — a name that never
+existed in any Prisma schema. `prisma db push` then fails trying to
+DROP/REDEFINE it (`Can't DROP INDEX cash_tx_shift_fk`). The bootstrap runs
+`eat-n-repeat-backend/prisma/repair-schema.cjs` before push: it ensures that
+exact index exists (creating it is non-destructive; the worst case is a
+redundant index that push itself replaces), logs existing indexes, and aborts
+loudly on anything unexpected. Manual equivalent:
+
+```text
+cd eat-n-repeat-backend
+node prisma/repair-schema.cjs            (repair)
+node prisma/repair-schema.cjs --dry-run  (report only, writes nothing)
+```
+
 ## Uninstall
 
 1. Stop the system if running

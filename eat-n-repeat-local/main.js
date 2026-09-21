@@ -434,6 +434,9 @@ async function runBootstrap() {
   log("Repairing orphaned order references (safe, idempotent)...");
   await runCommand("node prisma/repair-orphans.cjs", BACKEND_DIR);
 
+  log("Repairing legacy schema indexes (safe, idempotent)...");
+  await runCommand("node prisma/repair-schema.cjs", BACKEND_DIR);
+
   log("Running prisma db push...");
   await runCommand("npx prisma db push", BACKEND_DIR);
 
