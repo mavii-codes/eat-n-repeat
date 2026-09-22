@@ -51,7 +51,7 @@ function getMonthLabel(dateStr: string): string {
 }
 
 export default function StaffPortalPage() {
-  const { user, logout, changePassword, updateProfile } = useAuth();
+  const { user, logout, changePassword, verifyCurrentPassword, updateProfile } = useAuth();
   const {
     storeOrders,
     deliveryOrders,
@@ -360,14 +360,14 @@ export default function StaffPortalPage() {
   }
 
   // Password Change Submission
-  function handlePasswordUpdate(e: React.FormEvent) {
+  async function handlePasswordUpdate(e: React.FormEvent) {
     e.preventDefault();
     setPwdError(null);
     setPwdSuccess(null);
 
     if (!user) return;
 
-    if (currentPwd !== user.password) {
+    if (!(await verifyCurrentPassword(currentPwd))) {
       setPwdError("Current password is incorrect.");
       return;
     }

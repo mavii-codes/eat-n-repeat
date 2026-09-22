@@ -18,11 +18,32 @@ export class HandleXenditWebhookService {
       return null;
     }
 
+    // Idempotency: already settled for this invoice — acknowledge, skip writes.
+    if (payment.status === "PAID" && event.id && payment.xenditInvoiceId === event.id) {
+      return await webhooksRepository.findOrderById(payment.orderId);
+    }
+
     // Fetch current order status first to check if it was cancelled
     const orderData = await webhooksRepository.findOrderStatusAndType(payment.orderId);
-
     const wasCancelled = orderData && orderData.status === "cancelled";
     const orderType = orderData ? orderData.type : "delivery";
+
+    // Amount validation: the webhook amount must match the order total.
+    // A mismatch is acknowledged WITHOUT state changes (no retry storm).
+    if (event.amount !== undefined && event.amount !== null && orderData) {
+      const webhookAmount = Number(event.amount);
+      const orderTotal = Number((orderData as any).total);
+      if (
+        Number.isFinite(webhookAmount) &&
+        Number.isFinite(orderTotal) &&
+        Math.abs(webhookAmount - orderTotal) > 0.01
+      ) {
+        console.error(
+          `[webhooks] Amount mismatch for order ${payment.orderId}: webhook=${webhookAmount} order=${orderTotal}. Ignored.`
+        );
+        return null;
+      }
+    }
 
     // Update payment status
     await webhooksRepository.updatePaymentStatus(

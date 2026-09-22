@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { requireAuth } from "@/middleware/auth.middleware";
+import { requireRole, STAFF_ROLES } from "@/middleware/requireRole.middleware";
 import { staffController } from "@/controllers/staff.controller";
 
 const router = Router();
 
-// All routes require auth (mirrors old router.use(requireAuth))
-router.use(requireAuth);
+// All staff user-management routes require a staff-role JWT
+// (admin, head_staff, or staff). Customer JWTs are rejected.
+router.use(requireRole(...STAFF_ROLES));
 
 router.get("/", (req, res) => staffController.getAllUsers(req, res));
 router.post("/", (req, res) => staffController.createUser(req, res));

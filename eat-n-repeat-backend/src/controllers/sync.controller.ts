@@ -1,9 +1,11 @@
 import type { Request, Response } from "express";
+import { env } from "@/config/env";
 import * as service from "@/services/sync";
 import { cafeAvailabilityService } from "@/services/cafe-availability";
 
-export class SyncController {
-  async getStatus(_req: Request, res: Response) {
+let warnedInsecureHeartbeat = false;
+
+export class SyncController {  async getStatus(_req: Request, res: Response) {
     const result = await service.getSyncStatus();
     return res.json(result);
   }
@@ -31,6 +33,17 @@ export class SyncController {
   }
 
   async heartbeat(req: Request, res: Response) {
+    // Headless café senders hold no JWT. When a shared secret is configured,
+    // require it; otherwise accept the timestamp-only write (documented).
+    if (env.syncSharedSecret) {
+      const provided = req.headers["x-sync-secret"];
+      if (provided !== env.syncSharedSecret) {
+        return res.status(401).json({ success: false, error: "Invalid sync secret." });
+      }
+    } else if (!warnedInsecureHeartbeat) {
+      warnedInsecureHeartbeat = true;
+      console.warn("[sync] SYNC_SHARED_SECRET unset — /api/sync/heartbeat accepts unauthenticated pings (timestamp-only).");
+    }
     try {
       await cafeAvailabilityService.recordHeartbeat();
       return res.json({ success: true });

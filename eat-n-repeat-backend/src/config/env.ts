@@ -45,4 +45,9 @@ export const env = {
   },
   cloudSyncUrl: process.env.CLOUD_SYNC_URL || "https://eat-n-repeat-cloud.example.com/api/sync/push",
   syncIntervalMs: Number(process.env.SYNC_INTERVAL_MS ?? 30000),
+  // Optional shared secret for the headless café heartbeat sender (which
+  // holds no JWT). When set, /api/sync/heartbeat requires a matching
+  // `x-sync-secret` header. When unset, heartbeat stays open (timestamp-only
+  // write) with a boot warning.
+  syncSharedSecret: process.env.SYNC_SHARED_SECRET ?? "",
 } as const;

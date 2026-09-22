@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { initialAdminData } from "@/lib/admin/mock-data";
+import { ensureHashed } from "@/lib/admin/password";
 import type {
   AdminDataState,
   DeliveryOrder,
@@ -71,7 +72,8 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
         return {
           ...account,
           username: account.username || initial?.username || account.name.toLowerCase().replace(/\s+/g, ""),
-          password: account.password || initial?.password || "staff123",
+          // Never persist plaintext: hash legacy/mock passwords on load.
+          password: ensureHashed(account.password || initial?.password || "staff123"),
           role:
             (account.role as string) === "cashier" ? "staff" : account.role,
         };
@@ -383,21 +385,23 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addStaffAccount = useCallback((input: StaffAccountInput) => {
+    const secured = { ...input, password: ensureHashed(input.password || "staff123") };
     setData((prev) => ({
       ...prev,
       staffAccounts: [
         ...prev.staffAccounts,
-        { ...input, id: createId("sf"), archived: false },
+        { ...secured, id: createId("sf"), archived: false },
       ],
     }));
   }, []);
 
   const updateStaffAccount = useCallback(
     (id: string, input: StaffAccountInput) => {
+      const secured = input.password ? { ...input, password: ensureHashed(input.password) } : input;
       setData((prev) => ({
         ...prev,
         staffAccounts: prev.staffAccounts.map((account) =>
-          account.id === id ? { ...account, ...input, id } : account,
+          account.id === id ? { ...account, ...secured, id } : account,
         ),
       }));
     },

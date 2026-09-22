@@ -1,11 +1,13 @@
 import { Router } from "express";
-import { requireAuth } from "@/middleware/auth.middleware";
+import { requireRole, STAFF_ROLES } from "@/middleware/requireRole.middleware";
 import { adminOrdersController } from "@/controllers/admin-orders.controller";
 
 const router = Router();
 
-router.get("/", (req, res) => adminOrdersController.getOrders(req, res));
-router.patch("/:id/status", (req, res) => adminOrdersController.updateStatus(req, res));
-router.patch("/:id/payment", requireAuth, (req, res) => adminOrdersController.markAsPaid(req, res));
+// Order list, status changes, and payment confirmation all require a
+// staff-role JWT. Customer and anonymous callers are rejected.
+router.get("/", requireRole(...STAFF_ROLES), (req, res) => adminOrdersController.getOrders(req, res));
+router.patch("/:id/status", requireRole(...STAFF_ROLES), (req, res) => adminOrdersController.updateStatus(req, res));
+router.patch("/:id/payment", requireRole(...STAFF_ROLES), (req, res) => adminOrdersController.markAsPaid(req, res));
 
 export default router;

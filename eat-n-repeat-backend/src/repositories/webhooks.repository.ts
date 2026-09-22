@@ -8,7 +8,7 @@ export class WebhooksRepository {
   async findPaymentByXenditReference(referenceId: string) {
     return prisma.payment.findFirst({
       where: { xenditReference: referenceId },
-      select: { id: true, orderId: true },
+      select: { id: true, orderId: true, status: true, amount: true, xenditInvoiceId: true },
     });
   }
 
@@ -36,7 +36,7 @@ export class WebhooksRepository {
   async findOrderStatusAndType(orderId: string) {
     return prisma.order.findUnique({
       where: { id: orderId },
-      select: { status: true, type: true },
+      select: { status: true, type: true, total: true },
     });
   }
 

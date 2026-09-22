@@ -30,11 +30,18 @@ export function StaffNotificationProvider({ children }: { children: ReactNode })
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<StaffNotification[]>([]);
 
+  const authHeaders = (): HeadersInit => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("eat-n-repeat-staff-token") : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   const refreshNotifications = async () => {
     if (!user || user.role !== "staff") return;
 
     try {
-      const response = await fetch(`${getApiUrl()}/api/staff-notifications`);
+      const response = await fetch(`${getApiUrl()}/api/staff-notifications`, {
+        headers: authHeaders(),
+      });
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -50,7 +57,8 @@ export function StaffNotificationProvider({ children }: { children: ReactNode })
     try {
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
       await fetch(`${getApiUrl()}/api/staff-notifications/${id}/read`, {
-        method: "POST"
+        method: "POST",
+        headers: authHeaders(),
       });
     } catch (error) {
       console.error("Failed to mark staff notification as read:", error);
@@ -61,7 +69,8 @@ export function StaffNotificationProvider({ children }: { children: ReactNode })
     try {
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       await fetch(`${getApiUrl()}/api/staff-notifications/read-all`, {
-        method: "POST"
+        method: "POST",
+        headers: authHeaders(),
       });
     } catch (error) {
       console.error("Failed to mark all staff notifications as read:", error);

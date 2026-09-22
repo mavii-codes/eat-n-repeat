@@ -40,7 +40,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
 
   const performSync = async () => {
     if (syncInProgress.current) return;
-    
+
     try {
       syncInProgress.current = true;
       const offlineOrders = await getPendingOfflineOrders();
@@ -50,12 +50,38 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
         return;
       }
 
+      // /api/sync/offline requires a backend JWT. Prefer the staff token;
+      // otherwise use the signed-in customer's token from our own NextAuth
+      // session endpoint (same-origin, cookie-authenticated). Absent both,
+      // keep the queue for later instead of failing loudly.
+      let bearer: string | null =
+        localStorage.getItem("eat-n-repeat-staff-token");
+      if (!bearer) {
+        try {
+          const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
+          if (sessionRes.ok) {
+            const session = await sessionRes.json();
+            if (typeof session?.accessToken === "string") bearer = session.accessToken;
+          }
+        } catch {
+          // Session lookup is best-effort; queue survives regardless.
+        }
+      }
+      if (!bearer) {
+        console.warn("[sync] No auth token available; keeping offline queue for later.");
+        return;
+      }
+
       toast.loading("Syncing offline data...", { id: "sync-status" });
 
-      const res = await axios.post(`${getApiUrl()}/api/sync/offline`, {
-        offline_orders: offlineOrders,
-        offline_stock_transactions: offlineStockTxs,
-      });
+      const res = await axios.post(
+        `${getApiUrl()}/api/sync/offline`,
+        {
+          offline_orders: offlineOrders,
+          offline_stock_transactions: offlineStockTxs,
+        },
+        { headers: { Authorization: `Bearer ${bearer}` } }
+      );
 
       if (res.data.success) {
         if (offlineOrders.length > 0) {
