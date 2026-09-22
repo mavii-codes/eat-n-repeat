@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,7 +9,7 @@ import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
 import { useIsLocalBackend } from '@/lib/config';
-import { journalOrder } from '@/lib/offlineSync';
+import { journalOrder, removeOfflineOrder } from '@/lib/offlineSync';
 import type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
 export type CartItem = {
@@ -44,6 +44,9 @@ export function CartDrawer({
   const router = useRouter();
   const { data: session } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  // Id of an order journaled after a failed submit. On a later successful
+  // submit it is removed from the queue so the order cannot sync twice.
+  const lastJournaledId = useRef<string | null>(null);
   const isLocalMode = useIsLocalBackend();
 
   useEffect(() => {
@@ -176,15 +179,15 @@ export function CartDrawer({
 
     setIsSubmitting(true);
 
+    const orderItemsSummary = cartItems
+      .map((ci) => `${ci.quantity}x ${ci.menuItem.name}${ci.selectedSize ? ` (${ci.selectedSize.name})` : ''}`)
+      .join(', ');
+
+    const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+
     try {
       const { getApiUrl } = await import('@/lib/config');
       const accessToken = (session as any)?.accessToken as string | undefined;
-
-      const orderItemsSummary = cartItems
-        .map((ci) => `${ci.quantity}x ${ci.menuItem.name}${ci.selectedSize ? ` (${ci.selectedSize.name})` : ''}`)
-        .join(', ');
-
-      const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const orderDetails = {
         orderNumber,
@@ -259,11 +262,40 @@ export function CartDrawer({
         type: fulfillmentType,
         paymentMethod: backendPaymentMethod
       });
+      // A previous failed attempt may have journaled this cart under another
+      // id — drop it now that the server accepted the order.
+      if (lastJournaledId.current) {
+        removeOfflineOrder(lastJournaledId.current);
+        lastJournaledId.current = null;
+      }
       onClearCart();
     } catch (error: any) {
       console.error('Checkout error:', error);
       setIsSubmitting(false);
-      alert(error.message || 'Something went wrong. Please try again.');
+      const msg = typeof error?.message === 'string' ? error.message : '';
+      const isNetworkFailure =
+        error instanceof TypeError ||
+        msg.includes('Failed to fetch') ||
+        msg.includes('NetworkError') ||
+        msg.includes('Load failed') ||
+        msg.includes('network');
+      if (isNetworkFailure) {
+        // Offline: the backend never saw this order, so journal it locally
+        // for the background sync. Same id => retries overwrite, never duplicate.
+        journalOrder({
+          id: orderNumber,
+          time: new Date().toISOString(),
+          items: orderItemsSummary,
+          total,
+          status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
+          paid: false,
+          notes: 'cart-offline',
+        });
+        lastJournaledId.current = orderNumber;
+        alert("You're offline — order saved on this device and will sync automatically when you reconnect. Your cart is kept so you can review it.");
+      } else {
+        alert(error.message || 'Something went wrong. Please try again.');
+      }
     }
   };
 

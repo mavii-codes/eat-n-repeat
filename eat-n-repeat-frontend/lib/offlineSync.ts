@@ -144,9 +144,22 @@ export async function clearSyncedStockTransactions() {
 
 // ── JOURNAL HELPER ─────────────────────
 
-export function journalOrder(o: { id: string; time: string; items: string; total: number; status: string; paid: boolean; notes?: string }): void {
-  try {
+export function journalOrder(o: { id: string; time: string; items: string; total: number; status: string; paid: boolean; notes?: string }): void {  try {
     const p = saveOfflineOrder({ id: o.id, time: o.time, items: o.items, total: o.total, status: o.status, paid: o.paid, notes: o.notes ?? "" });
     if (p && typeof (p as any).catch === "function") (p as any).catch(() => {});
   } catch { /* journaling must never break a sale */ }
+}
+
+/**
+ * Remove one queued order (e.g. a previously-failed submit that has since
+ * succeeded online under a new id). Never throws; missing keys are no-ops.
+ */
+export async function removeOfflineOrder(id: string): Promise<void> {
+  try {
+    if (!dbPromise || !id) return;
+    const db = await dbPromise;
+    await db.delete('offline_orders', id);
+  } catch {
+    // Best-effort cleanup only.
+  }
 }
