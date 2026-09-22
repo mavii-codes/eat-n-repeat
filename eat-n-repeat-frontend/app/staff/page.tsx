@@ -34,6 +34,67 @@ function formatOrderTotal(order: any): string {
   return (Number.isFinite(computed) ? computed : 0).toFixed(2);
 }
 
+// Downscale a menu photo so it fits comfortably in localStorage (which caps
+// around 5MB shared with all other café data). Phone photos of several MB
+// become a few hundred KB; throws with a friendly message when even the
+// compressed result exceeds maxBytes.
+const MENU_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+function compressMenuImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        const MAX_SIDE = 1200;
+        const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas not supported in this browser.");
+        ctx.drawImage(img, 0, 0, w, h);
+        // PNG/GIF with transparency stay PNG only when already small;
+        // otherwise JPEG keeps photos an order of magnitude smaller.
+        const keepPng = (file.type === "image/png" || file.type === "image/gif") && file.size <= 500 * 1024;
+        const mime = keepPng ? "image/png" : "image/jpeg";
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error("Could not process this image. Try another photo."));
+              return;
+            }
+            if (blob.size > MENU_IMAGE_MAX_BYTES) {
+              reject(
+                new Error(
+                  `Photo is still over 2MB after compression (${(blob.size / 1048576).toFixed(1)}MB). Please pick a smaller photo.`
+                )
+              );
+              return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error("Could not read this photo. Try another file."));
+            reader.readAsDataURL(blob);
+          },
+          mime,
+          0.82
+        );
+      } catch (e: any) {
+        reject(new Error(e?.message || "Could not process this image. Try another photo."));
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("This file is not a readable image. Try another photo."));
+    };
+    img.src = objectUrl;
+  });
+}
+
 function getWeekRange(dateStr: string): { start: string; end: string; label: string } {
   const [year, month, day] = dateStr.split("-").map(Number);
   const d = new Date(year, month - 1, day);
@@ -114,6 +175,25 @@ export default function StaffPortalPage() {
     available: true,
     image: "",
   });
+  const [menuImageError, setMenuImageError] = useState<string | null>(null);
+  const [menuImageProcessing, setMenuImageProcessing] = useState(false);
+  const [menuSubmitError, setMenuSubmitError] = useState<string | null>(null);
+
+  // Surface background storage-quota failures (persist happens in context,
+  // outside the submit handler) while the menu modal is in play.
+  useEffect(() => {
+    const onStorageFull = () => {
+      const msg =
+        "Not enough local storage — your last change may not have saved. Remove the photo or clear old orders, then try again.";
+      if (menuModalOpen) {
+        setMenuSubmitError(msg);
+      } else {
+        alert(msg);
+      }
+    };
+    window.addEventListener("eat-n-repeat:storage-full", onStorageFull);
+    return () => window.removeEventListener("eat-n-repeat:storage-full", onStorageFull);
+  }, [menuModalOpen]);
 
   // Profile Form States
   const [profileName, setProfileName] = useState("");
@@ -316,6 +396,8 @@ export default function StaffPortalPage() {
   // Handle open add menu item
   function openAddMenu() {
     setEditingMenuItem(null);
+    setMenuSubmitError(null);
+    setMenuImageError(null);
     setMenuForm({
       name: "",
       description: "",
@@ -330,6 +412,8 @@ export default function StaffPortalPage() {
   // Handle open edit menu item
   function openEditMenu(item: MenuItem) {
     setEditingMenuItem(item);
+    setMenuSubmitError(null);
+    setMenuImageError(null);
     setMenuForm({
       name: item.name,
       description: item.description,
@@ -344,11 +428,24 @@ export default function StaffPortalPage() {
   // Submit Menu Item Form
   function handleMenuSubmit() {
     if (!menuForm.name.trim() || menuForm.price <= 0) return;
+    setMenuSubmitError(null);
 
-    if (editingMenuItem) {
-      updateMenuItem(editingMenuItem.id, menuForm);
-    } else {
-      addMenuItem(menuForm);
+    try {
+      if (editingMenuItem) {
+        updateMenuItem(editingMenuItem.id, menuForm);
+      } else {
+        addMenuItem(menuForm);
+      }
+    } catch (e: any) {
+      const msg = typeof e?.message === "string" ? e.message : "";
+      // localStorage quota blowouts surface here (DOMException QuotaExceededError).
+      if (e?.name === "QuotaExceededError" || msg.includes("quota") || msg.includes("exceed")) {
+        setMenuSubmitError(
+          "Not enough local storage for this item (likely the photo). Try a smaller photo or remove the image, then save again."
+        );
+        return;
+      }
+      throw e;
     }
     setMenuModalOpen(false);
   }
@@ -1743,6 +1840,11 @@ export default function StaffPortalPage() {
         }
       >
         <div className="space-y-4">
+          {menuSubmitError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800">
+              {menuSubmitError}
+            </div>
+          )}
           <AdminField label="Item Name">
             <AdminInput
               value={menuForm.name}
@@ -1803,19 +1905,40 @@ export default function StaffPortalPage() {
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(e) => {
+                  disabled={menuImageProcessing}
+                  onChange={async (e) => {
                     const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        setMenuForm(prev => ({ ...prev, image: reader.result as string }));
-                      };
-                      reader.readAsDataURL(file);
+                    // Reset so the same file can be picked again after an error.
+                    e.target.value = "";
+                    if (!file) return;
+                    if (!file.type.startsWith("image/")) {
+                      setMenuImageError("Please choose an image file (PNG, JPG, or GIF).");
+                      return;
+                    }
+                    setMenuImageError(null);
+                    setMenuImageProcessing(true);
+                    try {
+                      const dataUrl = await compressMenuImage(file);
+                      setMenuForm((prev) => ({ ...prev, image: dataUrl }));
+                    } catch (err: any) {
+                      setMenuImageError(
+                        typeof err?.message === "string" && err.message
+                          ? err.message
+                          : "Could not use this photo. Try another file."
+                      );
+                    } finally {
+                      setMenuImageProcessing(false);
                     }
                   }}
-                  className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-accent hover:file:bg-accent/20 cursor-pointer"
+                  className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-accent hover:file:bg-accent/20 cursor-pointer disabled:opacity-50"
                 />
-                <p className="mt-1 text-[10px] text-muted">PNG, JPG, or GIF. Max size 2MB.</p>
+                <p className="mt-1 text-[10px] text-muted">PNG, JPG, or GIF. Photos are compressed automatically (max 2MB).</p>
+                {menuImageProcessing && (
+                  <p className="mt-1 text-[11px] font-semibold text-accent animate-pulse">Processing photo…</p>
+                )}
+                {menuImageError && (
+                  <p className="mt-1 text-[11px] font-semibold text-red-700">{menuImageError}</p>
+                )}
               </div>
             </div>
           </AdminField>

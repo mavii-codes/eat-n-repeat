@@ -183,7 +183,20 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e: any) {
+      // Quota blowouts otherwise fail silently and the change looks "saved"
+      // until reload. Surface it loudly; callers keep their own messaging.
+      console.error("[AdminData] Local storage write failed:", e);
+      if (
+        typeof window !== "undefined" &&
+        (e?.name === "QuotaExceededError" ||
+          (typeof e?.message === "string" && /quota|exceed/i.test(e.message)))
+      ) {
+        window.dispatchEvent(new CustomEvent("eat-n-repeat:storage-full"));
+      }
+    }
   }, [data]);
 
   const addMenuItem = useCallback((input: MenuItemInput) => {
