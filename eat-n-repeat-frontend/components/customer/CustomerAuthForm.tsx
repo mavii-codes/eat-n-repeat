@@ -6,6 +6,7 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/brand/Logo';
 import { Coffee } from 'lucide-react';
+import { getApiUrl } from '@/lib/config';
 
 type AuthMode = 'signin' | 'signup';
 
@@ -39,13 +40,15 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
           setLoading(false);
           return;
         }
-        if (password.length < 6) {
-          setError('Password must be at least 6 characters.');
+        if (password.length < 8) {
+          setError('Password must be at least 8 characters.');
           setLoading(false);
           return;
         }
 
-        const res = await fetch('/api/customer/register', {
+        // Single source of truth: the Express backend (creates the DB row,
+        // the verification token, and sends the verification email).
+        const res = await fetch(`${getApiUrl()}/api/customer-auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, password, phone }),

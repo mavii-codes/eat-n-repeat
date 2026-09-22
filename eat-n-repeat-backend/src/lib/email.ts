@@ -1,7 +1,17 @@
 import { env } from "@/config/env";
 import nodemailer from "nodemailer";
 
-async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+export type EmailSendResult = {
+  ok: boolean;
+  provider?: "resend" | "gmail" | "smtp";
+  id?: string;
+};
+
+function emailFailure(message = "Email sending failed"): Error {
+  return new Error(message);
+}
+
+async function sendEmail(to: string, subject: string, html: string): Promise<EmailSendResult> {
   // Priority 1: Resend API
   if (env.resend.apiKey) {
     try {
@@ -14,12 +24,19 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
         body: JSON.stringify({ from: env.resend.from, to, subject, html }),
       });
       if (res.ok) {
-        console.log(`Email sent via Resend to ${to}`);
-        return;
+        let id: string | undefined;
+        try {
+          const data = await res.json();
+          if (data && typeof data.id === "string") id = data.id;
+        } catch {
+          // ID is best-effort; delivery already accepted.
+        }
+        console.log(`[Email] Sent via Resend to ${to}${id ? ` (id: ${id})` : ""}`);
+        return { ok: true, provider: "resend", id };
       }
-      console.error("Resend failed:", await res.text());
+      console.error("[Email] Resend failed:", await res.text());
     } catch (e) {
-      console.error("Resend error:", e);
+      console.error("[Email] Resend error:", e);
     }
   }
 
@@ -68,12 +85,12 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
       );
 
       if (sendRes.ok) {
-        console.log(`Email sent via Gmail API to ${to}`);
-        return;
+        console.log(`[Email] Sent via Gmail API to ${to}`);
+        return { ok: true, provider: "gmail" };
       }
-      console.error("Gmail API failed:", await sendRes.text());
+      console.error("[Email] Gmail API failed:", await sendRes.text());
     } catch (e) {
-      console.error("Gmail API error:", e);
+      console.error("[Email] Gmail API error:", e);
     }
   }
 
@@ -86,15 +103,16 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
         secure: env.smtp.port === 465,
         auth: { user: env.smtp.user, pass: env.smtp.pass },
       });
-      await transporter.sendMail({ from: env.smtp.from, to, subject, html });
-      console.log(`Email sent via SMTP to ${to}`);
-      return;
+      const info = await transporter.sendMail({ from: env.smtp.from, to, subject, html });
+      console.log(`[Email] Sent via SMTP to ${to}${info?.messageId ? ` (id: ${info.messageId})` : ""}`);
+      return { ok: true, provider: "smtp", id: info?.messageId };
     } catch (e) {
-      console.error("SMTP error:", e);
+      console.error("[Email] SMTP error:", e);
     }
   }
 
-  console.warn("No email provider configured. Email not sent.");
+  console.warn(`[Email] All providers failed or unconfigured; email to ${to} NOT sent.`);
+  throw emailFailure();
 }
 
 export async function sendVerificationEmail(email: string, token: string): Promise<void> {

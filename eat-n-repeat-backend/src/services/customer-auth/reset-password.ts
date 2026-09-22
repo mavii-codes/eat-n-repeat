@@ -25,7 +25,9 @@ export class ResetPasswordService {
     const passwordHash = await hash(password, 12);
     await customerAuthRepository.updateCustomerPasswordHash(foundToken.customerId, passwordHash);
 
-    await customerAuthRepository.deletePasswordResetTokenById(foundToken.id);
+    // Invalidate every reset token for this customer, not just the used one,
+    // so older emailed links cannot be reused afterwards.
+    await customerAuthRepository.deletePasswordResetTokensByCustomerId(foundToken.customerId);
   }
 }
 

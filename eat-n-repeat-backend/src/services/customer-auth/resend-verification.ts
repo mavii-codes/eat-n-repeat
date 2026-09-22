@@ -36,6 +36,7 @@ export class ResendVerificationService {
           err.statusCode = 500;
           throw err;
         }
+        throw error;
       }
     }
   }

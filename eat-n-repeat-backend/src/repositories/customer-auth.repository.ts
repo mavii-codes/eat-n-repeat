@@ -117,6 +117,10 @@ export class CustomerAuthRepository {
   async deletePasswordResetTokenById(id: string) {
     return prisma.passwordResetToken.delete({ where: { id } });
   }
+
+  async deletePasswordResetTokensByCustomerId(customerId: string) {
+    return prisma.passwordResetToken.deleteMany({ where: { customerId } });
+  }
 }
 
 export const customerAuthRepository = new CustomerAuthRepository();

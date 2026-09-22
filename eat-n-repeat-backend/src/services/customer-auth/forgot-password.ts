@@ -13,15 +13,14 @@ export class ForgotPasswordService {
     }
 
     if (!customer) {
-      const err: any = new Error("No account was found with this email address. Please check your email or create an account.");
-      err.statusCode = 404;
-      throw err;
+      // Deliberately silent: prevents account-enumeration via response differences.
+      return;
     }
 
     if (customer.status !== "active") {
-      const err: any = new Error("This account cannot be reset at this time. Please contact support.");
-      err.statusCode = 400;
-      throw err;
+      // Deliberately silent for the same reason; the generic controller
+      // message covers all non-sendable cases.
+      return;
     }
 
     const resetToken = crypto.randomBytes(32).toString("hex");
