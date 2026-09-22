@@ -222,6 +222,14 @@ export function CartDrawer({
         throw new Error(data.error || 'Failed to process checkout');
       }
 
+      // A previous failed attempt may have journaled this cart under another
+      // id — drop it now that the server accepted the order. Runs on ALL
+      // success paths (including the GCash redirect below).
+      if (lastJournaledId.current) {
+        removeOfflineOrder(lastJournaledId.current);
+        lastJournaledId.current = null;
+      }
+
       if (paymentMethod === 'gcash' && data.invoiceUrl) {
         onClearCart();
         window.location.href = data.invoiceUrl;
@@ -262,23 +270,23 @@ export function CartDrawer({
         type: fulfillmentType,
         paymentMethod: backendPaymentMethod
       });
-      // A previous failed attempt may have journaled this cart under another
-      // id — drop it now that the server accepted the order.
-      if (lastJournaledId.current) {
-        removeOfflineOrder(lastJournaledId.current);
-        lastJournaledId.current = null;
-      }
       onClearCart();
     } catch (error: any) {
       console.error('Checkout error:', error);
       setIsSubmitting(false);
       const msg = typeof error?.message === 'string' ? error.message : '';
+      // Offline fingerprints only: browser-offline state, fetch TypeErrors,
+      // and the per-engine network failure messages. Deliberately NOT matching
+      // generic substrings like "network" — a server-side refusal mentioning
+      // networks must never be mistaken for an offline client.
+      const offlineBrowser =
+        typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && !navigator.onLine;
       const isNetworkFailure =
+        offlineBrowser ||
         error instanceof TypeError ||
         msg.includes('Failed to fetch') ||
         msg.includes('NetworkError') ||
-        msg.includes('Load failed') ||
-        msg.includes('network');
+        msg.includes('Load failed');
       if (isNetworkFailure) {
         // Offline: the backend never saw this order, so journal it locally
         // for the background sync. Same id => retries overwrite, never duplicate.
