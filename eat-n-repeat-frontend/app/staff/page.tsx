@@ -25,6 +25,15 @@ import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/a
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
 
+// Never render "₱NaN": order totals can be missing on legacy/partial rows,
+// so fall back through subtotal+fee and finally 0.
+function formatOrderTotal(order: any): string {
+  const total = Number(order?.total);
+  if (Number.isFinite(total)) return total.toFixed(2);
+  const computed = Number(order?.subtotal || 0) + Number(order?.deliveryFee || 0);
+  return (Number.isFinite(computed) ? computed : 0).toFixed(2);
+}
+
 function getWeekRange(dateStr: string): { start: string; end: string; label: string } {
   const [year, month, day] = dateStr.split("-").map(Number);
   const d = new Date(year, month - 1, day);
@@ -800,7 +809,7 @@ export default function StaffPortalPage() {
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 text-xs text-muted max-w-[150px] truncate">{order.items}</td>
-                                <td className="px-4 py-3 font-bold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3 font-bold">₱{formatOrderTotal(order)}</td>
                                 <td className="px-4 py-3">
                                   {order.paid ? (
                                     <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-200">Confirmed Paid</span>
@@ -860,7 +869,7 @@ export default function StaffPortalPage() {
                             
                             <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
                               <span className="text-muted truncate max-w-[60%]">{order.items}</span>
-                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                              <span className="font-bold text-lg">₱{formatOrderTotal(order)}</span>
                             </div>
 
                             <div className="flex flex-col gap-2">
@@ -969,7 +978,7 @@ export default function StaffPortalPage() {
                                     {order.orderType || "dine-in"}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 font-semibold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3 font-semibold">₱{formatOrderTotal(order)}</td>
                                 <td className="px-4 py-3">
                                   <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
                                     {order.status}
@@ -1006,7 +1015,7 @@ export default function StaffPortalPage() {
                             
                             <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
                               <span className="text-muted text-xs">{order.time}</span>
-                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                              <span className="font-bold text-lg">₱{formatOrderTotal(order)}</span>
                             </div>
 
                             <button
@@ -1112,7 +1121,7 @@ export default function StaffPortalPage() {
                             )}
                             <div className="flex justify-between items-center">
                               <span className="font-bold text-[#800000]">Total</span>
-                              <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{selectedOrderDetails.total?.toFixed(2) || ((selectedOrderDetails as any).subtotal + ((selectedOrderDetails as any).deliveryFee||0)).toFixed(2)}</span>
+                              <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{formatOrderTotal(selectedOrderDetails)}</span>
                             </div>
                           </div>
                         </div>

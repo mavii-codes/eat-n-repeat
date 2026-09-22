@@ -69,9 +69,9 @@ export default function CheckoutPage() {
         const parsed = JSON.parse(storedCart);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const formatted = parsed.map((item: any) => ({
-            id: item.menuItem?.id || item.id || 'item-1',
-            name: item.menuItem?.name || item.name || 'Delicious Item',
-            price: item.menuItem?.price || item.price || 100,
+            id: item.menuItem?.id ?? item.id ?? 'item-1',
+            name: item.menuItem?.name ?? item.name ?? 'Delicious Item',
+            price: item.menuItem?.price ?? item.price ?? 100,
             image: item.menuItem?.image || item.image || 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
             quantity: item.quantity || 1,
           }));

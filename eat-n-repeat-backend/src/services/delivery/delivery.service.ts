@@ -1,5 +1,6 @@
 import { deliveryRepository } from "@/repositories/delivery.repository";
 import { notifyAllStaff } from "@/services/staff-notifications";
+import crypto from "crypto";
 
 function generateOrderNumber(): string {
   const timestamp = Date.now().toString(36).toUpperCase();

@@ -141,14 +141,12 @@ export async function checkout(
         },
       });
 
-      await paymentsRepository.createPayment({
-        id: paymentId,
-        orderId: order.id,
-        paymentMethod,
+      // Attach the created invoice to the EXISTING payment row (same id).
+      // A second createPayment here would violate the PK (P2002) and turn
+      // every successful Xendit invoice into a customer-facing 500.
+      await paymentsRepository.updatePayment(payment.id, {
         xenditInvoiceId: invoice.id,
         xenditReference: invoice.invoiceUrl,
-        amount: total,
-        status: "PENDING",
       });
 
       return {

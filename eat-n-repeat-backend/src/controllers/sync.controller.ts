@@ -6,8 +6,16 @@ import { cafeAvailabilityService } from "@/services/cafe-availability";
 let warnedInsecureHeartbeat = false;
 
 export class SyncController {  async getStatus(_req: Request, res: Response) {
-    const result = await service.getSyncStatus();
-    return res.json(result);
+    // NOTE: no try/catch omission here is intentional-looking but was a crash
+    // path: Express 4 does not catch async rejections, so a DB outage would
+    // take down the process instead of returning 503.
+    try {
+      const result = await service.getSyncStatus();
+      return res.json(result);
+    } catch (err) {
+      console.error("Sync Status Error:", err);
+      return res.status(503).json({ success: false, error: "Sync status unavailable" });
+    }
   }
 
   async push(req: Request, res: Response) {

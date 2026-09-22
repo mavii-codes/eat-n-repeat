@@ -55,6 +55,22 @@ export class PaymentsRepository {
     });
   }
 
+  async updatePayment(
+    id: string,
+    data: Partial<{
+      paymentMethod: string;
+      xenditInvoiceId: string;
+      xenditReference: string;
+      amount: number;
+      status: string;
+    }>,
+  ) {
+    return prisma.payment.update({
+      where: { id },
+      data,
+    });
+  }
+
   async findPaymentByOrderIdentifier(orderIdParam: string) {
     return prisma.payment.findFirst({
       where: {
