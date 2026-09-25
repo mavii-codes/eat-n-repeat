@@ -283,3 +283,34 @@ model CafeStatus {
 
   @@map("cafe_status")
 }
+
+model MenuCategory {
+  id          String     @id @db.VarChar(64) @map("id")
+  name        String     @db.VarChar(120) @map("name")
+  description String?    @db.VarChar(255) @map("description")
+  archived    Boolean    @default(false) @map("archived")
+  archivedAt  DateTime?  @db.Timestamp(0) @map("archived_at")
+  createdAt   DateTime   @default(now()) @db.Timestamp(0) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  items       MenuItem[]
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id          String       @id @db.VarChar(64) @map("id")
+  name        String       @db.VarChar(160) @map("name")
+  description String       @default("") @db.Text @map("description")
+  price       Decimal      @db.Decimal(10, 2) @map("price")
+  categoryId  String       @db.VarChar(64) @map("category_id")
+  category    MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  available   Boolean      @default(true) @map("available")
+  image       String?      @db.MediumText @map("image")
+  archived    Boolean      @default(false) @map("archived")
+  archivedAt  DateTime?    @db.Timestamp(0) @map("archived_at")
+  createdAt   DateTime     @default(now()) @db.Timestamp(0) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("menu_items")
+  @@index([categoryId], map: "menu_items_category_id_fkey")
+}

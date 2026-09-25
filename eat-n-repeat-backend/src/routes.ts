@@ -18,6 +18,7 @@ import customerOrdersRouter from "./routes/customer-orders.routes";
 import syncRouter from "./routes/sync.routes";
 import adminOrdersRouter from "./routes/admin-orders.routes";
 import cashRouter from "./routes/cash.routes";
+import menuRouter from "./routes/menu.routes";
 import adminCafeAvailabilityRouter from "./routes/admin-cafe-availability.routes";
 
 export const routes = Router();
@@ -40,4 +41,5 @@ routes.use("/addons", addonsRouter);
 routes.use("/customer-favorites", customerFavoritesRouter);
 routes.use("/sync", syncRouter);
 routes.use("/cash", cashRouter);
+routes.use("/menu", menuRouter);
 routes.use("/admin/cafe-availability", adminCafeAvailabilityRouter);

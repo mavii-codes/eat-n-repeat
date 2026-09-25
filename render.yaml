@@ -1,0 +1,58 @@
+# Render Blueprint — Eat n RepEat backend (Express + Prisma + MySQL).
+#
+# How to use:
+#   1. Push this repo to GitHub.
+#   2. In Render: New > Blueprint > select this repo. Render reads this file
+#      and creates the web service below.
+#   3. When prompted for values marked `sync: false`, paste them in the
+#      Render dashboard (they are secrets / environment-specific).
+#
+# IMPORTANT — database:
+#   Render does NOT offer managed MySQL, and this backend uses MySQL
+#   (Prisma `mysql` provider + `mysql2`). Before deploying, create a MySQL
+#   database somewhere reachable from the internet (e.g. Aiven free tier)
+#   and paste its connection string into DATABASE_URL, e.g.:
+#     mysql://user:password@host:port/eat_n_repeat
+#   The build step runs `prisma db push`, so tables (incl. menu_categories
+#   and menu_items) are created automatically on first deploy.
+#   Then run the seed ONCE via Render > Shell:
+#     npm run db:seed
+#   (Seed upserts the admin user, addons, and default menu. Do NOT re-run
+#   it routinely — it resets the admin password to the default.)
+
+services:
+  - type: web
+    name: eat-n-repeat-backend
+    runtime: node
+    rootDir: eat-n-repeat-backend
+    buildCommand: npm install && npx prisma generate && npm run build && npx prisma db push
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Public frontend origin(s) allowed to call this API. Add your LAN IP
+      # here too if phones on café Wi-Fi should reach the hosted backend.
+      - key: CLIENT_ORIGIN
+        value: https://eatnrepeat.vercel.app
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        value: '"Eat n RepEat Cafe" <noreply@eatnrepeat.online>'
+      - key: XENDIT_SECRET_KEY
+        sync: false
+      - key: XENDIT_WEBHOOK_TOKEN
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false

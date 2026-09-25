@@ -191,8 +191,21 @@ export default function StaffPortalPage() {
         alert(msg);
       }
     };
+    const onMenuSyncFailed = () => {
+      const msg =
+        "Saved on this device, but the server rejected it (login may have expired). Please log in again — otherwise other devices won't see this change.";
+      if (menuModalOpen) {
+        setMenuSubmitError(msg);
+      } else {
+        alert(msg);
+      }
+    };
     window.addEventListener("eat-n-repeat:storage-full", onStorageFull);
-    return () => window.removeEventListener("eat-n-repeat:storage-full", onStorageFull);
+    window.addEventListener("eat-n-repeat:menu-sync-failed", onMenuSyncFailed);
+    return () => {
+      window.removeEventListener("eat-n-repeat:storage-full", onStorageFull);
+      window.removeEventListener("eat-n-repeat:menu-sync-failed", onMenuSyncFailed);
+    };
   }, [menuModalOpen]);
 
   // Profile Form States
@@ -427,7 +440,22 @@ export default function StaffPortalPage() {
 
   // Submit Menu Item Form
   function handleMenuSubmit() {
-    if (!menuForm.name.trim() || menuForm.price <= 0) return;
+    if (menuImageProcessing) {
+      setMenuSubmitError("Please wait for the photo to finish processing, then save again.");
+      return;
+    }
+    if (!menuForm.name.trim()) {
+      setMenuSubmitError("Item name is required.");
+      return;
+    }
+    if (!menuForm.categoryId) {
+      setMenuSubmitError("Please choose a category.");
+      return;
+    }
+    if (!(menuForm.price > 0)) {
+      setMenuSubmitError("Price must be greater than ₱0.");
+      return;
+    }
     setMenuSubmitError(null);
 
     try {
@@ -1833,8 +1861,12 @@ export default function StaffPortalPage() {
             <AdminButton variant="secondary" onClick={() => setMenuModalOpen(false)}>
               Cancel
             </AdminButton>
-            <AdminButton onClick={handleMenuSubmit}>
-              {editingMenuItem ? "Save Changes" : "Add Item"}
+            <AdminButton onClick={handleMenuSubmit} disabled={menuImageProcessing}>
+              {menuImageProcessing
+                ? "Processing photo…"
+                : editingMenuItem
+                  ? "Save Changes"
+                  : "Add Item"}
             </AdminButton>
           </>
         }

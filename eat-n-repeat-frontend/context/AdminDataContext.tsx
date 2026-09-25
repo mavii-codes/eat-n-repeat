@@ -35,6 +35,39 @@ import type {
 } from "@/lib/admin/types";
 
 const STORAGE_KEY = "eat-n-repeat-admin-data";
+const MENU_API_TIMEOUT_MS = 8000;
+
+// Menu is server-backed (shared across devices) with a localStorage fallback
+// for offline use. Reads are public; writes need a staff/admin token.
+async function menuApi(path: string, init?: RequestInit): Promise<Response> {
+  const { getApiUrl } = await import("@/lib/config");
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("eat-n-repeat-admin-token") ||
+        localStorage.getItem("eat-n-repeat-staff-token")
+      : null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MENU_API_TIMEOUT_MS);
+  try {
+    return await fetch(`${getApiUrl()}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers || {}),
+      },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function notifyMenuSyncFailed() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("eat-n-repeat:menu-sync-failed"));
+  }
+}
 
 function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
@@ -199,14 +232,80 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [data]);
 
+  // Load the shared menu from the backend once on mount. Server rows win for
+  // matching ids; device-only rows (created offline) are kept alongside.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [catRes, itemRes] = await Promise.all([
+          menuApi("/api/menu/categories"),
+          menuApi("/api/menu/items"),
+        ]);
+        if (!catRes.ok || !itemRes.ok) return;
+        const catJson = await catRes.json();
+        const itemJson = await itemRes.json();
+        if (cancelled) return;
+        const serverCategories = ensureArchived(
+          (catJson.categories ?? []) as MenuCategory[],
+        );
+        const serverItems = ensureArchived(
+          (itemJson.items ?? []) as MenuItem[],
+        );
+        setData((prev) => {
+          const serverCatIds = new Set(serverCategories.map((c) => c.id));
+          const serverItemIds = new Set(serverItems.map((i) => i.id));
+          return {
+            ...prev,
+            menuCategories: [
+              ...serverCategories,
+              ...prev.menuCategories.filter((c) => !serverCatIds.has(c.id)),
+            ],
+            menuItems: [
+              ...serverItems,
+              ...prev.menuItems.filter((i) => !serverItemIds.has(i.id)),
+            ],
+          };
+        });
+      } catch {
+        // Backend unreachable — keep the local cache (offline mode).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const addMenuItem = useCallback((input: MenuItemInput) => {
+    const tempId = createId("mi");
     setData((prev) => ({
       ...prev,
-      menuItems: [
-        ...prev.menuItems,
-        { ...input, id: createId("mi"), archived: false },
-      ],
+      menuItems: [...prev.menuItems, { ...input, id: tempId, archived: false }],
     }));
+    // Persist to the shared backend; reconcile the temp id on success.
+    (async () => {
+      try {
+        const res = await menuApi("/api/menu/items", {
+          method: "POST",
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) notifyMenuSyncFailed();
+          return;
+        }
+        const json = await res.json();
+        const saved = json.item as MenuItem;
+        if (!saved?.id) return;
+        setData((prev) => ({
+          ...prev,
+          menuItems: prev.menuItems.map((item) =>
+            item.id === tempId ? { ...saved, archived: false } : item,
+          ),
+        }));
+      } catch {
+        // Offline — the local row stays and syncs on next edit/reload.
+      }
+    })();
   }, []);
 
   const updateMenuItem = useCallback((id: string, input: MenuItemInput) => {
@@ -216,6 +315,51 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         item.id === id ? { ...item, ...input, id } : item,
       ),
     }));
+    (async () => {
+      try {
+        const res = await menuApi(`/api/menu/items/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          // Unknown to the server (device-only row) — create it instead.
+          if (res.status === 404) {
+            const createRes = await menuApi("/api/menu/items", {
+              method: "POST",
+              body: JSON.stringify(input),
+            });
+            if (!createRes.ok) {
+              if (createRes.status === 401 || createRes.status === 403)
+                notifyMenuSyncFailed();
+              return;
+            }
+            const json = await createRes.json();
+            const saved = json.item as MenuItem;
+            if (!saved?.id) return;
+            setData((prev) => ({
+              ...prev,
+              menuItems: prev.menuItems.map((item) =>
+                item.id === id ? { ...saved, archived: false } : item,
+              ),
+            }));
+            return;
+          }
+          if (res.status === 401 || res.status === 403) notifyMenuSyncFailed();
+          return;
+        }
+        const json = await res.json();
+        const saved = json.item as MenuItem;
+        if (!saved?.id) return;
+        setData((prev) => ({
+          ...prev,
+          menuItems: prev.menuItems.map((item) =>
+            item.id === id ? { ...saved } : item,
+          ),
+        }));
+      } catch {
+        // Offline — optimistic local change stands.
+      }
+    })();
   }, []);
 
   const deleteMenuItem = useCallback((id: string) => {
@@ -234,6 +378,17 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           : item,
       ),
     }));
+    (async () => {
+      try {
+        const res = await menuApi(`/api/menu/items/${id}/archive`, {
+          method: "POST",
+        });
+        if (!res.ok && (res.status === 401 || res.status === 403))
+          notifyMenuSyncFailed();
+      } catch {
+        // Offline — optimistic local change stands.
+      }
+    })();
   }, []);
 
   const restoreMenuItem = useCallback((id: string) => {
@@ -245,16 +400,51 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           : item,
       ),
     }));
+    (async () => {
+      try {
+        const res = await menuApi(`/api/menu/items/${id}/restore`, {
+          method: "POST",
+        });
+        if (!res.ok && (res.status === 401 || res.status === 403))
+          notifyMenuSyncFailed();
+      } catch {
+        // Offline — optimistic local change stands.
+      }
+    })();
   }, []);
 
   const addMenuCategory = useCallback((input: MenuCategoryInput) => {
+    const tempId = createId("mc");
     setData((prev) => ({
       ...prev,
       menuCategories: [
         ...prev.menuCategories,
-        { ...input, id: createId("mc"), archived: false },
+        { ...input, id: tempId, archived: false },
       ],
     }));
+    (async () => {
+      try {
+        const res = await menuApi("/api/menu/categories", {
+          method: "POST",
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) notifyMenuSyncFailed();
+          return;
+        }
+        const json = await res.json();
+        const saved = json.category as MenuCategory;
+        if (!saved?.id) return;
+        setData((prev) => ({
+          ...prev,
+          menuCategories: prev.menuCategories.map((category) =>
+            category.id === tempId ? { ...saved, archived: false } : category,
+          ),
+        }));
+      } catch {
+        // Offline — the local row stays.
+      }
+    })();
   }, []);
 
   const updateMenuCategory = useCallback(
@@ -265,6 +455,18 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           category.id === id ? { ...category, ...input, id } : category,
         ),
       }));
+      (async () => {
+        try {
+          const res = await menuApi(`/api/menu/categories/${id}`, {
+            method: "PUT",
+            body: JSON.stringify(input),
+          });
+          if (!res.ok && (res.status === 401 || res.status === 403))
+            notifyMenuSyncFailed();
+        } catch {
+          // Offline — optimistic local change stands.
+        }
+      })();
     },
     [],
   );
@@ -296,6 +498,17 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           : category,
       ),
     }));
+    (async () => {
+      try {
+        const res = await menuApi(`/api/menu/categories/${id}/archive`, {
+          method: "POST",
+        });
+        if (!res.ok && (res.status === 401 || res.status === 403))
+          notifyMenuSyncFailed();
+      } catch {
+        // Offline — optimistic local change stands.
+      }
+    })();
   }, []);
 
   const restoreMenuCategory = useCallback((id: string) => {
@@ -307,6 +520,17 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           : category,
       ),
     }));
+    (async () => {
+      try {
+        const res = await menuApi(`/api/menu/categories/${id}/restore`, {
+          method: "POST",
+        });
+        if (!res.ok && (res.status === 401 || res.status === 403))
+          notifyMenuSyncFailed();
+      } catch {
+        // Offline — optimistic local change stands.
+      }
+    })();
   }, []);
 
   const addStockItem = useCallback((input: StockItemInput) => {

@@ -39,8 +39,10 @@ export default function MenuItemsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [form, setForm] = useState<MenuItemInput>(emptyForm);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   function openCreate() {
+    setSubmitError(null);
     setEditing(null);
     setForm({
       ...emptyForm,
@@ -50,6 +52,7 @@ export default function MenuItemsPage() {
   }
 
   function openEdit(item: MenuItem) {
+    setSubmitError(null);
     setEditing(item);
     setForm({
       name: item.name,
@@ -62,7 +65,19 @@ export default function MenuItemsPage() {
   }
 
   function handleSubmit() {
-    if (!form.name.trim() || !form.categoryId || form.price <= 0) return;
+    if (!form.name.trim()) {
+      setSubmitError("Item name is required.");
+      return;
+    }
+    if (!form.categoryId) {
+      setSubmitError("Please choose a category.");
+      return;
+    }
+    if (!(form.price > 0)) {
+      setSubmitError("Price must be greater than ₱0.");
+      return;
+    }
+    setSubmitError(null);
 
     if (editing) {
       updateMenuItem(editing.id, form);
@@ -156,6 +171,11 @@ export default function MenuItemsPage() {
         }
       >
         <div className="space-y-4">
+          {submitError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800">
+              {submitError}
+            </div>
+          )}
           <AdminField label="Item Name">
             <AdminInput
               value={form.name}
