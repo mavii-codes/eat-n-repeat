@@ -76,6 +76,8 @@ export class CafeAvailabilityService {
    *  1. `forceOverride` wins when set → "LOCAL_ONLY" (FORCE_UNAVAILABLE) or "AVAILABLE" (FORCE_AVAILABLE).
    *  2. Café instance (real CLOUD_SYNC_URL): outbound cloud probe.
    *     Reachable → "AVAILABLE", else → "UNAVAILABLE".
+   *  2b. Cloud instance never heartbeated (lastHeartbeatAt IS NULL):
+   *     standalone mode → "AVAILABLE" (no café exists to be unresponsive).
    *  3. Cloud instance (no real CLOUD_SYNC_URL): inbound heartbeat
    *     freshness; fresh (< 3 min) → "AVAILABLE", else → "UNAVAILABLE".
    *
@@ -125,6 +127,18 @@ export class CafeAvailabilityService {
         onlineOrdering: "UNAVAILABLE",
         isOffline: false,
         reason: "Cannot reach cloud",
+      };
+    }
+
+    // 2b. Cloud instance with no café ever linked — standalone mode.
+    // lastHeartbeatAt IS NULL means no heartbeat sender has ever checked in;
+    // there is no café to be "not responding", so don't block online ordering.
+    // Once a heartbeat arrives, the freshness logic below applies normally.
+    if (!row.lastHeartbeatAt) {
+      return {
+        onlineOrdering: "AVAILABLE",
+        isOffline: false,
+        reason: "No cafe linked — cloud standalone mode",
       };
     }
 
