@@ -19,6 +19,19 @@ export type CartItem = {
   selectedSize?: { name: string; price: number };
 };
 
+// Size may arrive top-level (legacy callers) or nested on menuItem (details
+// modal). One resolver keeps cart, totals, and order summaries consistent.
+export function resolveCartSize(ci: CartItem): { name: string; price: number } | null {
+  const raw = ci.selectedSize ?? (ci.menuItem as any)?.selectedSize;
+  if (!raw || !raw.name) return null;
+  return { name: String(raw.name), price: Number(raw.price) || 0 };
+}
+
+export function cartLineKey(ci: Pick<CartItem, 'menuItem'> & Partial<Pick<CartItem, 'selectedSize'>>) {
+  const size = resolveCartSize(ci as CartItem);
+  return `${ci.menuItem.id}::${size?.name ?? ''}`;
+}
+
 type CartDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -116,7 +129,9 @@ export function CartDrawer({
     return 'Pay with cash';
   };
 
-  const subtotal = cartItems.reduce((acc, item) => acc + (item.selectedSize ? item.selectedSize.price : item.menuItem.price) * item.quantity, 0);
+  // menuItem.price already carries the full unit price (size absolute price
+  // + add-ons + extras, computed in the details modal).
+  const subtotal = cartItems.reduce((acc, item) => acc + item.menuItem.price * item.quantity, 0);
   
   const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
   const distanceKm = selectedArea?.distanceKm || 0;
@@ -180,7 +195,10 @@ export function CartDrawer({
     setIsSubmitting(true);
 
     const orderItemsSummary = cartItems
-      .map((ci) => `${ci.quantity}x ${ci.menuItem.name}${ci.selectedSize ? ` (${ci.selectedSize.name})` : ''}`)
+      .map((ci) => {
+        const size = resolveCartSize(ci);
+        return `${ci.quantity}x ${ci.menuItem.name}${size ? ` (${size.name})` : ''}`;
+      })
       .join(', ');
 
     const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -486,9 +504,11 @@ export function CartDrawer({
                     </button>
                   </div>
 
-                  {cartItems.map((item) => (
+                  {cartItems.map((item) => {
+                    const lineSize = resolveCartSize(item);
+                    return (
                     <div
-                      key={item.menuItem.id}
+                      key={cartLineKey(item)}
                       className="flex gap-3 p-3 rounded-xl border border-stone-200 bg-stone-50/50 items-center justify-between"
                     >
                       <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-stone-200 shrink-0">
@@ -505,6 +525,11 @@ export function CartDrawer({
                         <h4 className="font-bold text-xs sm:text-sm text-stone-900 truncate">
                           {item.menuItem.name}
                         </h4>
+                        {lineSize && (
+                          <span className="mt-0.5 inline-block rounded-full bg-amber-100 px-2 py-px text-[10px] font-extrabold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
+                            {lineSize.name} · ₱{lineSize.price.toFixed(2)}
+                          </span>
+                        )}
                         <p className="text-xs font-bold text-amber-900 mt-0.5">
                           ₱{item.menuItem.price.toFixed(2)}
                         </p>
@@ -515,7 +540,7 @@ export function CartDrawer({
                         <div className="flex items-center border border-stone-300 rounded-lg bg-white overflow-hidden shadow-sm">
                           <button
                             type="button"
-                            onClick={() => onUpdateQuantity(item.menuItem.id, -1)}
+                            onClick={() => onUpdateQuantity(cartLineKey(item), -1)}
                             className="w-7 h-7 flex items-center justify-center text-stone-700 hover:bg-amber-100 transition font-bold"
                           >
                             -
@@ -525,7 +550,7 @@ export function CartDrawer({
                           </span>
                           <button
                             type="button"
-                            onClick={() => onUpdateQuantity(item.menuItem.id, 1)}
+                            onClick={() => onUpdateQuantity(cartLineKey(item), 1)}
                             className="w-7 h-7 flex items-center justify-center text-stone-700 hover:bg-amber-100 transition font-bold"
                           >
                             +
@@ -533,7 +558,7 @@ export function CartDrawer({
                         </div>
                         <button
                           type="button"
-                          onClick={() => onRemoveItem(item.menuItem.id)}
+                          onClick={() => onRemoveItem(cartLineKey(item))}
                           className="text-stone-400 hover:text-rose-600 p-1 text-sm transition"
                           title="Remove item"
                         >
@@ -541,7 +566,8 @@ export function CartDrawer({
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Promo Code Strip */}

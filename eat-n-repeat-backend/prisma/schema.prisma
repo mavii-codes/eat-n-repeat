@@ -300,12 +300,16 @@ model MenuCategory {
 model MenuItem {
   id          String       @id @db.VarChar(64) @map("id")
   name        String       @db.VarChar(160) @map("name")
-  description String       @default("") @db.Text @map("description")
+  description String?      @db.Text @map("description")
   price       Decimal      @db.Decimal(10, 2) @map("price")
   categoryId  String       @db.VarChar(64) @map("category_id")
   category    MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   available   Boolean      @default(true) @map("available")
   image       String?      @db.MediumText @map("image")
+  // Optional size options [{name, price}] as JSON. Absent/empty = single
+  // base-price item. Render runs `prisma db push` on deploy, so this
+  // nullable column migrates itself on existing databases.
+  sizes       Json?        @map("sizes")
   archived    Boolean      @default(false) @map("archived")
   archivedAt  DateTime?    @db.Timestamp(0) @map("archived_at")
   createdAt   DateTime     @default(now()) @db.Timestamp(0) @map("created_at")

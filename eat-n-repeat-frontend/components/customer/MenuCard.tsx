@@ -26,6 +26,9 @@ export type CustomerMenuItem = {
   ingredients?: string[];
   categoryIcon?: string;
   customizations?: any; // We will use CustomizationConfig type where needed
+  // Admin-configured size options with absolute per-size prices.
+  sizes?: { name: string; price: number; available?: boolean }[];
+  selectedSize?: { name: string; price: number };
 };
 
 type MenuCardProps = CustomerMenuItem & {
@@ -55,6 +58,7 @@ export function MenuCard({
   onViewDetails,
   isFavorite = false,
   customizations,
+  sizes,
 }: MenuCardProps) {
   const { getAverageRating } = useReviews();
   const liveSummary = getAverageRating(id);
@@ -102,6 +106,7 @@ export function MenuCard({
         spiceLevel,
         servingSize,
         customizations,
+        sizes,
       });
     }
   };

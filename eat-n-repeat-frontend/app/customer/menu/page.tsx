@@ -96,6 +96,9 @@ export default function MenuPage() {
         reviews,
         badge,
         available: effectiveAvailable,
+        sizes: (item.sizes ?? [])
+          .filter((s) => s && s.name && Number(s.price) > 0)
+          .map((s) => ({ name: s.name, price: Number(s.price) })),
       };
     });
   }, [menuItems, menuCategories, stockItems, getAverageRating]);
@@ -126,12 +129,23 @@ export default function MenuPage() {
     });
   }, [formattedMenuItems, selectedCategory, searchQuery, sortBy]);
 
+  // Same item in different sizes stays on separate cart lines.
+  const cartLineKey = (ci: CartItem) =>
+    `${ci.menuItem.id}::${(ci.menuItem as any)?.selectedSize?.name ?? ci.selectedSize?.name ?? ''}`;
+
   const handleAddToCart = (item: CustomerMenuItem) => {
+    const incomingSize = (item as any)?.selectedSize?.name ?? '';
     setCartItems((prev) => {
-      const existing = prev.find((ci) => ci.menuItem.id === item.id);
+      const existing = prev.find(
+        (ci) =>
+          ci.menuItem.id === item.id &&
+          ((ci.menuItem as any)?.selectedSize?.name ?? ci.selectedSize?.name ?? '') === incomingSize
+      );
       if (existing) {
         return prev.map((ci) =>
-          ci.menuItem.id === item.id ? { ...ci, quantity: ci.quantity + 1 } : ci
+          cartLineKey(ci) === `${item.id}::${incomingSize}`
+            ? { ...ci, quantity: ci.quantity + 1 }
+            : ci
         );
       }
       return [...prev, { menuItem: item, quantity: 1 }];
@@ -142,7 +156,7 @@ export default function MenuPage() {
     setCartItems((prev) =>
       prev
         .map((ci) => {
-          if (ci.menuItem.id === id) {
+          if (cartLineKey(ci) === id) {
             const newQty = ci.quantity + delta;
             return newQty > 0 ? { ...ci, quantity: newQty } : null;
           }
@@ -153,7 +167,7 @@ export default function MenuPage() {
   };
 
   const handleRemoveItem = (id: string) => {
-    setCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== id));
+    setCartItems((prev) => prev.filter((ci) => cartLineKey(ci) !== id));
   };
 
   const handleClearCart = () => setCartItems([]);

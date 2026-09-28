@@ -15,6 +15,8 @@ type CartCheckoutItem = {
   price: number;
   image: string;
   quantity: number;
+  size?: string;
+  sizePrice?: number;
 };
 
 const defaultCheckoutItems: CartCheckoutItem[] = [
@@ -68,13 +70,18 @@ export default function CheckoutPage() {
       if (storedCart) {
         const parsed = JSON.parse(storedCart);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const formatted = parsed.map((item: any) => ({
-            id: item.menuItem?.id ?? item.id ?? 'item-1',
-            name: item.menuItem?.name ?? item.name ?? 'Delicious Item',
-            price: item.menuItem?.price ?? item.price ?? 100,
-            image: item.menuItem?.image || item.image || 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
-            quantity: item.quantity || 1,
-          }));
+          const formatted = parsed.map((item: any) => {
+            const nestedSize = item.menuItem?.selectedSize ?? item.selectedSize;
+            return {
+              id: item.menuItem?.id ?? item.id ?? 'item-1',
+              name: item.menuItem?.name ?? item.name ?? 'Delicious Item',
+              price: item.menuItem?.price ?? item.price ?? 100,
+              image: item.menuItem?.image || item.image || 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
+              quantity: item.quantity || 1,
+              size: item.size ?? nestedSize?.name,
+              sizePrice: item.sizePrice ?? nestedSize?.price,
+            };
+          });
           setItems(formatted);
         }
       }
@@ -93,6 +100,7 @@ export default function CheckoutPage() {
           newItems.map((it) => ({
             menuItem: { id: it.id, name: it.name, price: it.price, image: it.image },
             quantity: it.quantity,
+            ...(it.size ? { selectedSize: { name: it.size, price: it.sizePrice ?? it.price } } : {}),
           }))
         )
       );
@@ -141,7 +149,7 @@ export default function CheckoutPage() {
     }
 
     // Process order
-    const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}`).join(', ');
+    const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}${it.size ? ` (${it.size})` : ''}`).join(', ');
     const checkoutOrderId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     
     if (isLocalMode) {
@@ -458,6 +466,11 @@ export default function CheckoutPage() {
                         <div className="flex items-start justify-between gap-2">
                           <h4 className="text-xs font-extrabold text-stone-900 line-clamp-2 leading-tight">
                             {item.name}
+                            {item.size && (
+                              <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-extrabold uppercase text-amber-900 ring-1 ring-amber-200">
+                                {item.size}
+                              </span>
+                            )}
                           </h4>
                           <span className="text-xs font-black text-stone-900 shrink-0">
                             ₱{item.price.toFixed(2)}

@@ -46,6 +46,7 @@ export class MenuRepository {
     categoryId: string;
     available: boolean;
     image: string | null;
+    sizes: { name: string; price: number }[];
   }) {
     return prisma.menuItem.create({ data });
   }
@@ -59,6 +60,7 @@ export class MenuRepository {
       categoryId: string;
       available: boolean;
       image: string | null;
+      sizes: { name: string; price: number }[];
     },
   ) {
     return prisma.menuItem.update({ where: { id }, data });

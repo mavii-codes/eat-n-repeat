@@ -106,12 +106,17 @@ export function MenuItemDetailsModal({
 
   const customizations = item.customizations;
 
+  // Admin-configured sizes carry ABSOLUTE per-size prices: choosing a size
+  // replaces the base price (it is not added on top of it).
+  const availableSizes = (item.sizes ?? []).filter((s) => s && s.available !== false && s.name && Number(s.price) > 0);
+  const hasSizes = availableSizes.length > 0;
+
   // Dynamic Price Calculation
   const addOnsTotal = selectedAddOns.reduce((sum, addOn) => sum + addOn.price, 0);
-  const drinkSizeExtra = selectedSize?.price || 0;
+  const sizePrice = selectedSize ? Number(selectedSize.price) || 0 : 0;
   const riceExtraPrice = selectedRiceOption?.price || 0;
-  
-  const unitPrice = item.price + addOnsTotal + drinkSizeExtra + riceExtraPrice;
+
+  const unitPrice = (hasSizes && selectedSize ? sizePrice : item.price) + addOnsTotal + riceExtraPrice;
   const totalPrice = unitPrice * quantity;
 
   const handleToggleAddOn = (addOn: CustomizationOption) => {
@@ -133,7 +138,7 @@ export function MenuItemDetailsModal({
 
   const handleAdd = () => {
     if (!isAvailable) return;
-    if (item.sizes && item.sizes.filter(s=>s.available).length > 0 && !selectedSize) {
+    if (hasSizes && !selectedSize) {
       alert("Please select a size before adding to order.");
       return;
     }
@@ -163,12 +168,15 @@ export function MenuItemDetailsModal({
     const compiledNotes = customNotes.join(' | ');
 
     if (onAddToCart) {
+      const normalizedSize = selectedSize
+        ? { name: String(selectedSize.name), price: Number(selectedSize.price) || 0 }
+        : null;
       for (let i = 0; i < quantity; i++) {
         onAddToCart({
           ...item,
           price: unitPrice,
           notes: compiledNotes || undefined,
-          ...(selectedSize ? { selectedSize } : {})
+          ...(normalizedSize ? { selectedSize: normalizedSize } : {})
         } as any);
       }
     }
@@ -295,6 +303,34 @@ export function MenuItemDetailsModal({
             </div>
           </div>
 
+          {/* SIZE OPTIONS (admin-configured; independent of customizations) */}
+          {hasSizes && (
+            <div className="p-4 rounded-2xl bg-white border border-amber-200/90 shadow-2xs space-y-2">
+              <label className="text-xs font-extrabold text-stone-700 block">
+                Choose Size <span className="text-[#B91C1C]">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {availableSizes.map((size) => (
+                  <button
+                    key={size.name}
+                    type="button"
+                    onClick={() => setSelectedSize(size)}
+                    className={`py-2.5 px-3 rounded-xl text-sm font-bold transition border flex justify-between items-center ${
+                      selectedSize?.name === size.name
+                        ? 'bg-[#B91C1C] text-white border-[#B91C1C] shadow-md'
+                        : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-amber-50'
+                    }`}
+                  >
+                    <span>{size.name}</span>
+                    <span className={`text-xs ${selectedSize?.name === size.name ? 'opacity-90' : 'opacity-60'}`}>
+                      ₱{Number(size.price).toFixed(2)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* DYNAMIC CUSTOMIZATION OPTIONS */}
           {customizations?.enabled && (
             <div className="p-4 rounded-2xl bg-white border border-amber-200/90 shadow-2xs space-y-4">
@@ -303,32 +339,6 @@ export function MenuItemDetailsModal({
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Native Sizes */}
-                {item.sizes && item.sizes.length > 0 && (
-                  <div className="col-span-1 sm:col-span-2">
-                    <label className="text-xs font-extrabold text-stone-700 block mb-1.5">Choose Size <span className="text-[#B91C1C]">*</span></label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {item.sizes.filter(s => s.available).map((size) => (
-                        <button
-                          key={size.name}
-                          type="button"
-                          onClick={() => setSelectedSize(size)}
-                          className={`py-2.5 px-3 rounded-xl text-sm font-bold transition border flex justify-between items-center ${
-                            selectedSize?.name === size.name
-                              ? 'bg-[#B91C1C] text-white border-[#B91C1C] shadow-md'
-                              : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-amber-50'
-                          }`}
-                        >
-                          <span>{size.name}</span>
-                          <span className={`text-xs ${selectedSize?.name === size.name ? 'opacity-90' : 'opacity-60'}`}>
-                            ₱{size.price.toFixed(2)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
                 {/* Sugar Level */}
                 {customizations.sugarLevels && customizations.sugarLevels.length > 0 && (
                   <div>
@@ -519,7 +529,7 @@ export function MenuItemDetailsModal({
                 <>
                   <svg className="w-5 h-5 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> Added {quantity} to Order!
                 </>
-              ) : (item.sizes && item.sizes.filter(s=>s.available).length > 0 && !selectedSize) ? (
+              ) : (hasSizes && !selectedSize) ? (
                 'Select Size to Add'
               ) : (
                 <>

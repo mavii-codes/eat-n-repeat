@@ -54,6 +54,11 @@ export type MenuCategory = {
   archivedAt?: string;
 };
 
+export type MenuItemSize = {
+  name: string;
+  price: number;
+};
+
 export type MenuItem = {
   id: string;
   name: string;
@@ -63,6 +68,9 @@ export type MenuItem = {
   available: boolean;
   image?: string;
   stockItemId?: string;
+  // Optional size options with absolute per-size prices. Absent/empty =
+  // single base-price item needing no size selection.
+  sizes?: MenuItemSize[];
   archived: boolean;
   archivedAt?: string;
 };

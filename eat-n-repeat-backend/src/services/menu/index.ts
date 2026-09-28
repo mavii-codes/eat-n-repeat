@@ -21,11 +21,12 @@ function toCategoryResponse(row: {
 function toItemResponse(row: {
   id: string;
   name: string;
-  description: string;
+  description: string | null;
   price: unknown;
   categoryId: string;
   available: boolean;
   image: string | null;
+  sizes: unknown;
   archived: boolean;
   archivedAt: Date | null;
 }) {
@@ -37,9 +38,32 @@ function toItemResponse(row: {
     categoryId: row.categoryId,
     available: row.available,
     image: row.image ?? "",
+    sizes: sanitizeSizes(row.sizes),
     archived: row.archived,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : undefined,
   };
+}
+
+export type MenuSizeOption = { name: string; price: number };
+
+// Sizes are stored as JSON; sanitize on the way out so malformed rows can
+// never break customer/admin rendering. Prices are absolute per-size prices.
+export function sanitizeSizes(value: unknown): MenuSizeOption[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: MenuSizeOption[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const name = String((entry as any).name ?? "").trim();
+    const price = Number((entry as any).price);
+    if (!name || !Number.isFinite(price) || price <= 0) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name, price });
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 function newId(prefix: string) {
@@ -91,6 +115,7 @@ export async function createMenuItem(input: MenuItemInput) {
     categoryId: input.categoryId,
     available: input.available ?? true,
     image: input.image ? input.image : null,
+    sizes: sanitizeSizes(input.sizes ?? []),
   });
   return toItemResponse(row);
 }
@@ -103,6 +128,7 @@ export async function updateMenuItem(id: string, input: MenuItemInput) {
     categoryId: input.categoryId,
     available: input.available ?? true,
     image: input.image ? input.image : null,
+    sizes: sanitizeSizes(input.sizes ?? []),
   });
   return toItemResponse(row);
 }
