@@ -58,8 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   // Load session from local storage on mount.
-  // If the session carries a backend token, revalidate it when reachable;
-  // offline (or unreachable backend) falls back to the local account check.
+  // Cross-device: when the session carries a backend token, the backend
+  // (/api/auth/me) is the source of truth — do NOT require the account to
+  // exist in this device's localStorage staff list (Laptop B has never seen
+  // Laptop A's localStorage). Offline (backend unreachable) falls back to
+  // the local account check.
   useEffect(() => {
     let cancelled = false;
     const restore = async () => {
@@ -70,29 +73,81 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         const parsedUser = JSON.parse(storedSession) as StoredSession;
-        const activeStaff = staffAccounts.find(
-          (acc) => acc.id === parsedUser.id && !acc.archived && acc.status === "active"
-        );
-        if (!activeStaff) {
-          localStorage.removeItem(SESSION_KEY);
-          if (!cancelled) setLoading(false);
-          return;
-        }
         if (parsedUser.token) {
           try {
             const res = await fetchWithTimeout(
               `${getApiUrl()}/api/auth/me`,
               { headers: { Authorization: `Bearer ${parsedUser.token}` } },
-              BACKEND_TIMEOUT_MS
+              BACKEND_TIMEOUT_MS,
             );
             if (res.status === 401 || res.status === 403) {
               localStorage.removeItem(SESSION_KEY);
               if (!cancelled) setLoading(false);
               return;
             }
+            if (res.ok) {
+              const data = await res.json().catch(() => null);
+              const backendUser = data?.user;
+              if (backendUser?.id) {
+                const sessionUser = {
+                  id: backendUser.id,
+                  name: backendUser.name,
+                  username: backendUser.username,
+                  email: backendUser.email,
+                  role: backendUser.role,
+                  status: backendUser.status ?? "active",
+                } as StaffAccount;
+                if (!cancelled) {
+                  setUser(sessionUser);
+                  setLoading(false);
+                }
+                return;
+              }
+            }
+            // Other statuses (e.g. 500): fall through to local check below
+            // so a reachable-but-erroring backend does not log the user out.
           } catch {
             // Backend unreachable — trust the local record (offline mode).
           }
+        }
+        // Offline fallback: read the device's local admin-data cache directly
+        // (context state may still be loading in this one-shot effect).
+        const readLocalStaff = (): StaffAccount | null => {
+          const fromContext = staffAccounts.find(
+            (acc) => acc.id === parsedUser.id && !acc.archived && acc.status === "active",
+          );
+          if (fromContext) return fromContext;
+          try {
+            const raw = localStorage.getItem("eat-n-repeat-admin-data");
+            if (!raw) return null;
+            const parsed = JSON.parse(raw) as {
+              staffAccounts?: StaffAccount[];
+            };
+            return (
+              parsed.staffAccounts?.find(
+                (acc) =>
+                  acc.id === parsedUser.id && !acc.archived && acc.status === "active",
+              ) ?? null
+            );
+          } catch {
+            return null;
+          }
+        };
+        const activeStaff = readLocalStaff();
+        if (!activeStaff) {
+          // No backend token to validate with and no local record: this
+          // device cannot restore an offline session. If a token exists the
+          // backend already had its chance above (unreachable = keep session
+          // for retry on next load rather than logging out).
+          if (!parsedUser.token) localStorage.removeItem(SESSION_KEY);
+          if (!cancelled) {
+            if (parsedUser.token) {
+              const { token, ...rest } = parsedUser;
+              setUser(rest as StaffAccount);
+            }
+            setLoading(false);
+          }
+          return;
         }
         if (!cancelled) setUser({ ...activeStaff, password: undefined } as StaffAccount);
       } catch {
@@ -104,20 +159,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [staffAccounts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const clearError = () => setError(null);
 
   const login = async (usernameOrEmail: string, passwordInput: string): Promise<boolean> => {
     setError(null);
     const identifier = usernameOrEmail.trim();
+    const apiUrl = getApiUrl();
 
     // 1) Backend first (existing /api/auth/login). A 401/403 is a real
     // denial — never fall back to local in that case. Only network-level
     // failure (backend unreachable = offline café) uses the local fallback.
+    let backendUnreachable = false;
+    let serverErrorStatus: number | null = null;
     try {
       const res = await fetchWithTimeout(
-        `${getApiUrl()}/api/auth/login`,
+        `${apiUrl}/api/auth/login`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -140,16 +199,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(sessionUser);
           localStorage.setItem(SESSION_KEY, JSON.stringify(toStoredSession(sessionUser, data.token)));
           localStorage.setItem(STAFF_TOKEN_KEY, data.token);
+          if (backendUser.role === "admin") {
+            localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+          }
           return true;
         }
       } else if (res.status === 401 || res.status === 403 || res.status === 429) {
         const data = await res.json().catch(() => null);
         setError(data?.message || "Invalid username/email or password.");
         return false;
+      } else {
+        // Reachable backend, unexpected status (404 = wrong backend URL such
+        // as a Vercel origin instead of Render; 5xx = broken backend/DB).
+        // Remember it so a failed local check reports this instead of a
+        // misleading "invalid password".
+        serverErrorStatus = res.status;
       }
       // Other statuses fall through to the local fallback below.
     } catch {
       // Network failure / timeout — offline mode: use local verification.
+      // Remember this so a failed local check reports the real problem
+      // (server unreachable) instead of a misleading "invalid password".
+      backendUnreachable = true;
     }
 
     // 2) Local fallback (offline café): verify against hashed local passwords.
@@ -161,7 +232,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (!matchedAccount) {
-      setError("Invalid username/email or password.");
+      setError(
+        backendUnreachable
+          ? `Cannot reach the server at ${apiUrl}. Check your connection — or the account simply isn't on this device.`
+          : serverErrorStatus
+            ? `Login server error (status ${serverErrorStatus} at ${apiUrl}). The app may be pointing at the wrong backend — check NEXT_PUBLIC_API_URL.`
+            : "Invalid username/email or password.",
+      );
       return false;
     }
 

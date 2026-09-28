@@ -3,8 +3,17 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { type AuthOptions } from "next-auth";
 
 // Server-side base URL for the Express backend (never exposed to the browser
-// beyond this server-executed authorize callback).
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
+// beyond this server-executed authorize callback). Normalized inline (not
+// imported from lib/config, which is a client module): trims whitespace,
+// drops trailing slashes and a trailing "/api" that would route to /api/api/.
+function normalizeBackendUrl(raw: string): string {
+  let url = (raw || "").trim().replace(/\/+$/, "");
+  if (/\/api$/i.test(url)) url = url.slice(0, -4);
+  return url;
+}
+const BACKEND_URL = normalizeBackendUrl(
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000",
+);
 
 export const authOptions: AuthOptions = {
   secret: process.env.NEXTAUTH_SECRET ?? "eat-n-repeat-dev-secret-change-in-production",

@@ -27,10 +27,21 @@ export function useIsLocalBackend(): boolean {
   return isLocal;
 }
 
+/**
+ * Normalizes a backend base URL: trims copy-paste whitespace, drops trailing
+ * slashes, and drops a trailing "/api" (a very common env-var mistake that
+ * otherwise sends calls to /api/api/... → 404 → misleading login errors).
+ */
+export function normalizeApiUrl(raw: string): string {
+  let url = (raw || "").trim().replace(/\/+$/, "");
+  if (/\/api$/i.test(url)) url = url.slice(0, -4);
+  return url;
+}
+
 export function getApiUrl(): string {
   // If the environment variable is explicitly set, use it.
   if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
+    return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
   }
 
   // If we are in the browser, dynamically resolve the backend.

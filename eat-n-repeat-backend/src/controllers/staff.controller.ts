@@ -19,6 +19,13 @@ export class StaffController {
 
   async createUser(req: any, res: Response) {
     try {
+      // Trim identity fields before validation: login trims the identifier,
+      // so a stored "maria " could never log in from another device.
+      if (req.body && typeof req.body === "object") {
+        for (const key of ["name", "username", "email"] as const) {
+          if (typeof req.body[key] === "string") req.body[key] = req.body[key].trim();
+        }
+      }
       const parsed = staffSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.format() });
@@ -60,6 +67,11 @@ export class StaffController {
 
   async updateUser(req: any, res: Response) {
     try {
+      if (req.body && typeof req.body === "object") {
+        for (const key of ["name", "username", "email"] as const) {
+          if (typeof req.body[key] === "string") req.body[key] = req.body[key].trim();
+        }
+      }
       const parsed = staffSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.format() });

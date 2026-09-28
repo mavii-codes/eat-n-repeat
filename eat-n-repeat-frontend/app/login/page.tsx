@@ -5,6 +5,24 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Image from "next/image";
 import { Lock, Eye, EyeOff, ShieldCheck, User, Package, Users } from "lucide-react";
+import { getApiUrl } from "@/lib/config";
+
+function ServerFootnote() {
+  const [url, setUrl] = useState<string>("");
+  useEffect(() => {
+    try {
+      setUrl(getApiUrl());
+    } catch {
+      setUrl("");
+    }
+  }, []);
+  if (!url) return null;
+  return (
+    <p className="mt-6 text-center text-[11px] text-[#2D2A26]/40 font-mono">
+      Server: {url}
+    </p>
+  );
+}
 
 export default function LoginPage() {
   const { user, login, loading: authLoading, error, clearError } = useAuth();
@@ -305,6 +323,11 @@ export default function LoginPage() {
               This portal is restricted to authorized Eat n' RepEat Café Admin and Staff.
             </p>
           </div>
+
+          {/* Server footnote: which backend this device logs into. Both
+              devices must show the same URL or cross-device login is
+              impossible (separate databases). */}
+          <ServerFootnote />
           
         </div>
       </div>
