@@ -17,6 +17,7 @@ type CartCheckoutItem = {
   quantity: number;
   size?: string;
   sizePrice?: number;
+  addons?: { id: string; name: string; price: number }[];
 };
 
 const defaultCheckoutItems: CartCheckoutItem[] = [
@@ -72,6 +73,7 @@ export default function CheckoutPage() {
         if (Array.isArray(parsed) && parsed.length > 0) {
           const formatted = parsed.map((item: any) => {
             const nestedSize = item.menuItem?.selectedSize ?? item.selectedSize;
+            const nestedAddons = item.menuItem?.selectedAddons ?? item.selectedAddons ?? [];
             return {
               id: item.menuItem?.id ?? item.id ?? 'item-1',
               name: item.menuItem?.name ?? item.name ?? 'Delicious Item',
@@ -80,6 +82,9 @@ export default function CheckoutPage() {
               quantity: item.quantity || 1,
               size: item.size ?? nestedSize?.name,
               sizePrice: item.sizePrice ?? nestedSize?.price,
+              addons: (item.addons ?? (Array.isArray(nestedAddons) ? nestedAddons : []))
+                .filter((a: any) => a && a.name)
+                .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 })),
             };
           });
           setItems(formatted);
@@ -101,6 +106,7 @@ export default function CheckoutPage() {
             menuItem: { id: it.id, name: it.name, price: it.price, image: it.image },
             quantity: it.quantity,
             ...(it.size ? { selectedSize: { name: it.size, price: it.sizePrice ?? it.price } } : {}),
+            ...((it.addons ?? []).length > 0 ? { selectedAddons: it.addons } : {}),
           }))
         )
       );
@@ -149,7 +155,10 @@ export default function CheckoutPage() {
     }
 
     // Process order
-    const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}${it.size ? ` (${it.size})` : ''}`).join(', ');
+    const orderItemsSummary = items.map((it) => {
+      const addonSuffix = (it.addons ?? []).length > 0 ? ` + ${(it.addons ?? []).map((a) => a.name).join(', ')}` : '';
+      return `${it.quantity}x ${it.name}${it.size ? ` (${it.size})` : ''}${addonSuffix}`;
+    }).join(', ');
     const checkoutOrderId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     
     if (isLocalMode) {
@@ -469,6 +478,11 @@ export default function CheckoutPage() {
                             {item.size && (
                               <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-extrabold uppercase text-amber-900 ring-1 ring-amber-200">
                                 {item.size}
+                              </span>
+                            )}
+                            {(item.addons ?? []).length > 0 && (
+                              <span className="mt-0.5 block text-[11px] font-semibold text-stone-600">
+                                + {(item.addons ?? []).map((a) => `${a.name} ₱${a.price.toFixed(2)}`).join(', ')}
                               </span>
                             )}
                           </h4>

@@ -171,12 +171,22 @@ export function MenuItemDetailsModal({
       const normalizedSize = selectedSize
         ? { name: String(selectedSize.name), price: Number(selectedSize.price) || 0 }
         : null;
+      // Add-on IDs travel with the cart line so checkout can validate each
+      // add-on against the database (existence, availability, DB price).
+      const normalizedAddons = selectedAddOns
+        .filter((a) => a && a.name)
+        .map((a: any) => ({
+          id: String(a.id ?? a.name),
+          name: String(a.name),
+          price: Number(a.price) || 0,
+        }));
       for (let i = 0; i < quantity; i++) {
         onAddToCart({
           ...item,
           price: unitPrice,
           notes: compiledNotes || undefined,
-          ...(normalizedSize ? { selectedSize: normalizedSize } : {})
+          ...(normalizedSize ? { selectedSize: normalizedSize } : {}),
+          ...(normalizedAddons.length > 0 ? { selectedAddons: normalizedAddons } : {})
         } as any);
       }
     }

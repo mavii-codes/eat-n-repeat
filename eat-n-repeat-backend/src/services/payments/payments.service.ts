@@ -22,7 +22,7 @@ export async function checkout(
   customerId?: string
 ) {
   const { orderDetails, paymentMethod, orderMode = "online" } = data;
-  const { customerName, phone, address, serviceAreaId, items: rawItems, deliveryFee, notes, type, subtotal: frontendSubtotal } = orderDetails;
+  const { customerName, phone, address, serviceAreaId, items: rawItems, deliveryFee, notes, type, subtotal: frontendSubtotal, baseSubtotal: frontendBaseSubtotal, selectedAddons } = orderDetails;
 
   // ── Local Mode Restrictions ──
   if (orderMode === "local") {
@@ -86,6 +86,44 @@ export async function checkout(
     });
   } else {
     subtotal = frontendSubtotal || 0;
+  }
+
+  // ── Add-on validation: the database is the price authority ──
+  // Add-ons are global by architecture (no per-item mapping), so an add-on
+  // is "allowed" iff it exists and is available. Frontend add-on prices are
+  // ignored entirely: every selected add-on is charged at its database
+  // price, so DevTools edits cannot change what the customer pays.
+  // Empty selection keeps the legacy path above (frontend subtotal trusted,
+  // as before) so old clients are unaffected.
+  const addonSelections = Array.isArray(selectedAddons) ? selectedAddons : [];
+  if (addonSelections.length > 0) {
+    const base = Number(frontendBaseSubtotal);
+    if (!Number.isFinite(base) || base < 0) {
+      throw new ServiceError("baseSubtotal is required when add-ons are selected.", 400);
+    }
+    const ids = [...new Set(addonSelections.map((a: any) => String(a?.id ?? "")))].filter(Boolean);
+    if (ids.length === 0) {
+      throw new ServiceError("Invalid add-on selection.", 400);
+    }
+    const dbAddons = await paymentsRepository.findAddonsByIds(ids);
+    const byId = new Map(dbAddons.map((a: any) => [a.id, a]));
+    let dbAddonTotal = 0;
+    for (const sel of addonSelections) {
+      const id = String((sel as any)?.id ?? "");
+      const qty = Math.floor(Number((sel as any)?.quantity));
+      const row: any = byId.get(id);
+      if (!row) {
+        throw new ServiceError(`Add-on not found: ${id}`, 400);
+      }
+      if (!row.available) {
+        throw new ServiceError(`Add-on unavailable: ${row.name}`, 400);
+      }
+      if (!Number.isInteger(qty) || qty < 1 || qty > 100) {
+        throw new ServiceError(`Invalid quantity for add-on: ${row.name}`, 400);
+      }
+      dbAddonTotal += Number(row.price) * qty;
+    }
+    subtotal = base + dbAddonTotal;
   }
 
   const total = subtotal + (deliveryFee || 0);

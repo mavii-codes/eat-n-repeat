@@ -12,6 +12,10 @@ export const orderDetailsSchema = z.object({
   selectedAddons: z.array(selectedAddonSchema).optional().default([]),
   items: z.string(),
   subtotal: z.coerce.number(),
+  // Cart total WITHOUT the add-on portion. Required whenever selectedAddons
+  // is non-empty: the backend re-prices every add-on from the database, so a
+  // tampered front-end price can never change what the customer pays.
+  baseSubtotal: z.coerce.number().min(0).optional(),
   deliveryFee: z.coerce.number().optional().default(0),
   total: z.coerce.number(),
   customerName: z.string(),

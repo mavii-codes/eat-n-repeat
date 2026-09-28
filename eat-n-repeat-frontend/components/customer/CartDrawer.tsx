@@ -17,6 +17,7 @@ export type CartItem = {
   quantity: number;
   notes?: string;
   selectedSize?: { name: string; price: number };
+  selectedAddons?: { id: string; name: string; price: number }[];
 };
 
 // Size may arrive top-level (legacy callers) or nested on menuItem (details
@@ -27,9 +28,22 @@ export function resolveCartSize(ci: CartItem): { name: string; price: number } |
   return { name: String(raw.name), price: Number(raw.price) || 0 };
 }
 
-export function cartLineKey(ci: Pick<CartItem, 'menuItem'> & Partial<Pick<CartItem, 'selectedSize'>>) {
+export function cartLineKey(ci: Pick<CartItem, 'menuItem'> & Partial<Pick<CartItem, 'selectedSize' | 'selectedAddons'>>) {
   const size = resolveCartSize(ci as CartItem);
-  return `${ci.menuItem.id}::${size?.name ?? ''}`;
+  const addons = resolveCartAddons(ci as CartItem)
+    .map((a) => String(a.id ?? a.name))
+    .sort()
+    .join('+');
+  return `${ci.menuItem.id}::${size?.name ?? ''}::${addons}`;
+}
+
+// Add-ons may arrive top-level or nested on menuItem (details modal).
+export function resolveCartAddons(ci: CartItem): { id: string; name: string; price: number }[] {
+  const raw = (ci.selectedAddons ?? (ci.menuItem as any)?.selectedAddons ?? []) as any[];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a) => a && a.name)
+    .map((a) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 }));
 }
 
 type CartDrawerProps = {
@@ -132,6 +146,14 @@ export function CartDrawer({
   // menuItem.price already carries the full unit price (size absolute price
   // + add-ons + extras, computed in the details modal).
   const subtotal = cartItems.reduce((acc, item) => acc + item.menuItem.price * item.quantity, 0);
+  // Add-on portion at display prices (backend re-prices from the database).
+  const addonTotal = cartItems.reduce(
+    (acc, item) =>
+      acc +
+      resolveCartAddons(item).reduce((s, a) => s + a.price, 0) * item.quantity,
+    0
+  );
+  const baseSubtotal = Math.max(0, subtotal - addonTotal);
   
   const selectedArea = serviceAreas.find(sa => sa.id === selectedServiceAreaId);
   const distanceKm = selectedArea?.distanceKm || 0;
@@ -197,9 +219,20 @@ export function CartDrawer({
     const orderItemsSummary = cartItems
       .map((ci) => {
         const size = resolveCartSize(ci);
-        return `${ci.quantity}x ${ci.menuItem.name}${size ? ` (${size.name})` : ''}`;
+        const addons = resolveCartAddons(ci);
+        const addonSuffix = addons.length > 0 ? ` + ${addons.map((a) => a.name).join(', ')}` : '';
+        return `${ci.quantity}x ${ci.menuItem.name}${size ? ` (${size.name})` : ''}${addonSuffix}`;
       })
       .join(', ');
+
+    // Aggregate add-on IDs for backend validation (DB is the price authority).
+    const addonQtyById = new Map<string, number>();
+    for (const ci of cartItems) {
+      for (const a of resolveCartAddons(ci)) {
+        addonQtyById.set(a.id, (addonQtyById.get(a.id) ?? 0) + ci.quantity);
+      }
+    }
+    const selectedAddonsPayload = [...addonQtyById.entries()].map(([id, quantity]) => ({ id, quantity }));
 
     const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -216,10 +249,13 @@ export function CartDrawer({
         type: fulfillmentType,
         items: orderItemsSummary,
         subtotal,
+        // Cart total WITHOUT the add-on portion: the backend re-prices every
+        // selected add-on from the database, so DevTools edits can't change it.
+        baseSubtotal,
         deliveryFee,
         total,
         notes: cartItems.filter(ci => ci.notes).map(ci => `${ci.menuItem.name}: ${ci.notes}`).join('; ') || null,
-        selectedAddons: [],
+        selectedAddons: selectedAddonsPayload,
       };
 
       // Map frontend payment method to backend-expected values
@@ -506,6 +542,7 @@ export function CartDrawer({
 
                   {cartItems.map((item) => {
                     const lineSize = resolveCartSize(item);
+                    const lineAddons = resolveCartAddons(item);
                     return (
                     <div
                       key={cartLineKey(item)}
@@ -528,6 +565,11 @@ export function CartDrawer({
                         {lineSize && (
                           <span className="mt-0.5 inline-block rounded-full bg-amber-100 px-2 py-px text-[10px] font-extrabold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
                             {lineSize.name} · ₱{lineSize.price.toFixed(2)}
+                          </span>
+                        )}
+                        {lineAddons.length > 0 && (
+                          <span className="mt-0.5 block text-[11px] font-semibold text-stone-600">
+                            + {lineAddons.map((a) => `${a.name} ₱${a.price.toFixed(2)}`).join(', ')}
                           </span>
                         )}
                         <p className="text-xs font-bold text-amber-900 mt-0.5">

@@ -4,7 +4,7 @@ export class PaymentsRepository {
   async findAddonsByIds(addonIds: string[]) {
     return prisma.addon.findMany({
       where: { id: { in: addonIds } },
-      select: { id: true, name: true, price: true },
+      select: { id: true, name: true, price: true, available: true },
     });
   }
 

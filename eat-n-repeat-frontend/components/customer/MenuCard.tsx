@@ -29,6 +29,7 @@ export type CustomerMenuItem = {
   // Admin-configured size options with absolute per-size prices.
   sizes?: { name: string; price: number; available?: boolean }[];
   selectedSize?: { name: string; price: number };
+  selectedAddons?: { id: string; name: string; price: number }[];
 };
 
 type MenuCardProps = CustomerMenuItem & {

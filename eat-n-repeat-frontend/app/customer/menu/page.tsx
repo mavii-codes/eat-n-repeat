@@ -26,8 +26,37 @@ export default function MenuPage() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [selectedDetailItem, setSelectedDetailItem] = useState<CustomerMenuItem | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  // DB-backed add-ons (public list, available only). Attached to every item
+  // as `customizations.addons` — the details modal renders them from there.
+  // Unset while offline: items simply show no add-ons (existing behavior).
+  const [dbAddons, setDbAddons] = useState<{ id: string; name: string; price: number }[]>([]);
   const { data: session, status: sessionStatus } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getApiUrl } = await import('@/lib/config');
+        const res = await fetch(`${getApiUrl()}/api/addons`);
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const list = data?.addons ?? data ?? [];
+        if (!cancelled && Array.isArray(list)) {
+          setDbAddons(
+            list
+              .filter((a: any) => a && a.available !== false && a.name && Number(a.price) >= 0)
+              .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 }))
+          );
+        }
+      } catch {
+        // Backend unreachable — items render without add-ons (offline mode).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (session?.user && accessToken) {
@@ -99,9 +128,22 @@ export default function MenuPage() {
         sizes: (item.sizes ?? [])
           .filter((s) => s && s.name && Number(s.price) > 0)
           .map((s) => ({ name: s.name, price: Number(s.price) })),
+        // DB-backed add-ons for the details modal. Only attached when at
+        // least one add-on exists — otherwise the item behaves exactly as
+        // before (no customization panel). enableSpecialInstructions
+        // preserves the notes box, which shows whenever customizations is set.
+        ...(dbAddons.length > 0
+          ? {
+              customizations: {
+                enabled: true,
+                enableSpecialInstructions: true,
+                addons: dbAddons,
+              },
+            }
+          : {}),
       };
     });
-  }, [menuItems, menuCategories, stockItems, getAverageRating]);
+  }, [menuItems, menuCategories, stockItems, getAverageRating, dbAddons]);
 
   // Filtered and sorted menu items (Auto highest-rated first by default)
   const filteredItems = useMemo(() => {
@@ -129,21 +171,27 @@ export default function MenuPage() {
     });
   }, [formattedMenuItems, selectedCategory, searchQuery, sortBy]);
 
-  // Same item in different sizes stays on separate cart lines.
-  const cartLineKey = (ci: CartItem) =>
-    `${ci.menuItem.id}::${(ci.menuItem as any)?.selectedSize?.name ?? ci.selectedSize?.name ?? ''}`;
+  // Same item in different sizes/add-ons stays on separate cart lines.
+  const cartAddonKey = (a: any) =>
+    String(a?.id ?? a?.name ?? '');
+  const cartLineKey = (ci: CartItem) => {
+    const size = (ci.menuItem as any)?.selectedSize?.name ?? ci.selectedSize?.name ?? '';
+    const addons = (
+      ((ci.menuItem as any)?.selectedAddons ?? ci.selectedAddons ?? []) as any[]
+    )
+      .map(cartAddonKey)
+      .sort()
+      .join('+');
+    return `${ci.menuItem.id}::${size}::${addons}`;
+  };
 
   const handleAddToCart = (item: CustomerMenuItem) => {
-    const incomingSize = (item as any)?.selectedSize?.name ?? '';
+    const incoming = cartLineKey({ menuItem: item, quantity: 1 } as CartItem);
     setCartItems((prev) => {
-      const existing = prev.find(
-        (ci) =>
-          ci.menuItem.id === item.id &&
-          ((ci.menuItem as any)?.selectedSize?.name ?? ci.selectedSize?.name ?? '') === incomingSize
-      );
+      const existing = prev.find((ci) => cartLineKey(ci) === incoming);
       if (existing) {
         return prev.map((ci) =>
-          cartLineKey(ci) === `${item.id}::${incomingSize}`
+          cartLineKey(ci) === incoming
             ? { ...ci, quantity: ci.quantity + 1 }
             : ci
         );

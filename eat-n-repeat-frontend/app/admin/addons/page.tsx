@@ -4,14 +4,24 @@ import { useState, useEffect } from "react";
 import { Plus, Edit2, Archive, ArchiveRestore } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminButton } from "@/components/admin/AdminForm";
-import { useSession } from "next-auth/react";
 import type { Addon, AddonInput } from "@/lib/admin/types";
 import { getApiUrl } from "@/lib/config";
 
 
+// The Admin portal authenticates via the staff JWT (AuthContext), NOT the
+// customer next-auth session. Add-on writes therefore need the staff/admin
+// token — the customer session token this page used before is absent for
+// admin users ("Unauthorized") and forbidden for customers (403).
+function getStaffToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return (
+    localStorage.getItem("eat-n-repeat-admin-token") ||
+    localStorage.getItem("eat-n-repeat-staff-token")
+  );
+}
+
+
 export default function AdminAddonsPage() {
-  const { data: session } = useSession();
-  const token = (session as any)?.accessToken;
   const [addons, setAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -58,7 +68,10 @@ export default function AdminAddonsPage() {
   const handleSubmit = async () => {
     if (!form.name.trim()) return setError("Name is required.");
     if (form.price < 0) return setError("Price must be >= 0.");
-    if (!token) return setError("Unauthorized");
+    const token = getStaffToken();
+    // Never fake success: without a database session the backend rejects
+    // the write, so report it instead of silently keeping a local row.
+    if (!token) return setError("Please log in as Admin/Staff first.");
 
     try {
       const url = editingAddon 
@@ -89,6 +102,7 @@ export default function AdminAddonsPage() {
   };
 
   const toggleAvailability = async (addon: Addon) => {
+    const token = getStaffToken();
     if (!token) return;
     try {
       await fetch(`${getApiUrl()}/api/addons/${addon.id}`, {
