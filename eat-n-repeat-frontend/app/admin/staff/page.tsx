@@ -15,7 +15,6 @@ import { AdminModal } from "@/components/admin/AdminModal";
 import { useAdminData } from "@/context/AdminDataContext";
 import type { StaffAccount, StaffAccountInput, StaffRole } from "@/lib/admin/types";
 import { useAuth } from "@/context/AuthContext";
-import { getApiUrl } from "@/lib/config";
 import { Search, Eye, Edit2, Power, Trash2, MoreVertical } from "lucide-react";
 
 const emptyForm: StaffAccountInput = {
@@ -49,55 +48,16 @@ export default function StaffPage() {
     updateStaffAccount,
     archiveStaffAccount,
     refreshStaffAccounts,
-    staffLoading,
-    staffSyncError,
-    serverStaffIds,
   } = useAdminData();
 
   const allStaffAccounts = getActiveStaffAccounts();
 
   // Database is the source of truth when reachable; localStorage is only an
-  // offline cache. Refresh the shared directory on mount.
+  // offline cache. Refresh the shared directory on mount. All sync happens
+  // silently in the background — no status banner is shown on this page.
   useEffect(() => {
     refreshStaffAccounts();
   }, [refreshStaffAccounts]);
-
-  // Connectivity probe: shows EXACTLY which backend this device talks to and
-  // whether it answers. Cross-device login is impossible when the two
-  // laptops point at different backends/DBs (local XAMPP vs Render/Aiven),
-  // so surface that here instead of failing silently at login time.
-  const [apiUrl] = useState(() => {
-    try {
-      return getApiUrl();
-    } catch {
-      return "unknown";
-    }
-  });
-  const [backendReachable, setBackendReachable] = useState<
-    "checking" | "up" | "down"
-  >("checking");
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 8000);
-        try {
-          const res = await fetch(`${getApiUrl()}/api/health`, {
-            signal: controller.signal,
-          });
-          if (!cancelled) setBackendReachable(res.ok ? "up" : "down");
-        } finally {
-          clearTimeout(timer);
-        }
-      } catch {
-        if (!cancelled) setBackendReachable("down");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const onSyncFailed = (e: Event) => {
@@ -114,22 +74,6 @@ export default function StaffPage() {
     return () =>
       window.removeEventListener("eat-n-repeat:staff-sync-failed", onSyncFailed);
   }, []);
-
-  const unsyncedCount = allStaffAccounts.filter(
-    (a) => !serverStaffIds.includes(a.id),
-  ).length;
-
-  // Production misconfiguration guard: without NEXT_PUBLIC_API_URL the API
-  // calls fall back to the Vercel origin (Next.js) instead of Render
-  // (Express), so every staff write silently becomes local-only.
-  const apiMisconfigured =
-    typeof window !== "undefined" &&
-    (window.location.hostname !== "localhost" &&
-      window.location.hostname !== "127.0.0.1" &&
-      !window.location.hostname.startsWith("192.168.") &&
-      !window.location.hostname.startsWith("10.") &&
-      !/^172\.(1[6-9]|2\d|3[01])\./.test(window.location.hostname) &&
-      !process.env.NEXT_PUBLIC_API_URL);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -354,42 +298,6 @@ export default function StaffPage() {
         title="Staff Accounts"
         subtitle="Manage admin and staff accounts, availability, and roles."
       />
-
-      {apiMisconfigured && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Backend API URL is not configured (NEXT_PUBLIC_API_URL missing), so
-          staff accounts save locally only and other devices cannot log into
-          them. Set NEXT_PUBLIC_API_URL to the Render backend URL in Vercel
-          project settings.
-        </div>
-      )}
-
-      {(staffLoading || staffSyncError || unsyncedCount > 0 || backendReachable !== "up") && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
-          <span>
-            Database: <span className="font-mono text-xs">{apiUrl}</span> ·{" "}
-            {backendReachable === "checking"
-              ? "checking connection…"
-              : backendReachable === "up"
-                ? "reachable."
-                : "UNREACHABLE — accounts created now stay on this device only."}
-            {backendReachable === "up" &&
-              (staffLoading
-                ? " Syncing staff directory…"
-                : staffSyncError
-                  ? ` ${staffSyncError} Showing offline cache.`
-                  : unsyncedCount > 0
-                    ? ` ${unsyncedCount} local account${unsyncedCount === 1 ? "" : "s"} not yet in the database (offline cache).`
-                    : " Staff directory in sync.")}
-          </span>
-          <button
-            onClick={() => refreshStaffAccounts()}
-            className="rounded-lg border border-stone-300 bg-white px-3 py-1 text-xs font-semibold hover:border-[#800000] hover:text-[#800000]"
-          >
-            Refresh from database
-          </button>
-        </div>
-      )}
 
       {/* Summary Cards */}
       <section className="mb-6 grid gap-4 sm:grid-cols-3">
