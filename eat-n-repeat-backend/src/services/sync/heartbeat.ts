@@ -9,7 +9,10 @@ let timer: ReturnType<typeof setInterval> | null = null;
  * every HEARTBEAT_INTERVAL_MS milliseconds.
  *
  * Only runs when CLOUD_SYNC_URL is set to a non-example URL.
- * All errors are silently swallowed — at most one concise log line per failure.
+ * When SYNC_SHARED_SECRET is configured, it is sent as the `x-sync-secret`
+ * header the cloud receiver requires — without it the cloud 401s every
+ * heartbeat and never notices a café outage. All errors are otherwise
+ * silently swallowed — at most one concise log line per failure.
  */
 export function startHeartbeat(): void {
   const url = env.cloudSyncUrl;
@@ -26,7 +29,10 @@ export function startHeartbeat(): void {
     try {
       await fetch(heartbeatUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(env.syncSharedSecret ? { "x-sync-secret": env.syncSharedSecret } : {}),
+        },
         body: JSON.stringify({ cafeCode: "main", at: new Date().toISOString() }),
         signal: AbortSignal.timeout(5_000),
       });

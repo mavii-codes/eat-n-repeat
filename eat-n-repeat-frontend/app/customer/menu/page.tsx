@@ -9,6 +9,7 @@ import { MenuItemDetailsModal } from '@/components/customer/MenuItemDetailsModal
 import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useReviews } from '@/context/ReviewsContext';
+import { useNetworkStatus } from '@/context/NetworkStatusContext';
 import { Heart, Search, Coffee, UtensilsCrossed } from 'lucide-react';
 
 type SortOption = 'rating' | 'price-asc' | 'price-desc' | 'name';
@@ -16,6 +17,10 @@ type SortOption = 'rating' | 'price-asc' | 'price-desc' | 'name';
 export default function MenuPage() {
   const { menuItems, menuCategories, stockItems } = useAdminData();
   const { getAverageRating } = useReviews();
+  // Polled every 10s from the backend (authoritative); checkout enforces it
+  // server-side regardless. Display-only notice here — no order logic.
+  const { onlineOrdering } = useNetworkStatus();
+  const onlinePaused = onlineOrdering !== 'AVAILABLE';
 
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -356,6 +361,11 @@ export default function MenuPage() {
         </div>
 
         {/* Food Grid */}
+        {onlinePaused && (
+          <div role="status" className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3.5 text-center text-sm font-bold text-amber-900 shadow-2xs">
+            Online ordering is currently unavailable. Please try again later.
+          </div>
+        )}
         {filteredItems.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredItems.map((item) => (

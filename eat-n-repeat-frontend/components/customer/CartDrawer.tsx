@@ -267,7 +267,10 @@ export function CartDrawer({
           'Content-Type': 'application/json',
           ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
         },
-        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod }),
+        // Orders placed through the café LAN backend are local: they skip the
+        // cloud-availability gate (cash + dine-in/pickup only, enforced
+        // server-side) so local ordering survives an Internet outage.
+        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod, orderMode: isLocalMode ? 'local' : 'online' }),
       });
 
       const data = await response.json();
@@ -356,7 +359,13 @@ export function CartDrawer({
         lastJournaledId.current = orderNumber;
         alert("You're offline — order saved on this device and will sync automatically when you reconnect. Your cart is kept so you can review it.");
       } else {
-        alert(error.message || 'Something went wrong. Please try again.');
+        const raw = error.message || 'Something went wrong. Please try again.';
+        // Never expose internal availability codes to customers.
+        alert(
+          raw.includes('ONLINE_ORDERING_UNAVAILABLE')
+            ? 'Online ordering is currently unavailable. Please try again later.'
+            : raw
+        );
       }
     }
   };
