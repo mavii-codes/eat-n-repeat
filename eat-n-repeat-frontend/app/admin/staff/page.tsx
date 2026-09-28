@@ -316,8 +316,12 @@ export default function StaffPage() {
       confirmLabel: action,
     });
     if (!confirmed) return;
+    // Strip any stored credential: a status toggle must never send the
+    // local password hash to the API as if it were a new password.
+    const { password: _omitPassword, ...identity } = account;
     updateStaffAccount(account.id, {
-      ...account,
+      ...identity,
+      password: "",
       status: account.status === "active" ? "inactive" : "active"
     });
   }

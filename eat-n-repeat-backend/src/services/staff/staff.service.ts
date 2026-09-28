@@ -1,6 +1,19 @@
 import { staffRepository } from "@/repositories/staff.repository";
 import { hashPassword } from "@/lib/bcrypt";
 
+// A bcrypt hash must NEVER be hashed again: hashing hash(password) permanently
+// locks the account (the original password stops verifying). This guard turns
+// that silent corruption into a loud 400 for any caller.
+const BCRYPT_HASH_RE = /^\$2[aby]\$/;
+
+function assertPlaintextPassword(password: unknown) {
+  if (typeof password === "string" && BCRYPT_HASH_RE.test(password)) {
+    const err: any = new Error("Password must be plaintext, not a hash.");
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 export async function getAllUsers() {
   return staffRepository.findAllUsers();
 }
@@ -23,6 +36,7 @@ export async function createUser(data: {
   archived?: boolean;
 }) {
   const { v4: uuidv4 } = await import("uuid");
+  assertPlaintextPassword(data.password);
   const passwordHash = await hashPassword(data.password);
 
   return staffRepository.createUser({
@@ -42,6 +56,7 @@ export async function updateUser(
   data: Record<string, unknown>
 ) {
   if (data.password) {
+    assertPlaintextPassword(data.password);
     const passwordHash = await hashPassword(data.password as string);
     delete data.password;
     data.passwordHash = passwordHash;

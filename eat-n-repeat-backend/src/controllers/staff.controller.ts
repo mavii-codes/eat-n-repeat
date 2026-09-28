@@ -59,9 +59,13 @@ export class StaffController {
 
       const { passwordHash, ...safeUser } = newUser as any;
       res.status(201).json({ user: safeUser });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ message: "Server error" });
+      // Surface client errors (e.g. hash-as-password 400); keep 500s generic.
+      const status = error?.statusCode ?? 500;
+      const message =
+        status >= 500 ? "Server error" : (error?.message ?? "Server error");
+      res.status(status).json({ message });
     }
   }
 
@@ -85,9 +89,12 @@ export class StaffController {
       });
 
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ message: "Server error" });
+      const status = error?.statusCode ?? 500;
+      const message =
+        status >= 500 ? "Server error" : (error?.message ?? "Server error");
+      res.status(status).json({ message });
     }
   }
 
