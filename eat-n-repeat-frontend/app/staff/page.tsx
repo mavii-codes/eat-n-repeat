@@ -142,6 +142,7 @@ export default function StaffPortalPage() {
     addStockItem,
     updateStockItem,
     deleteStockItem,
+    refreshBackendOrders,
   } = useAdminData();
 
   const router = useRouter();
@@ -163,6 +164,21 @@ export default function StaffPortalPage() {
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Pull shared orders from the backend (all types) on mount and every 20s
+  // so orders placed on another device appear here without manual refresh.
+  // Silent on auth/network failure (offline mode keeps the local cache).
+  useEffect(() => {
+    let mounted = true;
+    refreshBackendOrders();
+    const interval = setInterval(() => {
+      if (mounted) refreshBackendOrders();
+    }, 20000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [refreshBackendOrders]);
 
   // Form states for adding/editing menu items
   const [menuModalOpen, setMenuModalOpen] = useState(false);

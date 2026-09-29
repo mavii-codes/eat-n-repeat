@@ -179,6 +179,161 @@ function mergeServerStaff(
   return [...merged, ...offlineOnly];
 }
 
+// ---------------------------------------------------------------------------
+// Backend orders (cross-device staff visibility).
+// GET /api/admin-orders returns every order row (no type/status filter on
+// the backend) with its payments. Rows are split by `type`: delivery rows
+// become DeliveryOrders, everything else (dine-in/pickup) RecentOrders.
+// Server wins for shared rows; device-only offline rows are kept alongside.
+// ---------------------------------------------------------------------------
+
+type BackendOrderRow = {
+  id: string;
+  orderNumber: string;
+  customerName?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  serviceAreaId?: string | null;
+  type?: string | null;
+  items?: unknown;
+  subtotal?: unknown;
+  deliveryFee?: unknown;
+  total?: unknown;
+  status?: string | null;
+  archived?: boolean | null;
+  createdAt?: string | null;
+  deliveredAt?: string | null;
+  orderMode?: string | null;
+  payments?: { status?: string | null; paymentMethod?: string | null }[] | null;
+};
+
+function orderItemsSummary(raw: unknown): string {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return "";
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return orderItemsSummary(parsed);
+    } catch {
+      // Plain summary string (payments checkout format) — use as-is.
+    }
+    return trimmed;
+  }
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry: any) => {
+        if (entry && typeof entry === "object") {
+          const qty = Number(entry.quantity) || 1;
+          const name = String(entry.name ?? entry.item ?? "Item");
+          return `${qty}x ${name}`;
+        }
+        return String(entry);
+      })
+      .join(", ");
+  }
+  return "";
+}
+
+function mapStoreStatus(status: string | null | undefined): RecentOrder["status"] {
+  switch ((status ?? "").toLowerCase()) {
+    case "pending":
+      return "pending";
+    case "pending_payment":
+      return "awaiting_payment";
+    case "confirmed":
+      return "confirmed";
+    case "preparing":
+      return "preparing";
+    case "ready":
+      return "ready";
+    case "completed":
+    case "delivered":
+      return "completed";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return "pending";
+  }
+}
+
+function mapDeliveryStatus(status: string | null | undefined): DeliveryStatus {
+  switch ((status ?? "").toLowerCase()) {
+    case "confirmed":
+      return "confirmed";
+    case "preparing":
+      return "preparing";
+    case "out_for_delivery":
+      return "out_for_delivery";
+    case "delivered":
+      return "delivered";
+    case "cancelled":
+      return "cancelled";
+    case "pending":
+    case "pending_payment":
+    default:
+      return "pending";
+  }
+}
+
+function mapBackendOrders(rows: BackendOrderRow[]): {
+  store: RecentOrder[];
+  delivery: DeliveryOrder[];
+} {
+  const store: RecentOrder[] = [];
+  const delivery: DeliveryOrder[] = [];
+  for (const row of rows) {
+    if (!row || !row.id) continue;
+    const payments = Array.isArray(row.payments) ? row.payments : [];
+    const paidPayment = payments.find((p) => String(p?.status ?? "").toUpperCase() === "PAID");
+    const paid = Boolean(paidPayment);
+    const paymentMethod = payments[0]?.paymentMethod ?? undefined;
+    const createdAt = row.createdAt ? new Date(row.createdAt) : null;
+    const timeLabel =
+      createdAt && !Number.isNaN(createdAt.getTime())
+        ? createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "";
+    const items = orderItemsSummary(row.items);
+    const total = Number(row.total);
+    if ((row.type ?? "").toLowerCase() === "delivery") {
+      delivery.push({
+        id: row.id,
+        orderNumber: row.orderNumber,
+        customerName: row.customerName ?? "Customer",
+        phone: row.phone ?? "",
+        address: row.address ?? "",
+        serviceAreaId: row.serviceAreaId ?? "",
+        items,
+        subtotal: Number(row.subtotal) || 0,
+        deliveryFee: Number(row.deliveryFee) || 0,
+        total: Number.isFinite(total) ? total : 0,
+        status: mapDeliveryStatus(row.status),
+        orderedAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : new Date().toISOString(),
+        deliveredAt: row.deliveredAt ?? undefined,
+        archived: Boolean(row.archived),
+        archivedAt: undefined,
+      });
+    } else {
+      store.push({
+        id: row.id,
+        orderId: row.orderNumber,
+        customerName: row.customerName ?? undefined,
+        orderType: row.type ?? undefined,
+        orderMode: row.orderMode ?? undefined,
+        time: timeLabel,
+        items,
+        total: Number.isFinite(total) ? total : 0,
+        status: mapStoreStatus(row.status),
+        paid,
+        paymentStatus: paid ? "paid" : undefined,
+        paymentMethod: paymentMethod ?? undefined,
+        archived: Boolean(row.archived),
+        archivedAt: undefined,
+      });
+    }
+  }
+  return { store, delivery };
+}
+
 function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -269,6 +424,7 @@ type AdminDataContextValue = AdminDataState & {
   archiveStaffAccount: (id: string) => void;
   restoreStaffAccount: (id: string) => void;
   refreshStaffAccounts: () => Promise<boolean>;
+  refreshBackendOrders: () => Promise<boolean>;
   migrateLocalStaffAccount: (
     id: string,
     password: string,
@@ -464,6 +620,50 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
     refreshStaffAccounts();
   }, [refreshStaffAccounts]);
+
+  // Pull shared orders (all types: dine-in/pickup/delivery) from the backend
+  // so staff on another device sees orders placed anywhere. Server rows win
+  // by order number; device-only offline rows are kept alongside. Silent on
+  // auth/network failure (offline mode) — callers decide whether to surface.
+  const refreshBackendOrders = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await staffApi("/api/admin-orders");
+      if (!res.ok) return false;
+      const json = await res.json().catch(() => null);
+      const rows = (json?.orders ?? []) as BackendOrderRow[];
+      if (!Array.isArray(rows)) return false;
+      const { store, delivery } = mapBackendOrders(rows);
+      setData((prev) => {
+        const serverStoreKeys = new Set([
+          ...store.map((o) => o.orderId),
+          ...store.map((o) => o.id),
+        ]);
+        const serverDeliveryKeys = new Set([
+          ...delivery.map((o) => o.orderNumber),
+          ...delivery.map((o) => o.id),
+        ]);
+        return {
+          ...prev,
+          storeOrders: [
+            ...store,
+            ...prev.storeOrders.filter(
+              (o) => !serverStoreKeys.has(o.orderId) && !serverStoreKeys.has(o.id),
+            ),
+          ],
+          deliveryOrders: [
+            ...delivery,
+            ...prev.deliveryOrders.filter(
+              (o) => !serverDeliveryKeys.has(o.orderNumber) && !serverDeliveryKeys.has(o.id),
+            ),
+          ],
+        };
+      });
+      return true;
+    } catch {
+      // Backend unreachable — keep the local cache (offline mode).
+      return false;
+    }
+  }, []);
 
   const migrateLocalStaffAccount = useCallback(
     async (
@@ -1416,6 +1616,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       staffSyncError,
       serverStaffIds,
       refreshStaffAccounts,
+      refreshBackendOrders,
       migrateLocalStaffAccount,
       addMenuItem,
       updateMenuItem,
@@ -1475,6 +1676,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       staffSyncError,
       serverStaffIds,
       refreshStaffAccounts,
+      refreshBackendOrders,
       migrateLocalStaffAccount,
       addMenuItem,
       updateMenuItem,
