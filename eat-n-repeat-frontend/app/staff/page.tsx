@@ -22,7 +22,7 @@ import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
-import { formatPhTime } from "@/lib/admin/delivery-utils";
+import { formatPhDateTime, formatOrderDateTime, orderEpoch } from "@/lib/admin/delivery-utils";
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
 
@@ -709,7 +709,7 @@ export default function StaffPortalPage() {
                       <tbody>
                         {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, type: "Delivery", orderId: o.orderNumber, total: o.subtotal + (o.deliveryFee || 0)}))]
                           .filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered")
-                          .sort((a, b) => b.id.localeCompare(a.id))
+                          .sort((a, b) => orderEpoch(b) - orderEpoch(a))
                           .slice(0, 5)
                           .map((order) => (
                           <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
@@ -736,9 +736,9 @@ export default function StaffPortalPage() {
 
                 <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
                   <div className="divide-y divide-accent/5 px-5 py-2">
-                    {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: o.time, raw: o})), 
-                      ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderNumber} received`, time: o.orderedAt, raw: o}))]
-                      .sort((a, b) => b.id.localeCompare(a.id))
+                      {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: formatOrderDateTime(o), epoch: orderEpoch(o), raw: o})),
+                        ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderNumber} received`, time: formatPhDateTime(o.orderedAt), epoch: orderEpoch(o), raw: o}))]
+                      .sort((a, b) => b.epoch - a.epoch)
                       .slice(0, 4)
                       .map((activity, i) => (
                       <div key={`act-${activity.id}-${i}`} className="flex items-start gap-3 py-3 text-sm">
@@ -859,20 +859,20 @@ export default function StaffPortalPage() {
 
           // Filter active
           const filteredActive = activeOrders.filter(o => {
-            const matchesSearch = o.orderId?.toLowerCase().includes(orderSearch.toLowerCase()) || 
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderSearch.toLowerCase()) ||
                                   o.customerName?.toLowerCase().includes(orderSearch.toLowerCase());
             const matchesStatus = orderStatusFilter === "all" || o.status === orderStatusFilter;
             const matchesType = orderTypeFilter === "all" || (o.orderType || "dine-in") === orderTypeFilter;
             return matchesSearch && matchesStatus && matchesType;
-          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+          }).sort((a, b) => orderEpoch(b) - orderEpoch(a));
 
           // Filter history
           const filteredHistory = historyOrders.filter(o => {
-            const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) || 
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) ||
                                   o.customerName?.toLowerCase().includes(orderHistorySearch.toLowerCase());
             const matchesStatus = orderHistoryStatusFilter === "all" || o.status === orderHistoryStatusFilter;
             return matchesSearch && matchesStatus;
-          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+          }).sort((a, b) => orderEpoch(b) - orderEpoch(a));
 
           return (
             <div className="space-y-6">
@@ -988,7 +988,7 @@ export default function StaffPortalPage() {
                                     <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
                                   )}
                                 </td>
-                                <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{order.time || "—"}</td>
+                                <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatOrderDateTime(order) || "—"}</td>
                                 <td className="px-4 py-3">
                                   <AdminSelect
                                     value={order.status}
@@ -1047,7 +1047,7 @@ export default function StaffPortalPage() {
                             <div className="flex flex-col gap-2">
                               <div className="flex justify-between items-center">
                                 <span className="text-xs font-semibold text-muted">Ordered:</span>
-                                <span className="text-xs font-bold">{order.time || "—"}</span>
+                                <span className="text-xs font-bold">{formatOrderDateTime(order) || "—"}</span>
                               </div>
                               <div className="flex justify-between items-center">
                                 <span className="text-xs font-semibold text-muted">Status:</span>
@@ -1148,7 +1148,7 @@ export default function StaffPortalPage() {
                                 <td className="px-4 py-3 font-bold">{order.orderId}
                                 </td>
                                 <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
-                                <td className="px-4 py-3 text-xs text-muted">{order.time}</td>
+                                <td className="px-4 py-3 text-xs text-muted whitespace-nowrap">{formatOrderDateTime(order) || "—"}</td>
                                 <td className="px-4 py-3">
                                   <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-200">
                                     {order.orderType || "dine-in"}
@@ -1190,7 +1190,7 @@ export default function StaffPortalPage() {
                             </div>
                             
                             <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
-                              <span className="text-muted text-xs">{order.time}</span>
+                              <span className="text-muted text-xs">{formatOrderDateTime(order) || "—"}</span>
                               <span className="font-bold text-lg">₱{formatOrderTotal(order)}</span>
                             </div>
 
@@ -1250,7 +1250,7 @@ export default function StaffPortalPage() {
                           )}
                           <div>
                             <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Ordered Time</p>
-                            <p className="font-medium mt-1">{selectedOrderDetails.time}</p>
+                            <p className="font-medium mt-1">{formatOrderDateTime(selectedOrderDetails) || "—"}</p>
                           </div>
                           <div>
                             <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Status</p>
@@ -1718,7 +1718,9 @@ export default function StaffPortalPage() {
                         <td colSpan={7} className="text-center py-8 text-muted">No delivery orders listed.</td>
                       </tr>
                     ) : (
-                      deliveryOrders.filter(o => !o.archived).map((order) => (
+                      [...deliveryOrders.filter(o => !o.archived)]
+                        .sort((a, b) => orderEpoch(b) - orderEpoch(a))
+                        .map((order) => (
                         <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
                           <td className="px-4 py-3 font-bold text-[#800000]">{order.orderNumber}</td>
                           <td className="px-4 py-3 text-xs leading-4">
@@ -1738,7 +1740,7 @@ export default function StaffPortalPage() {
                           </td>
                           <td className="px-4 py-3 text-xs">{order.items}</td>
                           <td className="px-4 py-3 font-semibold">₱{order.total}</td>
-                          <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatPhTime(order.orderedAt)}</td>
+                          <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatPhDateTime(order.orderedAt) || "—"}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
                               order.status === "delivered"

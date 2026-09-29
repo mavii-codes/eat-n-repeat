@@ -16,6 +16,12 @@ export type RecentOrder = {
   orderType?: string;
   orderMode?: string;
   time: string;
+  // ISO creation timestamp for reliable newest-first sorting and full
+  // date+time display. Optional so previously cached rows keep working
+  // (they fall back to parsing `time`, then sort last).
+  // NOTE: this is a frontend carry-through of the existing DB `createdAt`,
+  // not a new database field.
+  orderedAt?: string;
   items: string;
   total: number;
   status: "pending" | "awaiting_payment" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";

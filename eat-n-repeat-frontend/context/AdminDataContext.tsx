@@ -10,7 +10,7 @@ import {
 } from "react";
 import { initialAdminData } from "@/lib/admin/mock-data";
 import { ensureHashed } from "@/lib/admin/password";
-import { formatPhTime } from "@/lib/admin/delivery-utils";
+import { formatPhDateTime } from "@/lib/admin/delivery-utils";
 import type {
   AdminDataState,
   DeliveryOrder,
@@ -289,12 +289,11 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
     const paid = Boolean(paidPayment);
     const paymentMethod = payments[0]?.paymentMethod ?? undefined;
     const createdAt = row.createdAt ? new Date(row.createdAt) : null;
-    // Staff/Admin display in Philippine Time (Asia/Manila). Customer
-    // history formats its own date independently and is untouched.
-    const timeLabel =
-      createdAt && !Number.isNaN(createdAt.getTime())
-        ? formatPhTime(createdAt)
-        : "";
+    // Staff/Admin display in Philippine Time (Asia/Manila), date + time.
+    // Customer history formats its own date independently and is untouched.
+    const createdIso =
+      createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "";
+    const timeLabel = createdIso ? formatPhDateTime(createdIso) : "";
     const items = orderItemsSummary(row.items);
     const total = Number(row.total);
     if ((row.type ?? "").toLowerCase() === "delivery") {
@@ -323,6 +322,7 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
         orderType: row.type ?? undefined,
         orderMode: row.orderMode ?? undefined,
         time: timeLabel,
+        orderedAt: createdIso || undefined,
         items,
         total: Number.isFinite(total) ? total : 0,
         status: mapStoreStatus(row.status),

@@ -371,6 +371,8 @@ export function POSCashierTab() {
             hour: "2-digit",
             minute: "2-digit",
           }),
+          // ISO stamp for reliable newest-first sorting (display uses `time`).
+          orderedAt: new Date().toISOString(),
           items: cart
             .map((ci) => `${ci.item.name} (${ci.qty}x)`)
             .join(", "),

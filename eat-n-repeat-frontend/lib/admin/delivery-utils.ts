@@ -55,3 +55,50 @@ export function formatPhTime(value: string | Date | null | undefined): string {
     timeZone: "Asia/Manila",
   });
 }
+
+/**
+ * Full Staff-facing order timestamp: "Sep 29, 2026 • 5:07 PM"
+ * (Asia/Manila). Falls back to a legacy display string (e.g. "4:41 PM"
+ * from older cached rows) when no ISO timestamp exists, else "".
+ */
+export function formatPhDateTime(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return typeof value === "string" ? value : "";
+  }
+  const date = d.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "Asia/Manila",
+  });
+  return `${date} • ${formatPhTime(d)}`;
+}
+
+/** Display helper for an order-like row: ISO first, legacy label fallback. */
+export function formatOrderDateTime(order: {
+  orderedAt?: string | null;
+  time?: string | null;
+}): string {
+  return formatPhDateTime(order.orderedAt ?? order.time ?? "");
+}
+
+/**
+ * Underlying creation epoch (ms) for newest-first sorting. Never sorts on
+ * formatted text: ISO timestamp first, legacy `time` parse second, 0 last.
+ */
+export function orderEpoch(order: {
+  orderedAt?: string | null;
+  time?: string | null;
+}): number {
+  if (order.orderedAt) {
+    const t = new Date(order.orderedAt).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  if (order.time) {
+    const t = new Date(order.time).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  return 0;
+}

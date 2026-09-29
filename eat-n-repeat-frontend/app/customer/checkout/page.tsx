@@ -166,6 +166,8 @@ export default function CheckoutPage() {
         orderId: checkoutOrderId,
         customerName: `${firstName.trim()} ${lastName.trim()}`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        // ISO stamp for reliable newest-first sorting (display uses `time`).
+        orderedAt: new Date().toISOString(),
         items: orderItemsSummary,
         total,
         status: 'awaiting_payment',
@@ -186,7 +188,7 @@ export default function CheckoutPage() {
         deliveryFee: 0,
         total,
         status: 'pending',
-        orderedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        orderedAt: new Date().toISOString(),
       });
     }
 

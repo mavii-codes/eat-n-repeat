@@ -312,6 +312,8 @@ export function CartDrawer({
         addStoreOrder({
           orderId: data.orderNumber || orderNumber,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          // ISO stamp for reliable newest-first sorting (display uses `time`).
+          orderedAt: new Date().toISOString(),
           items: `${isLocalMode ? '[GUEST] ' : ''}${finalCustomerName} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up / Take-Out'}): ${orderItemsSummary}`,
           total,
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
