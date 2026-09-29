@@ -22,6 +22,7 @@ import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
+import { formatPhTime } from "@/lib/admin/delivery-utils";
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
 
@@ -962,6 +963,7 @@ export default function StaffPortalPage() {
                               <th className="px-4 py-3 font-medium">Items</th>
                               <th className="px-4 py-3 font-medium">Total</th>
                               <th className="px-4 py-3 font-medium">Payment</th>
+                              <th className="px-4 py-3 font-medium">Ordered</th>
                               <th className="px-4 py-3 font-medium">Status</th>
                               <th className="px-4 py-3 font-medium text-right">Actions</th>
                             </tr>
@@ -986,6 +988,7 @@ export default function StaffPortalPage() {
                                     <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
                                   )}
                                 </td>
+                                <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{order.time || "—"}</td>
                                 <td className="px-4 py-3">
                                   <AdminSelect
                                     value={order.status}
@@ -1042,6 +1045,10 @@ export default function StaffPortalPage() {
                             </div>
 
                             <div className="flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Ordered:</span>
+                                <span className="text-xs font-bold">{order.time || "—"}</span>
+                              </div>
                               <div className="flex justify-between items-center">
                                 <span className="text-xs font-semibold text-muted">Status:</span>
                                 <AdminSelect
@@ -1242,7 +1249,7 @@ export default function StaffPortalPage() {
                             </div>
                           )}
                           <div>
-                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Date & Time</p>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Ordered Time</p>
                             <p className="font-medium mt-1">{selectedOrderDetails.time}</p>
                           </div>
                           <div>
@@ -1700,6 +1707,7 @@ export default function StaffPortalPage() {
                       <th className="px-4 py-3 font-medium">Customer Details</th>
                       <th className="px-4 py-3 font-medium">Manifest</th>
                       <th className="px-4 py-3 font-medium">Total Price</th>
+                      <th className="px-4 py-3 font-medium">Ordered</th>
                       <th className="px-4 py-3 font-medium">Delivery Status</th>
                       <th className="px-4 py-3 font-medium rounded-r-lg text-right">Actions</th>
                     </tr>
@@ -1707,7 +1715,7 @@ export default function StaffPortalPage() {
                   <tbody>
                     {deliveryOrders.filter(o => !o.archived).length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="text-center py-8 text-muted">No delivery orders listed.</td>
+                        <td colSpan={7} className="text-center py-8 text-muted">No delivery orders listed.</td>
                       </tr>
                     ) : (
                       deliveryOrders.filter(o => !o.archived).map((order) => (
@@ -1730,6 +1738,7 @@ export default function StaffPortalPage() {
                           </td>
                           <td className="px-4 py-3 text-xs">{order.items}</td>
                           <td className="px-4 py-3 font-semibold">₱{order.total}</td>
+                          <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatPhTime(order.orderedAt)}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
                               order.status === "delivered"

@@ -38,3 +38,20 @@ export function formatDeliveryDate(iso: string) {
     minute: "2-digit",
   });
 }
+
+/**
+ * Order time for Staff/Admin displays in Philippine Time (Asia/Manila).
+ * Source timestamps are UTC (DB `createdAt`); the IANA zone — not a
+ * hard-coded +8 offset — converts correctly. Returns "" when unparseable
+ * so tables render a clean blank instead of "Invalid Date".
+ */
+export function formatPhTime(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-PH", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+}

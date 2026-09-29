@@ -10,6 +10,7 @@ import {
 } from "react";
 import { initialAdminData } from "@/lib/admin/mock-data";
 import { ensureHashed } from "@/lib/admin/password";
+import { formatPhTime } from "@/lib/admin/delivery-utils";
 import type {
   AdminDataState,
   DeliveryOrder,
@@ -288,9 +289,11 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
     const paid = Boolean(paidPayment);
     const paymentMethod = payments[0]?.paymentMethod ?? undefined;
     const createdAt = row.createdAt ? new Date(row.createdAt) : null;
+    // Staff/Admin display in Philippine Time (Asia/Manila). Customer
+    // history formats its own date independently and is untouched.
     const timeLabel =
       createdAt && !Number.isNaN(createdAt.getTime())
-        ? createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        ? formatPhTime(createdAt)
         : "";
     const items = orderItemsSummary(row.items);
     const total = Number(row.total);
