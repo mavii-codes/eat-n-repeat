@@ -38,6 +38,25 @@ export class MenuRepository {
     });
   }
 
+  // Tombstones for customer clients: ids of archived rows (no content, so
+  // nothing new leaks — these items were public before archiving). Lets a
+  // device hide items archived elsewhere without a hard-delete mechanism.
+  async findArchivedItemIds() {
+    const rows = await prisma.menuItem.findMany({
+      where: { archived: true },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  async findArchivedCategoryIds() {
+    const rows = await prisma.menuCategory.findMany({
+      where: { archived: true },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
   async createItem(data: {
     id: string;
     name: string;

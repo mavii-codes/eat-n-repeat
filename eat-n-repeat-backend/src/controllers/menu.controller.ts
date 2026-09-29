@@ -18,7 +18,10 @@ export class MenuController {
     try {
       const includeArchived = (_req.query.admin as string) === "true";
       const categories = await service.listMenuCategories(includeArchived);
-      return res.json({ categories });
+      // Tombstone ids so clients can hide rows archived on another device.
+      // Ids only — no archived content leaks through the public endpoint.
+      const { categories: archivedIds } = await service.listArchivedMenuIds();
+      return res.json({ categories, archivedIds });
     } catch (error) {
       return dbError(res, error, "listing menu categories");
     }
@@ -80,7 +83,10 @@ export class MenuController {
     try {
       const includeArchived = (req.query.admin as string) === "true";
       const items = await service.listMenuItems(includeArchived);
-      return res.json({ items });
+      // Tombstone ids so clients can hide rows archived on another device.
+      // Ids only — no archived content leaks through the public endpoint.
+      const { items: archivedIds } = await service.listArchivedMenuIds();
+      return res.json({ items, archivedIds });
     } catch (error) {
       return dbError(res, error, "listing menu items");
     }

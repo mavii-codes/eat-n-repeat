@@ -308,38 +308,42 @@ type AdminDataContextValue = AdminDataState & {
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
 
+// Synchronous first-read of the local cache, used as the lazy useState
+// initializer. Previously the cache loaded in a mount effect, so every page
+// first painted (and persisted!) the factory mocks — flashing stale data and
+// risking a mount-time overwrite of real cached rows on slow devices.
+function readStoredAdminData(): AdminDataState {
+  if (typeof window === "undefined") return initialAdminData;
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored) return initialAdminData;
+
+  try {
+    const parsed = JSON.parse(stored) as Partial<AdminDataState>;
+    // Server-synced accounts legitimately have no local password (GET
+    // /api/staff never returns hashes). Only reset truly legacy data
+    // missing usernames or with zero accounts.
+    const hasMissingCreds =
+      !parsed.staffAccounts ||
+      parsed.staffAccounts.length === 0 ||
+      parsed.staffAccounts.some((acc) => !acc.username);
+
+    if (hasMissingCreds) {
+      console.warn("Legacy local storage detected. Resetting to initial mock data...");
+      localStorage.removeItem(STORAGE_KEY);
+      return initialAdminData;
+    }
+
+    return normalizeStoredData(parsed);
+  } catch {
+    return initialAdminData;
+  }
+}
+
 export function AdminDataProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AdminDataState>(initialAdminData);
+  const [data, setData] = useState<AdminDataState>(readStoredAdminData);
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffSyncError, setStaffSyncError] = useState<string | null>(null);
   const [serverStaffIds, setServerStaffIds] = useState<string[]>([]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<AdminDataState>;
-      // Server-synced accounts legitimately have no local password (GET
-      // /api/staff never returns hashes). Only reset truly legacy data
-      // missing usernames or with zero accounts.
-      const hasMissingCreds =
-        !parsed.staffAccounts ||
-        parsed.staffAccounts.length === 0 ||
-        parsed.staffAccounts.some((acc) => !acc.username);
-
-      if (hasMissingCreds) {
-        console.warn("Legacy local storage detected. Resetting to initial mock data...");
-        localStorage.removeItem(STORAGE_KEY);
-        setData(initialAdminData);
-        return;
-      }
-
-      setData(normalizeStoredData(parsed));
-    } catch {
-      setData(initialAdminData);
-    }
-  }, []);
 
   useEffect(() => {
     try {
@@ -378,6 +382,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         const serverItems = ensureArchived(
           (itemJson.items ?? []) as MenuItem[],
         );
+        // Tombstones: ids the server reports as archived. Cached rows with
+        // these ids were removed on another device — mark them archived in
+        // place (kept for offline cache, hidden from customer views). Rows
+        // absent from BOTH lists are genuine offline-created rows and stay.
+        const archivedCatIds = new Set<string>(catJson.archivedIds ?? []);
+        const archivedItemIds = new Set<string>(itemJson.archivedIds ?? []);
         setData((prev) => {
           const serverCatIds = new Set(serverCategories.map((c) => c.id));
           const serverItemIds = new Set(serverItems.map((i) => i.id));
@@ -385,11 +395,23 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             ...prev,
             menuCategories: [
               ...serverCategories,
-              ...prev.menuCategories.filter((c) => !serverCatIds.has(c.id)),
+              ...prev.menuCategories
+                .filter((c) => !serverCatIds.has(c.id))
+                .map((c) =>
+                  archivedCatIds.has(c.id)
+                    ? { ...c, archived: true, archivedAt: c.archivedAt ?? archiveTimestamp() }
+                    : c,
+                ),
             ],
             menuItems: [
               ...serverItems,
-              ...prev.menuItems.filter((i) => !serverItemIds.has(i.id)),
+              ...prev.menuItems
+                .filter((i) => !serverItemIds.has(i.id))
+                .map((i) =>
+                  archivedItemIds.has(i.id)
+                    ? { ...i, archived: true, archivedAt: i.archivedAt ?? archiveTimestamp() }
+                    : i,
+                ),
             ],
           };
         });

@@ -106,6 +106,14 @@ export async function listMenuItems(includeArchived = false) {
   return rows.map(toItemResponse);
 }
 
+export async function listArchivedMenuIds() {
+  const [items, categories] = await Promise.all([
+    menuRepository.findArchivedItemIds(),
+    menuRepository.findArchivedCategoryIds(),
+  ]);
+  return { items, categories };
+}
+
 export async function createMenuItem(input: MenuItemInput) {
   const row = await menuRepository.createItem({
     id: newId("mi"),
