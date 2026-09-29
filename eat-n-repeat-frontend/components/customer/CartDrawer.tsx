@@ -312,7 +312,7 @@ export function CartDrawer({
         addStoreOrder({
           orderId: data.orderNumber || orderNumber,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          items: `${isLocalMode ? '[GUEST] ' : ''}${finalCustomerName} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up'}): ${orderItemsSummary}`,
+          items: `${isLocalMode ? '[GUEST] ' : ''}${finalCustomerName} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up / Take-Out'}): ${orderItemsSummary}`,
           total,
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
@@ -392,7 +392,7 @@ export function CartDrawer({
             </div>
             {fulfillmentType === 'pickup' && (
               <p className="mt-1.5 text-[11px] font-semibold text-stone-500">
-                Pick-Up — collect your order at the café. No address or delivery fee needed.
+                Pick-Up / Take-Out — order here and collect your prepared order at the café. No address or delivery fee needed.
               </p>
             )}
           </div>
@@ -432,7 +432,7 @@ export function CartDrawer({
                         : 'text-stone-700 hover:bg-amber-100/50'
                     }`}
                   >
-                    <ShoppingBag className="w-4 h-4" /> Pick-Up
+                    <ShoppingBag className="w-4 h-4" /> Pick-Up / Take-Out
                   </button>
                 </>
               )}

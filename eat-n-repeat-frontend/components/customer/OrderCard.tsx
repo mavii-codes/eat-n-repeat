@@ -258,7 +258,7 @@ export function OrderCard({
                   {deliveryType === 'dine-in' ? (
                     <><Utensils className="w-3.5 h-3.5" /> Dine-In</>
                   ) : deliveryType === 'pickup' ? (
-                    <><ShoppingBag className="w-3.5 h-3.5" /> Pick-Up</>
+                    <><ShoppingBag className="w-3.5 h-3.5" /> Pick-Up / Take-Out</>
                   ) : (
                     <><Bike className="w-3.5 h-3.5" /> Express Delivery</>
                   )}

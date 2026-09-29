@@ -95,7 +95,7 @@ export function CustomerReceiptModal({
               {deliveryType === 'dine-in' ? (
                 <><Utensils className="w-3 h-3" /> Dine-In Order</>
               ) : deliveryType === 'pickup' ? (
-                <><ShoppingBag className="w-3 h-3" /> Pick-Up Order</>
+                <><ShoppingBag className="w-3 h-3" /> Pick-Up / Take-Out</>
               ) : (
                 <><Bike className="w-3 h-3" /> Express Delivery</>
               )}
