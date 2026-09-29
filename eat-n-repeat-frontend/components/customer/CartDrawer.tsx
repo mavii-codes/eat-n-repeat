@@ -316,6 +316,9 @@ export function CartDrawer({
           total,
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
+          // Preserve the fulfillment type so staff views show PICK-UP
+          // instead of falling back to dine-in. DB type is unchanged.
+          orderType: fulfillmentType,
         });
         journalOrder({ id: data.orderNumber || orderNumber, time: new Date().toISOString(), items: orderItemsSummary, total, status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending', paid: false, notes: "cart" });
       }
@@ -386,8 +389,13 @@ export function CartDrawer({
               <div>
                 <h2 className="text-lg font-bold">Your Order Cart</h2>
                 <p className="text-xs text-amber-200/80">Eat n' RepEat Café Cordova</p>
-              </div>
             </div>
+            {fulfillmentType === 'pickup' && (
+              <p className="mt-1.5 text-[11px] font-semibold text-stone-500">
+                Pick-Up — collect your order at the café. No address or delivery fee needed.
+              </p>
+            )}
+          </div>
             <button
               onClick={onClose}
               className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"

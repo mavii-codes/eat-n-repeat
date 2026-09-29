@@ -7,7 +7,8 @@ import { useReviews } from '@/context/ReviewsContext';
 import { 
   Hourglass, Check, ChefHat, CheckCheck, Bike, BadgeCheck, 
   XCircle, PartyPopper, Utensils, Zap, FileText, Lock, 
-  Bell, Receipt, RefreshCw, Star, ChevronUp, ChevronDown, Banknote
+  Bell, Receipt, RefreshCw, Star, ChevronUp, ChevronDown, Banknote,
+  ShoppingBag
 } from 'lucide-react';
 export type OrderStatus =
   | 'pending'
@@ -39,7 +40,7 @@ export type OrderCardProps = {
     price: number;
   }[];
   estimatedTime?: string;
-  deliveryType: 'dine-in' | 'delivery';
+  deliveryType: 'dine-in' | 'pickup' | 'delivery';
   notes?: string;
   onReorder?: (items: { name: string; quantity: number; price: number }[]) => void;
   onCancelOrder?: (orderId: string) => void;
@@ -256,6 +257,8 @@ export function OrderCard({
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-[#451a03] flex items-center gap-1">
                   {deliveryType === 'dine-in' ? (
                     <><Utensils className="w-3.5 h-3.5" /> Dine-In</>
+                  ) : deliveryType === 'pickup' ? (
+                    <><ShoppingBag className="w-3.5 h-3.5" /> Pick-Up</>
                   ) : (
                     <><Bike className="w-3.5 h-3.5" /> Express Delivery</>
                   )}

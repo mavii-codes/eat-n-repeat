@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
-import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX } from "lucide-react";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
@@ -526,13 +526,28 @@ export default function StaffPortalPage() {
   if (!user) return null;
 
   return (
-    <div className="admin-shell min-h-screen flex text-[#1c1c1c]">
+    <div className="admin-shell min-h-screen flex flex-col text-[#1c1c1c] lg:flex-row">
       <div className="admin-shell-bg" aria-hidden="true">
         <div className="admin-shell-bg-image" />
         <div className="admin-shell-bg-overlay" />
       </div>
-      {/* LEFT SIDEBAR */}
-      <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
+      {/* Mobile drawer backdrop */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {/* LEFT SIDEBAR — off-canvas drawer on mobile, fixed nav on desktop */}
+      <aside className={`admin-sidebar fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto text-white transition-transform duration-300 lg:z-40 lg:translate-x-0 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <button
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="absolute right-4 top-4 rounded-full bg-white/5 p-2.5 text-white/60 transition-colors hover:text-white lg:hidden"
+          aria-label="Close menu"
+        >
+          <X className="h-5 w-5" />
+        </button>
         <div className="border-b border-white/8 px-6 py-6">
           <Logo size="md" showText={false} />
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/45">
@@ -581,8 +596,20 @@ export default function StaffPortalPage() {
           </div>
         </div>
       </aside>
+      {/* Mobile header */}
+      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#1a0a0d]/90 px-4 py-3 backdrop-blur-md lg:hidden">
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="rounded-lg p-2.5 -ml-2 text-white transition-colors hover:bg-white/10"
+          aria-label="Open menu"
+        >
+          <Menu className="h-6 w-6" />
+        </button>
+        <div className="font-serif text-lg font-medium text-white/90">Staff Portal</div>
+        <div className="w-10" aria-hidden="true" />
+      </div>
       {/* MAIN MAIN AREA */}
-      <main className="relative z-10 pl-72 flex-1 mx-auto max-w-6xl px-8 py-8">
+      <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 lg:pl-72">
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === "dashboard" && (
@@ -878,6 +905,7 @@ export default function StaffPortalPage() {
                     >
                       <option value="all">All Types</option>
                       <option value="dine-in">Dine-in</option>
+                      <option value="pickup">Pickup</option>
                       <option value="takeout">Takeout</option>
                       <option value="delivery">Delivery</option>
                     </select>
@@ -1160,11 +1188,11 @@ export default function StaffPortalPage() {
               {/* ORDER DETAILS MODAL */}
               {selectedOrderDetails && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
-                  <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                  <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
                     {/* Header */}
-                    <div className="flex justify-between items-center p-5 border-b border-accent/10 bg-white">
+                    <div className="flex justify-between items-center p-4 sm:p-5 border-b border-accent/10 bg-white">
                       <div>
-                        <h2 className="font-serif text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
+                        <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200 shadow-sm">
                             {selectedOrderDetails.orderType || "Dine-in"}

@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { Utensils, Bike, FileText, Heart, Printer } from 'lucide-react';
+import { Utensils, Bike, ShoppingBag, FileText, Heart, Printer } from 'lucide-react';
 
 type ReceiptOrderItem = {
   name: string;
@@ -17,7 +17,7 @@ type CustomerReceiptModalProps = {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
-  deliveryType: 'dine-in' | 'delivery';
+  deliveryType: 'dine-in' | 'pickup' | 'delivery';
   paymentMethod?: string;
   items: ReceiptOrderItem[];
   subtotal: number;
@@ -94,6 +94,8 @@ export function CustomerReceiptModal({
             <div className="mt-2 text-[10px] font-bold text-stone-400 uppercase tracking-wider flex items-center justify-center gap-1.5">
               {deliveryType === 'dine-in' ? (
                 <><Utensils className="w-3 h-3" /> Dine-In Order</>
+              ) : deliveryType === 'pickup' ? (
+                <><ShoppingBag className="w-3 h-3" /> Pick-Up Order</>
               ) : (
                 <><Bike className="w-3 h-3" /> Express Delivery</>
               )}
