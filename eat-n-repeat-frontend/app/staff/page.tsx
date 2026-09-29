@@ -556,8 +556,12 @@ export default function StaffPortalPage() {
           aria-hidden="true"
         />
       )}
-      {/* LEFT SIDEBAR — off-canvas drawer on mobile, fixed nav on desktop */}
-      <aside className={`admin-sidebar fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto text-white transition-transform duration-300 lg:z-40 lg:translate-x-0 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      {/* LEFT SIDEBAR — off-canvas drawer on mobile, fixed nav on desktop.
+          The open/closed translate classes are mutually exclusive branches so
+          no two conflicting translate utilities ever coexist (their winner
+          would otherwise depend on stylesheet order and the drawer could
+          stick hidden or cover content on some viewports). */}
+      <aside className={`admin-sidebar fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto text-white transition-transform duration-300 lg:z-40 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
         <button
           onClick={() => setIsMobileMenuOpen(false)}
           className="absolute right-4 top-4 rounded-full bg-white/5 p-2.5 text-white/60 transition-colors hover:text-white lg:hidden"
