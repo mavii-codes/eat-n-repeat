@@ -79,9 +79,12 @@ export class SyncRepository {
 
           const createdAt = order.timestamp || new Date();
 
+          // NOTE: no payment_method column exists on orders (payment data
+          // lives in the payments table). Referencing one throws MySQL 1054
+          // and rolls back the whole offline drain, so it must stay out.
           await tx.$executeRaw`
-            INSERT IGNORE INTO orders (id, order_number, type, items, total, status, payment_method, archived, created_at)
-            VALUES (${order.id}, ${order.id}, 'dine-in', ${items}, ${order.total}, ${order.status}, 'Cash', 0, ${createdAt})
+            INSERT IGNORE INTO orders (id, order_number, type, items, total, status, archived, created_at)
+            VALUES (${order.id}, ${order.id}, 'dine-in', ${items}, ${order.total}, ${order.status}, 0, ${createdAt})
           `;
         }
       }
