@@ -24,6 +24,11 @@ export async function checkout(
   const { orderDetails, paymentMethod, orderMode = "online" } = data;
   const { customerName, phone, address, serviceAreaId, items: rawItems, deliveryFee, notes, type, subtotal: frontendSubtotal, baseSubtotal: frontendBaseSubtotal, selectedAddons } = orderDetails;
 
+  // Normalize once: callers send "GCash", "gcash", "Cash", etc. Branching
+  // and the Xendit channel code below use this; the stored/display value
+  // keeps the original casing so receipts and history are unchanged.
+  const normalizedMethod = (paymentMethod || "").trim().toLowerCase();
+
   // ── Local Mode Restrictions ──
   if (orderMode === "local") {
     if (type === "delivery") {
@@ -167,14 +172,22 @@ export async function checkout(
     status: "PENDING",
   });
 
-  // For Xendit payment methods, create invoice
-  if (paymentMethod === "gcash" || paymentMethod === "card" || paymentMethod === "bank_transfer") {
+  // For Xendit payment methods, create invoice. Xendit channel codes are
+  // uppercase (GCash one-time code is "GCASH"); the normalized method makes
+  // "GCash"/"gcash" (and any casing) reach this branch correctly.
+  const xenditChannel =
+    normalizedMethod === "gcash"
+      ? "GCASH"
+      : normalizedMethod === "card" || normalizedMethod === "bank_transfer"
+        ? paymentMethod
+        : null;
+  if (xenditChannel) {
     try {
       const invoice = await xenditClient.Invoice.createInvoice({
         data: {
           externalId: orderNumber,
           amount: total,
-          paymentMethods: [paymentMethod],
+          paymentMethods: [xenditChannel],
           description: `Order #${orderNumber}`,
         },
       });
@@ -238,13 +251,18 @@ export async function retryPayment(orderId: string) {
     }
   }
 
-  // Create new Xendit invoice
+  // Create new Xendit invoice. Stored methods keep display casing
+  // ("GCash"); normalize to the Xendit channel code ("GCASH") here.
+  const retryChannel =
+    String(payment.paymentMethod || "").trim().toLowerCase() === "gcash"
+      ? "GCASH"
+      : payment.paymentMethod;
   try {
     const invoice = await xenditClient.Invoice.createInvoice({
       data: {
         externalId: order.orderNumber,
         amount: Number(order.total),
-        paymentMethods: [payment.paymentMethod],
+        paymentMethods: [retryChannel],
         description: `Retry payment for Order #${order.orderNumber}`,
       },
     });
