@@ -743,7 +743,7 @@ export default function StaffPortalPage() {
                       .map((activity, i) => (
                       <div key={`act-${activity.id}-${i}`} className="flex items-start gap-3 py-3 text-sm">
                         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#63131d]/10 text-[#63131d]">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                          <ShoppingBag className="h-3 w-3" />
                         </span>
                         <div className="flex-1">
                           <p className="text-[#1c1c1c] font-medium">{activity.text}</p>

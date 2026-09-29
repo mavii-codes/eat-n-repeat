@@ -404,36 +404,10 @@ export const initialAdminData: AdminDataState = {
       ...active,
     },
   ],
-  storeOrders: [
-    {
-      id: "so-1",
-      orderId: "ORD-1234",
-      time: "Jun 24, 10:30 AM",
-      items: "House Latte, Garlic Fries",
-      total: 244,
-      status: "completed",
-      ...active,
-    },
-    {
-      id: "so-2",
-      orderId: "ORD-1230",
-      time: "Jun 23, 6:45 PM",
-      items: "Matcha Milktea x2",
-      total: 258,
-      status: "completed",
-      ...active,
-    },
-    {
-      id: "so-3",
-      orderId: "ORD-1225",
-      time: "Jun 22, 1:15 PM",
-      items: "Spam Rice Bowl",
-      total: 165,
-      status: "cancelled",
-      archived: true,
-      archivedAt: "2026-06-23T08:00:00",
-    },
-  ],
+  // Intentionally empty: Customer Activity renders ONLY real orders from
+  // the database/backend (plus genuine offline-created rows). Factory order
+  // rows here would appear as fake ORD-xxxx activity on every device.
+  storeOrders: [],
   activeCashShift: null,
 
 };

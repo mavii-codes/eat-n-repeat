@@ -355,6 +355,11 @@ function ensureArchived<T extends { archived?: boolean }>(
   }));
 }
 
+// Retired factory order mocks. Customer Activity must render only real
+// orders; these ids are dropped when cached state loads (genuine
+// offline-created rows use random ids and are unaffected).
+const LEGACY_MOCK_ORDER_IDS = new Set(["so-1", "so-2", "so-3"]);
+
 function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
   return {
     ...initialAdminData,
@@ -390,7 +395,11 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
     deliverySettings:
       data.deliverySettings ?? initialAdminData.deliverySettings,
     storeOrders: ensureArchived(
-      data.storeOrders,
+      // One-time eviction of the retired factory mocks (so-1/ORD-1234,
+      // so-2/ORD-1230, so-3/ORD-1225): devices that cached them would
+      // otherwise keep rendering fake activity forever, since the order
+      // merge retains server-unknown ids by design (offline rows).
+      (data.storeOrders ?? []).filter((o) => !LEGACY_MOCK_ORDER_IDS.has(o.id)),
       initialAdminData.storeOrders,
     ).map((order) => ({
       ...order,
