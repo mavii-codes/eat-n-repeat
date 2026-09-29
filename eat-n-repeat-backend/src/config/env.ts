@@ -50,4 +50,11 @@ export const env = {
   // `x-sync-secret` header. When unset, heartbeat stays open (timestamp-only
   // write) with a boot warning.
   syncSharedSecret: process.env.SYNC_SHARED_SECRET ?? "",
+  // Online → Local menu pull (local backend only). Base URL of the ONLINE
+  // backend, e.g. https://<render-service>.onrender.com. Empty = disabled.
+  menuSyncUrl: process.env.MENU_SYNC_URL || "",
+  menuSyncIntervalMs: Number(process.env.MENU_SYNC_INTERVAL_MS ?? 600000),
+  // When true, every pull (auto + manual) is a dry-run: full preview report,
+  // zero writes (no database changes, no backup file, no sync-state update).
+  menuSyncDryRun: (process.env.SYNC_MENU_DRY_RUN ?? "").toLowerCase() === "true",
 } as const;

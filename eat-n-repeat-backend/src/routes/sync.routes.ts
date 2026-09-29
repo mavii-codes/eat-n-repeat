@@ -16,6 +16,9 @@ router.post("/offline", requireAuth, (req, res) => syncController.offline(req, r
 // (Heartbeat senders without a JWT must set SYNC_SHARED_SECRET, see controller.)
 router.post("/push", requireRole(...STAFF_ROLES), (req, res) => syncController.push(req, res));
 router.post("/heartbeat", (req, res) => syncController.heartbeat(req, res));
+// Manual Online → Local menu pull (preview by default; staff roles only).
+// Writes go to THIS database only — there is no Local → Online path.
+router.post("/menu/pull", requireRole(...STAFF_ROLES), (req, res) => syncController.menuPull(req, res));
 
 export const syncRouter = router;
 export default router;

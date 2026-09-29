@@ -284,6 +284,18 @@ model CafeStatus {
   @@map("cafe_status")
 }
 
+/// Single-row record of the last Online → Local menu pull. Written only by
+/// the menu-pull service on this instance. Additive table; auto-migrates via
+/// `prisma db push` on both local bootstrap and Render builds.
+model MenuSyncState {
+  id           Int       @id @default(1)
+  lastPulledAt DateTime? @db.Timestamp(0) @map("last_pulled_at")
+  lastResult   String?   @db.VarChar(255) @map("last_result")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("menu_sync_state")
+}
+
 model MenuCategory {
   id          String     @id @db.VarChar(64) @map("id")
   name        String     @db.VarChar(120) @map("name")

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { env } from "@/config/env";
 import * as service from "@/services/sync";
+import { menuPullService } from "@/services/menu-pull";
 import { cafeAvailabilityService } from "@/services/cafe-availability";
 
 let warnedInsecureHeartbeat = false;
@@ -40,8 +41,7 @@ export class SyncController {  async getStatus(_req: Request, res: Response) {
     }
   }
 
-  async heartbeat(req: Request, res: Response) {
-    // Headless café senders hold no JWT. When a shared secret is configured,
+  async heartbeat(req: Request, res: Response) {    // Headless café senders hold no JWT. When a shared secret is configured,
     // require it; otherwise accept the timestamp-only write (documented).
     if (env.syncSharedSecret) {
       const provided = req.headers["x-sync-secret"];
@@ -58,6 +58,23 @@ export class SyncController {  async getStatus(_req: Request, res: Response) {
     } catch (err) {
       console.error("Heartbeat Error:", err);
       return res.status(500).json({ success: false, error: "Heartbeat failed" });
+    }
+  }
+
+  /**
+   * Manual Online → Local menu pull (preview by default). Staff roles only.
+   * Body `{ dryRun: true }` (or env SYNC_MENU_DRY_RUN=true) returns the full
+   * change preview with ZERO writes. Live mode writes a JSON backup first
+   * and aborts if the backup fails.
+   */
+  async menuPull(req: Request, res: Response) {
+    try {
+      const dryRun = (req.body as any)?.dryRun === true;
+      const plan = await menuPullService.pull({ dryRun });
+      return res.json({ success: true, pull: plan });
+    } catch (err) {
+      console.error("Menu Pull Error:", err);
+      return res.status(500).json({ success: false, error: "Menu pull failed" });
     }
   }
 }

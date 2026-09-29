@@ -8,6 +8,7 @@ function toCategoryResponse(row: {
   description: string | null;
   archived: boolean;
   archivedAt: Date | null;
+  updatedAt: Date;
 }) {
   return {
     id: row.id,
@@ -15,6 +16,9 @@ function toCategoryResponse(row: {
     description: row.description ?? "",
     archived: row.archived,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : undefined,
+    // Freshness signal for Online → Local menu pull (additive; ignored by
+    // older clients).
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -29,6 +33,7 @@ function toItemResponse(row: {
   sizes: unknown;
   archived: boolean;
   archivedAt: Date | null;
+  updatedAt: Date;
 }) {
   return {
     id: row.id,
@@ -41,6 +46,9 @@ function toItemResponse(row: {
     sizes: sanitizeSizes(row.sizes),
     archived: row.archived,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : undefined,
+    // Freshness signal for Online → Local menu pull (additive; ignored by
+    // older clients).
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
