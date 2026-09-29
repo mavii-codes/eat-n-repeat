@@ -7,6 +7,7 @@ import { useAdminData } from "@/context/AdminDataContext";
 import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
+import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
@@ -21,7 +22,7 @@ import {
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
-import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
+import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus, RecentOrder, DeliveryOrder } from "@/lib/admin/types";
 import { formatPhDateTime, formatOrderDateTime, orderEpoch } from "@/lib/admin/delivery-utils";
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
@@ -121,8 +122,29 @@ function getMonthLabel(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-export default function StaffPortalPage() {
-  const { user, logout, changePassword, verifyCurrentPassword, updateProfile } = useAuth();
+// Shared order-row shape for the Customer Orders tab: delivery rows are
+// normalized onto the store shape (orderId/time/orderType filled in).
+// Used for BOTH local lists and server history pages so Details,
+// filtering, and display behave identically.
+function toDisplayRows(storeOrders: RecentOrder[], deliveryOrders: DeliveryOrder[]) {
+  return [
+    ...storeOrders,
+    ...deliveryOrders.map((d) => ({
+      ...d,
+      id: d.id,
+      orderId: d.orderNumber,
+      time: d.orderedAt,
+      orderType: "delivery",
+      orderMode: (d as any).orderMode || "online",
+      paid: true, // assume paid for delivery in this mock unless stated
+      customerName: d.customerName,
+      subtotal: d.subtotal,
+      deliveryFee: d.deliveryFee,
+    })),
+  ];
+}
+
+export default function StaffPortalPage() {  const { user, logout, changePassword, verifyCurrentPassword, updateProfile } = useAuth();
   const {
     storeOrders,
     deliveryOrders,
@@ -144,8 +166,8 @@ export default function StaffPortalPage() {
     updateStockItem,
     deleteStockItem,
     refreshBackendOrders,
+    fetchOrderHistoryPage,
   } = useAdminData();
-
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<StaffTab>("dashboard");
 
@@ -163,6 +185,39 @@ export default function StaffPortalPage() {
   const [orderHistorySearch, setOrderHistorySearch] = useState("");
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
+
+  // Server-paginated history (20/page). Null = offline/unauthenticated, in
+  // which case the local lists below are used exactly as before.
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyServer, setHistoryServer] = useState<{
+    store: RecentOrder[];
+    delivery: DeliveryOrder[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== "orders") return;
+    let cancelled = false;
+    // Small debounce so typing in search doesn't fire per keystroke.
+    const timer = setTimeout(() => {
+      setHistoryLoading(true);
+      fetchOrderHistoryPage({
+        page: historyPage,
+        limit: 20,
+        search: orderHistorySearch,
+        status: orderHistoryStatusFilter,
+      }).then((res) => {
+        if (cancelled) return;
+        setHistoryServer(res);
+        setHistoryLoading(false);
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activeTab, historyPage, orderHistorySearch, orderHistoryStatusFilter, fetchOrderHistoryPage]);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -646,10 +701,9 @@ export default function StaffPortalPage() {
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <button className="relative rounded-full bg-[#fffaf7] p-2.5 text-[#63131d] shadow-sm border border-accent/10 hover:bg-white transition-colors cursor-pointer">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-                  {stockNotifications.length > 0 && <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-[#fffaf7]"></span>}
-                </button>
+                <StaffNotificationPanel
+                  onNavigateToOrder={() => setActiveTab("orders")}
+                />
               </div>
             </header>
 
@@ -835,18 +889,7 @@ export default function StaffPortalPage() {
         {/* TAB 2: CUSTOMER ORDERS */}
         {activeTab === "orders" && (() => {
           // Process data
-          const allOrders = [...storeOrders, ...deliveryOrders.map(d => ({
-              ...d,
-              id: d.id,
-              orderId: d.orderNumber,
-              time: d.orderedAt,
-              orderType: "delivery",
-              orderMode: (d as any).orderMode || "online",
-              paid: true, // assume paid for delivery in this mock unless stated
-              customerName: d.customerName,
-              subtotal: d.subtotal,
-              deliveryFee: d.deliveryFee
-          }))];
+          const allOrders = toDisplayRows(storeOrders, deliveryOrders);
 
           const activeOrders = allOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled");
           const historyOrders = allOrders.filter(o => o.status === "completed" || o.status === "cancelled");
@@ -870,13 +913,34 @@ export default function StaffPortalPage() {
             return matchesSearch && matchesStatus && matchesType;
           }).sort((a, b) => orderEpoch(b) - orderEpoch(a));
 
-          // Filter history
-          const filteredHistory = historyOrders.filter(o => {
+          // Filter history (local/offline path; server mode filters server-side)
+          const filteredHistoryLocal = historyOrders.filter(o => {
             const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) ||
                                   o.customerName?.toLowerCase().includes(orderHistorySearch.toLowerCase());
             const matchesStatus = orderHistoryStatusFilter === "all" || o.status === orderHistoryStatusFilter;
             return matchesSearch && matchesStatus;
           }).sort((a, b) => orderEpoch(b) - orderEpoch(a));
+
+          // Server page wins when reachable (already filtered/sorted newest-first
+          // by the database); otherwise the local lists above are used as before.
+          const serverHistoryRows = historyServer
+            ? toDisplayRows(historyServer.store, historyServer.delivery)
+            : null;
+          const displayHistory = serverHistoryRows ?? filteredHistoryLocal;
+          const historyPagination = historyServer?.pagination ?? null;
+
+          // Compact page window: 1 … p-1 p p+1 … N
+          const historyPageList = (() => {
+            if (!historyPagination || historyPagination.totalPages <= 7) {
+              return historyPagination
+                ? Array.from({ length: historyPagination.totalPages }, (_, i) => i + 1)
+                : [];
+            }
+            const total = historyPagination.totalPages;
+            const current = historyPagination.page;
+            const pages = new Set([1, 2, current - 1, current, current + 1, total - 1, total]);
+            return [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+          })();
 
           return (
             <div className="space-y-6">
@@ -1104,18 +1168,18 @@ export default function StaffPortalPage() {
                 <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
-                    <input 
-                      type="text" 
-                      placeholder="Search history..." 
-                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
-                      value={orderHistorySearch}
-                      onChange={(e) => setOrderHistorySearch(e.target.value)}
-                    />
+                      <input
+                        type="text"
+                        placeholder="Search history..."
+                        className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                        value={orderHistorySearch}
+                        onChange={(e) => { setOrderHistorySearch(e.target.value); setHistoryPage(1); }}
+                      />
                   </div>
                   <select 
                     className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium w-full md:w-auto"
                     value={orderHistoryStatusFilter}
-                    onChange={(e) => setOrderHistoryStatusFilter(e.target.value)}
+                    onChange={(e) => { setOrderHistoryStatusFilter(e.target.value); setHistoryPage(1); }}
                   >
                     <option value="all">All Statuses</option>
                     <option value="completed">Completed</option>
@@ -1123,7 +1187,7 @@ export default function StaffPortalPage() {
                   </select>
                 </div>
                 <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl overflow-x-auto">
-                  {filteredHistory.length === 0 ? (
+                  {displayHistory.length === 0 ? (
                     <div className="text-center py-12 text-muted flex flex-col items-center">
                       <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
                         <Filter className="h-6 w-6 text-accent/40" />
@@ -1147,7 +1211,7 @@ export default function StaffPortalPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {filteredHistory.map((order) => (
+                            {displayHistory.map((order) => (
                               <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10 text-[#2B2523]">
                                 <td className="px-4 py-3 font-bold">{order.orderId}
                                 </td>
@@ -1180,7 +1244,7 @@ export default function StaffPortalPage() {
                       
                       {/* MOBILE HISTORY CARDS */}
                       <div className="md:hidden flex flex-col gap-3 p-2">
-                        {filteredHistory.map((order) => (
+                        {displayHistory.map((order) => (
                           <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 opacity-90">
                             <div className="flex justify-between items-start">
                               <div>
@@ -1210,6 +1274,52 @@ export default function StaffPortalPage() {
                     </>
                   )}
                 </div>
+                {historyPagination && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-accent/10 bg-white/40">
+                    <p className="text-xs font-semibold text-muted">
+                      Page {historyPagination.page} of {historyPagination.totalPages} · {historyPagination.total} record{historyPagination.total === 1 ? "" : "s"}
+                      {historyLoading ? " · Loading…" : ""}
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={historyPagination.page <= 1 || historyLoading}
+                        onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                        className="px-3 py-1.5 rounded-lg border border-accent/20 bg-white text-xs font-bold text-[#2B2523] disabled:opacity-40 hover:bg-accent-light/20 transition-colors"
+                      >
+                        ‹ Previous
+                      </button>
+                      {historyPageList.map((p, i, arr) => (
+                        <span key={`${p}-${i}`} className="flex items-center gap-1.5">
+                          {i > 0 && p - arr[i - 1] > 1 && (
+                            <span className="text-xs text-muted px-0.5">…</span>
+                          )}
+                          <button
+                            type="button"
+                            disabled={historyLoading}
+                            onClick={() => setHistoryPage(p)}
+                            aria-current={p === historyPagination.page ? "page" : undefined}
+                            className={`min-w-[2rem] px-2 py-1.5 rounded-lg border text-xs font-bold transition-colors disabled:opacity-40 ${
+                              p === historyPagination.page
+                                ? "bg-accent text-white border-accent"
+                                : "border-accent/20 bg-white text-[#2B2523] hover:bg-accent-light/20"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        </span>
+                      ))}
+                      <button
+                        type="button"
+                        disabled={historyPagination.page >= historyPagination.totalPages || historyLoading}
+                        onClick={() => setHistoryPage((p) => p + 1)}
+                        className="px-3 py-1.5 rounded-lg border border-accent/20 bg-white text-xs font-bold text-[#2B2523] disabled:opacity-40 hover:bg-accent-light/20 transition-colors"
+                      >
+                        Next ›
+                      </button>
+                    </div>
+                  </div>
+                )}
               </AdminPanel>
 
               {/* ORDER DETAILS MODAL */}

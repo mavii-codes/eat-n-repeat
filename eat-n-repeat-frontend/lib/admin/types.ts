@@ -29,6 +29,11 @@ export type RecentOrder = {
   paid?: boolean;
   paymentMethod?: string;
   paymentStatus?: PaymentVerificationStatus;
+  // Optional contact fields (present on server-fetched rows; read
+  // optionally by the order details modal).
+  phone?: string;
+  address?: string;
+  serviceAreaId?: string;
   xenditReference?: string;
   xenditInvoiceId?: string;
   paidAt?: string;

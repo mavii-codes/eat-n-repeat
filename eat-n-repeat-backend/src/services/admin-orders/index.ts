@@ -1,1 +1,1 @@
-export { getAdminOrders, updateAdminOrderStatus, markOrderAsPaid } from "./admin-orders.service";
+export { getAdminOrders, getOrderHistory, updateAdminOrderStatus, markOrderAsPaid } from "./admin-orders.service";

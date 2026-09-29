@@ -321,6 +321,9 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
         customerName: row.customerName ?? undefined,
         orderType: row.type ?? undefined,
         orderMode: row.orderMode ?? undefined,
+        phone: row.phone ?? undefined,
+        address: row.address ?? undefined,
+        serviceAreaId: row.serviceAreaId ?? undefined,
         time: timeLabel,
         orderedAt: createdIso || undefined,
         items,
@@ -355,10 +358,18 @@ function ensureArchived<T extends { archived?: boolean }>(
   }));
 }
 
-// Retired factory order mocks. Customer Activity must render only real
-// orders; these ids are dropped when cached state loads (genuine
-// offline-created rows use random ids and are unaffected).
+// Retired factory order mocks. Order views must render only real orders;
+// these ids are dropped when cached state loads (genuine offline-created
+// rows use random ids and are unaffected).
 const LEGACY_MOCK_ORDER_IDS = new Set(["so-1", "so-2", "so-3"]);
+const LEGACY_MOCK_DELIVERY_IDS = new Set([
+  "do-1",
+  "do-2",
+  "do-3",
+  "do-4",
+  "do-5",
+  "do-6",
+]);
 
 function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
   return {
@@ -388,7 +399,7 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
     ),
     systemSettings: data.systemSettings ?? initialAdminData.systemSettings,
     deliveryOrders: ensureArchived(
-      data.deliveryOrders,
+      (data.deliveryOrders ?? []).filter((o) => !LEGACY_MOCK_DELIVERY_IDS.has(o.id)),
       initialAdminData.deliveryOrders,
     ),
     serviceAreas: data.serviceAreas ?? initialAdminData.serviceAreas,
@@ -437,6 +448,16 @@ type AdminDataContextValue = AdminDataState & {
   restoreStaffAccount: (id: string) => void;
   refreshStaffAccounts: () => Promise<boolean>;
   refreshBackendOrders: () => Promise<boolean>;
+  fetchOrderHistoryPage: (args: {
+    page: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+  }) => Promise<{
+    store: RecentOrder[];
+    delivery: DeliveryOrder[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  } | null>;
   migrateLocalStaffAccount: (
     id: string,
     password: string,
@@ -676,6 +697,58 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   }, []);
+
+  type OrderHistoryPage = {
+    store: RecentOrder[];
+    delivery: DeliveryOrder[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  };
+
+  // Server-paginated order history (completed/cancelled, newest-first).
+  // Only the requested page crosses the wire. Returns null on auth/network
+  // failure so callers fall back to the local lists (offline mode).
+  const fetchOrderHistoryPage = useCallback(
+    async (args: {
+      page: number;
+      limit?: number;
+      search?: string;
+      status?: string;
+    }): Promise<OrderHistoryPage | null> => {
+      try {
+        const params = new URLSearchParams({
+          page: String(Math.max(1, Math.floor(args.page) || 1)),
+          limit: String(
+            Math.min(100, Math.max(1, Math.floor(args.limit ?? 20)))
+          ),
+          search: (args.search ?? "").trim(),
+          status:
+            args.status === "completed" || args.status === "cancelled"
+              ? args.status
+              : "all",
+        });
+        const res = await staffApi(`/api/admin-orders/history?${params}`);
+        if (!res.ok) return null;
+        const json = await res.json().catch(() => null);
+        const rows = json?.orders as BackendOrderRow[] | undefined;
+        const pagination = json?.pagination;
+        if (!Array.isArray(rows) || !pagination) return null;
+        const { store, delivery } = mapBackendOrders(rows);
+        return {
+          store,
+          delivery,
+          pagination: {
+            page: Number(pagination.page) || 1,
+            limit: Number(pagination.limit) || 20,
+            total: Number(pagination.total) || 0,
+            totalPages: Math.max(1, Number(pagination.totalPages) || 1),
+          },
+        };
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
 
   const migrateLocalStaffAccount = useCallback(
     async (
@@ -1629,6 +1702,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       serverStaffIds,
       refreshStaffAccounts,
       refreshBackendOrders,
+      fetchOrderHistoryPage,
       migrateLocalStaffAccount,
       addMenuItem,
       updateMenuItem,
@@ -1689,6 +1763,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       serverStaffIds,
       refreshStaffAccounts,
       refreshBackendOrders,
+      fetchOrderHistoryPage,
       migrateLocalStaffAccount,
       addMenuItem,
       updateMenuItem,

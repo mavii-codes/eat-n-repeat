@@ -1,12 +1,21 @@
 import { prisma } from "@/lib/prisma";
 
 export class AdminOrdersRepository {
-  async findManyOrders(where: Record<string, unknown>, options?: { orderBy?: Record<string, string>; include?: Record<string, unknown> }) {
+  async findManyOrders(
+    where: Record<string, unknown>,
+    options?: { orderBy?: Record<string, string>; include?: Record<string, unknown>; skip?: number; take?: number }
+  ) {
     return prisma.order.findMany({
       where,
       orderBy: options?.orderBy ?? { createdAt: "desc" },
       include: options?.include ?? {},
+      ...(options?.skip !== undefined ? { skip: options.skip } : {}),
+      ...(options?.take !== undefined ? { take: options.take } : {}),
     });
+  }
+
+  async countOrders(where: Record<string, unknown>) {
+    return prisma.order.count({ where });
   }
 
   async findOrderByIdentifier(orderIdParam: string) {

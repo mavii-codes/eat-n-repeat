@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
-import { statusSchema } from "@/schema/admin-orders/admin-orders.schema";
+import { statusSchema, historyQuerySchema } from "@/schema/admin-orders/admin-orders.schema";
 import * as adminOrdersService from "@/services/admin-orders";
 
 export class AdminOrdersController {
@@ -10,6 +10,20 @@ export class AdminOrdersController {
       res.json({ success: true, orders });
     } catch (error) {
       console.error("Error fetching admin orders:", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+
+  async getHistory(req: AuthenticatedRequest, res: Response) {
+    const parsed = historyQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Invalid history query." });
+    }
+    try {
+      const result = await adminOrdersService.getOrderHistory(parsed.data);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Error fetching order history:", error);
       res.status(500).json({ success: false, message: "Server error" });
     }
   }

@@ -1,5 +1,6 @@
 import { adminOrdersRepository } from "@/repositories/admin-orders.repository";
 import { v4 as uuidv4 } from "uuid";
+import type { HistoryQueryInput } from "@/schema/admin-orders/admin-orders.schema";
 
 export async function getAdminOrders() {
   return adminOrdersRepository.findManyOrders(
@@ -9,6 +10,62 @@ export async function getAdminOrders() {
       include: { payments: true },
     }
   );
+}
+
+/**
+ * Staff order-history page: completed/cancelled orders only (records are
+ * never deleted or archived by this path), newest-first by DB createdAt,
+ * server-side search + status filter + pagination. Only the requested page
+ * crosses the wire.
+ */
+export async function getOrderHistory(query: HistoryQueryInput) {
+  const page = Math.max(1, Math.floor(query.page));
+  const limit = Math.min(100, Math.max(1, Math.floor(query.limit)));
+  const search = (query.search ?? "").trim();
+  const statuses =
+    query.status === "completed"
+      ? ["completed"]
+      : query.status === "cancelled"
+        ? ["cancelled"]
+        : ["completed", "cancelled"];
+
+  const where: Record<string, unknown> = { status: { in: statuses } };
+  if (search) {
+    (where as any).OR = [
+      { orderNumber: { contains: search } },
+      { customerName: { contains: search } },
+      { items: { contains: search } },
+    ];
+  }
+
+  const [total, orders] = await Promise.all([
+    adminOrdersRepository.countOrders(where),
+    adminOrdersRepository.findManyOrders(where, {
+      orderBy: { createdAt: "desc" },
+      include: { payments: true },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, totalPages);
+  // Page beyond the end (concurrent completions shrank the list): refetch
+  // the clamped page so callers never render an empty page with data present.
+  const finalOrders =
+    safePage === page
+      ? orders
+      : await adminOrdersRepository.findManyOrders(where, {
+          orderBy: { createdAt: "desc" },
+          include: { payments: true },
+          skip: (safePage - 1) * limit,
+          take: limit,
+        });
+
+  return {
+    orders: finalOrders,
+    pagination: { page: safePage, limit, total, totalPages },
+  };
 }
 
 export async function updateAdminOrderStatus(orderIdParam: string, status: string) {
