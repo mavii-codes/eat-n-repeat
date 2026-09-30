@@ -16,6 +16,13 @@ export const env = {
   clientOrigin: rawOrigins.split(",")[0].trim(),
   /** All configured origins, split on comma. */
   clientOrigins: rawOrigins.split(",").map((o) => o.trim()),
+  // Base URL customers are sent back to after paying on Xendit.
+  // Explicit CUSTOMER_RETURN_URL wins (production must be the real
+  // customer domain, e.g. https://www.eatnrepeat.online); otherwise
+  // falls back to the first CLIENT_ORIGIN entry (local dev).
+  customerReturnBase: (process.env.CUSTOMER_RETURN_URL
+    || rawOrigins.split(",")[0].trim()
+  ).replace(/\/+$/, ""),
   jwtSecret: required("JWT_SECRET", "development-only-secret-change-me"),
   databaseUrl: required("DATABASE_URL", "mysql://root:@127.0.0.1:3306/eat_n_repeat"),
   xendit: {

@@ -1,5 +1,6 @@
 import { paymentsRepository } from "@/repositories/payments.repository";
 import { xenditClient } from "@/lib/xendit";
+import { env } from "@/config/env";
 import { v4 as uuidv4 } from "uuid";
 import { cafeAvailabilityService } from "@/services/cafe-availability";
 
@@ -15,6 +16,19 @@ function generateOrderNumber(): string {
   const timestamp = Date.now().toString(36).toUpperCase();
   const random = Math.random().toString(36).substring(2, 6).toUpperCase();
   return `ORD-${timestamp}-${random}`;
+}
+
+// Where Xendit sends the customer after payment. Matches the return
+// landing already implemented in app/customer/orders/page.tsx, which reads
+// ?success=true|false&order=ORD-XXXX. Uses the real DB order number so the
+// banner lands on the right order. Webhook stays the payment-truth authority.
+function buildReturnUrls(orderNumber: string) {
+  const base = env.customerReturnBase;
+  const order = encodeURIComponent(orderNumber);
+  return {
+    successRedirectUrl: `${base}/customer/orders?success=true&order=${order}`,
+    failureRedirectUrl: `${base}/customer/orders?success=false&order=${order}`,
+  };
 }
 
 export async function checkout(
@@ -183,12 +197,15 @@ export async function checkout(
         : null;
   if (xenditChannel) {
     try {
+      const returnUrls = buildReturnUrls(orderNumber);
       const invoice = await xenditClient.Invoice.createInvoice({
         data: {
           externalId: orderNumber,
           amount: total,
           paymentMethods: [xenditChannel],
           description: `Order #${orderNumber}`,
+          successRedirectUrl: returnUrls.successRedirectUrl,
+          failureRedirectUrl: returnUrls.failureRedirectUrl,
         },
       });
 
@@ -258,12 +275,15 @@ export async function retryPayment(orderId: string) {
       ? "GCASH"
       : payment.paymentMethod;
   try {
+    const returnUrls = buildReturnUrls(order.orderNumber);
     const invoice = await xenditClient.Invoice.createInvoice({
       data: {
         externalId: order.orderNumber,
         amount: Number(order.total),
         paymentMethods: [retryChannel],
         description: `Retry payment for Order #${order.orderNumber}`,
+        successRedirectUrl: returnUrls.successRedirectUrl,
+        failureRedirectUrl: returnUrls.failureRedirectUrl,
       },
     });
 

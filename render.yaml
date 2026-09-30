@@ -36,6 +36,11 @@ services:
       # here too if phones on café Wi-Fi should reach the hosted backend.
       - key: CLIENT_ORIGIN
         value: https://eatnrepeat.vercel.app
+      # Where Xendit sends customers back after payment. Must be the real
+      # customer domain (not the vercel.app CORS origin above). Backend falls
+      # back to the first CLIENT_ORIGIN entry when this is unset (local dev).
+      - key: CUSTOMER_RETURN_URL
+        value: https://www.eatnrepeat.online
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL

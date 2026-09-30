@@ -95,7 +95,7 @@ function OrdersPageContent() {
   // Detect Xendit redirect query params (?success=true/false&order=ORD-XXXX)
   useEffect(() => {
     const success = searchParams.get('success');
-    const orderNumber = searchParams.get('order');
+    const orderNumber = searchParams.get('order') ?? searchParams.get('orderNumber');
     if (success && orderNumber) {
       setPaymentBanner({
         type: success === 'true' ? 'success' : 'failed',
