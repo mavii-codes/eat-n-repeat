@@ -7,6 +7,7 @@ import type { CustomerMenuItem } from './MenuCard';
 import { ReviewsSection } from './ReviewsSection';
 import { useReviews } from '@/context/ReviewsContext';
 import type { CustomizationOption } from '@/lib/admin/types';
+import { MENU_IMAGE_FALLBACK, resolveMenuImage } from '@/lib/menu-image';
 import { Coffee, CupSoda, Croissant, Utensils, Sandwich, Settings, FileText, Star } from 'lucide-react';
 
 type MenuItemDetailsModalProps = {
@@ -92,6 +93,15 @@ export function MenuItemDetailsModal({
     setSelectedAddOns([]);
     setSelectedSize(null);
   }, [isOpen, item, isFavorite]);
+
+  // Image fallback state — MUST live with the other hooks above the early
+  // return below. Hooks placed after `return null` change the hook count per
+  // render (closed N vs open N+2) and crash React (Rules of Hooks).
+  const [imgSrc, setImgSrc] = useState(() => resolveMenuImage(item?.image));
+
+  useEffect(() => {
+    setImgSrc(resolveMenuImage(item?.image));
+  }, [item?.image]);
 
   if (!isOpen || !item) return null;
 
@@ -192,8 +202,8 @@ export function MenuItemDetailsModal({
     }
   };
 
-  const fallbackImage = 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop';
-  const displayImage = item.image && item.image.trim().length > 0 ? item.image : fallbackImage;
+  const fallbackImage = MENU_IMAGE_FALLBACK;
+  const displayImage = imgSrc;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 overflow-y-auto font-sans selection:bg-[#B91C1C] selection:text-white">
@@ -214,6 +224,7 @@ export function MenuItemDetailsModal({
             sizes="(max-width: 768px) 100vw, 600px"
             className="object-cover object-center"
             unoptimized
+            onError={() => setImgSrc(fallbackImage)}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
 

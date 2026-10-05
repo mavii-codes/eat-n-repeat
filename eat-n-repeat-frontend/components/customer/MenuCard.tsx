@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { useReviews } from '@/context/ReviewsContext';
+import { MENU_IMAGE_FALLBACK, resolveMenuImage } from '@/lib/menu-image';
 import { Star, Flame, Milk } from 'lucide-react';
 
 export type CustomerMenuItem = {
@@ -74,12 +75,12 @@ export function MenuCard({
 
   const [added, setAdded] = useState(false);
 
-  const fallbackImage = 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop';
-  const initialDisplayImage = image && image.trim().length > 0 ? image : fallbackImage;
+  const fallbackImage = MENU_IMAGE_FALLBACK;
+  const initialDisplayImage = resolveMenuImage(image);
   const [imgSrc, setImgSrc] = useState(initialDisplayImage);
 
   useEffect(() => {
-    setImgSrc(image && image.trim().length > 0 ? image : fallbackImage);
+    setImgSrc(resolveMenuImage(image));
   }, [image]);
 
   const handleFavoriteClick = (e: React.MouseEvent) => {

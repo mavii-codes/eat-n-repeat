@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { Coffee, Croissant, Heart, UtensilsCrossed } from 'lucide-react';
+import { MENU_IMAGE_FALLBACK } from '@/lib/menu-image';
 
 const bannerSlides = [
   {
@@ -153,7 +154,7 @@ export function HeroCarousel({ onSelectCategory, onOrderNow }: HeroCarouselProps
               }`}
             >
               <img
-                src={failedImages[s.id] ? 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=1200&auto=format&fit=crop' : s.image}
+                src={failedImages[s.id] ? MENU_IMAGE_FALLBACK : s.image}
                 alt={s.alt}
                 className="absolute inset-0 w-full h-full object-cover object-center"
                 onError={() => setFailedImages((prev) => ({ ...prev, [s.id]: true }))}

@@ -147,6 +147,11 @@ function OrdersPageContent() {
   const { updateDeliveryStatus, menuItems } = useAdminData();
   const [liveOrders, setLiveOrders] = useState<OrderCardProps[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
+  // Distinguishes "API loaded, customer genuinely has no orders" (show the
+  // real empty state) from "API unreachable/failed" (keep the legacy demo
+  // fallback so the page never renders a broken blank). Demo rows must never
+  // stand in for a successful empty response.
+  const [ordersFetchFailed, setOrdersFetchFailed] = useState(false);
 
   // Fetch real customer orders from the backend
   useEffect(() => {
@@ -173,7 +178,9 @@ function OrdersPageContent() {
               const isCancel = o.status === 'cancelled';
               const isPending = o.status === 'pending_payment' || o.status === 'pending';
               const isAwaitingPayment = o.status === 'awaiting_payment';
+              // Legacy value kept for old rows; the backend writes 'confirmed'.
               const isConfirmed = o.status === 'assigned';
+              const isBackendConfirmed = o.status === 'confirmed';
               const isPreparing = o.status === 'preparing';
 
               let mappedStatus: OrderCardProps['status'] = 'preparing';
@@ -181,6 +188,7 @@ function OrdersPageContent() {
               else if (isCancel) mappedStatus = 'cancelled';
               else if (isAwaitingPayment) mappedStatus = 'awaiting_payment';
               else if (isPending) mappedStatus = 'pending';
+              else if (isBackendConfirmed) mappedStatus = 'confirmed';
               else if (isConfirmed) mappedStatus = 'preparing';
               else if (isPreparing) mappedStatus = 'preparing';
               else if (o.status === 'out_for_delivery') mappedStatus = 'out_for_delivery';
@@ -194,6 +202,7 @@ function OrdersPageContent() {
                 deliveryFee: o.deliveryFee,
                 total: o.total,
                 paymentMethod: o.paymentMethod || 'Unknown',
+                paymentStatus: o.paymentStatus ?? null,
                 customerName: o.customerName || 'Valued Customer',
                 customerPhone: o.phone || '',
                 customerAddress: o.address || '',
@@ -203,13 +212,30 @@ function OrdersPageContent() {
             });
             if (mounted) {
               setLiveOrders(mappedOrders);
+              setOrdersFetchFailed(false);
               setIsLoadingOrders(false);
             }
+          } else {
+            // Backend answered without usable data — treat as failed load
+            // (demo fallback), not as an empty order history.
+            if (mounted) {
+              setOrdersFetchFailed(true);
+              setIsLoadingOrders(false);
+            }
+          }
+        } else {
+          // HTTP failure — keep the legacy demo fallback, never blank.
+          if (mounted) {
+            setOrdersFetchFailed(true);
+            setIsLoadingOrders(false);
           }
         }
       } catch (error) {
         console.error('Failed to fetch orders:', error);
-        if (mounted) setIsLoadingOrders(false);
+        if (mounted) {
+          setOrdersFetchFailed(true);
+          setIsLoadingOrders(false);
+        }
       }
     };
 
@@ -230,7 +256,11 @@ function OrdersPageContent() {
     );
   }
 
-  const allOrdersList = liveOrders.length > 0 ? liveOrders : fallbackOrders;
+  // Successful-but-empty API responses render the real empty state below.
+  // Demo fallback rows appear ONLY when the API failed (offline/error), so a
+  // successful empty history can never show another customer's demo data.
+  const allOrdersList =
+    liveOrders.length > 0 ? liveOrders : ordersFetchFailed ? fallbackOrders : [];
 
   const filteredOrders = allOrdersList.filter((order) => {
     if (selectedStatus === 'all') return true;

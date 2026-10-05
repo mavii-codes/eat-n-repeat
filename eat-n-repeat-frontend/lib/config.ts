@@ -28,6 +28,56 @@ export function useIsLocalBackend(): boolean {
 }
 
 /**
+ * Loopback hostnames only (this laptop itself). LAN IPs (192.168.x.x, …)
+ * are DELIBERATELY excluded: the Electron café launcher always opens the
+ * portal at the LAN-IP URL, so anything scoped here can never leak into
+ * counter/offline operation.
+ */
+export function isLoopbackHostname(hostname?: string): boolean {
+  const h = (
+    hostname ??
+    (typeof window !== "undefined" ? window.location.hostname : "")
+  )
+    .trim()
+    .toLowerCase();
+  return h === "localhost" || h === "127.0.0.1";
+}
+
+/**
+ * Development-only override: render the Online-style Customer Portal on
+ * localhost while STILL talking to the local backend
+ * (getApiUrl() is untouched → http://localhost:4000 → XAMPP MySQL).
+ *
+ * Requires BOTH:
+ *   1. NEXT_PUBLIC_LOCAL_ONLINE_UI=1 (dev .env.local only, never production)
+ *   2. a loopback hostname (localhost / 127.0.0.1)
+ *
+ * LAN-IP access (Electron launcher, café devices) and production hostnames
+ * always evaluate false here, so existing Local Mode is fully preserved.
+ */
+export function isDevOnlinePortal(): boolean {
+  if (typeof window === "undefined") return false;
+  if (process.env.NEXT_PUBLIC_LOCAL_ONLINE_UI !== "1") return false;
+  return isLoopbackHostname();
+}
+
+export type CustomerPortalMode = "local" | "online";
+
+/**
+ * Which Customer Portal variant to render. Online when the backend is not
+ * local, OR when the dev override above applies (loopback + explicit flag).
+ * Hydration-safe: starts as the SSR value ("online"), reconciles after
+ * mount — same pattern as useIsLocalBackend().
+ */
+export function useCustomerPortalMode(): CustomerPortalMode {
+  const [mode, setMode] = useState<CustomerPortalMode>("online");
+  useEffect(() => {
+    setMode(isLocalBackend() && !isDevOnlinePortal() ? "local" : "online");
+  }, []);
+  return mode;
+}
+
+/**
  * Normalizes a backend base URL: trims copy-paste whitespace, drops trailing
  * slashes, and drops a trailing "/api" (a very common env-var mistake that
  * otherwise sends calls to /api/api/... → 404 → misleading login errors).

@@ -6,7 +6,6 @@ import { useAdminData } from "@/context/AdminDataContext";
 import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { useNetworkStatus } from "@/context/NetworkStatusContext";
 import { useIsLocalBackend } from "@/lib/config";
-import { journalOrder } from "@/lib/offlineSync";
 import { StartShiftModal, EndShiftModal } from "@/components/staff/CashModals";
 import toast from "react-hot-toast";
 import type { MenuItem } from "@/lib/admin/types";
@@ -383,15 +382,11 @@ export function POSCashierTab() {
           orderType,
         });
 
-        journalOrder({
-          id: orderNum,
-          time: new Date().toISOString(),
-          items: cart.map((ci) => `${ci.item.name} (${ci.qty}x)`).join(", "),
-          total,
-          status: "completed",
-          paid: true,
-          notes: "pos",
-        });
+        // NOTE: no journalOrder here — the server just accepted this order.
+        // Journaling a successful POS sale would queue it for offline replay
+        // and insert a second (customer-less) row with the same order number.
+        // (This tab has no offline-sale journal path; network failures surface
+        // via the toast in the catch below and journal nothing.)
 
         // Show receipt toast
         toast.success(

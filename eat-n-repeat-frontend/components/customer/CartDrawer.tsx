@@ -8,7 +8,8 @@ import { useSession } from 'next-auth/react';
 import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package } from 'lucide-react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
-import { useIsLocalBackend } from '@/lib/config';
+import { useCustomerPortalMode } from '@/lib/config';
+import { resolveMenuImage } from '@/lib/menu-image';
 import { journalOrder, removeOfflineOrder } from '@/lib/offlineSync';
 import type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
@@ -74,7 +75,9 @@ export function CartDrawer({
   // Id of an order journaled after a failed submit. On a later successful
   // submit it is removed from the queue so the order cannot sync twice.
   const lastJournaledId = useRef<string | null>(null);
-  const isLocalMode = useIsLocalBackend();
+  // Portal variant: 'local' preserves counter/offline behavior (LAN,
+  // Electron); 'online' on loopback only when the dev override flag is set.
+  const isLocalMode = useCustomerPortalMode() === 'local';
 
   useEffect(() => {
     if (isLocalMode && fulfillmentType !== 'dine-in') {
@@ -307,7 +310,9 @@ export function CartDrawer({
           status: 'pending',
           orderedAt: new Date().toISOString(),
         });
-        journalOrder({ id: data.orderNumber || orderNumber, time: new Date().toISOString(), items: orderItemsSummary, total, status: "pending", paid: false, notes: "cart" });
+        // NOTE: no journalOrder here — the server just accepted this order.
+        // Journaling a successful order would queue it for offline replay and
+        // insert a second (customer-less) row with the same order number.
       } else {
         addStoreOrder({
           orderId: data.orderNumber || orderNumber,
@@ -322,7 +327,9 @@ export function CartDrawer({
           // instead of falling back to dine-in. DB type is unchanged.
           orderType: fulfillmentType,
         });
-        journalOrder({ id: data.orderNumber || orderNumber, time: new Date().toISOString(), items: orderItemsSummary, total, status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending', paid: false, notes: "cart" });
+        // NOTE: no journalOrder here — the server just accepted this order
+        // (see delivery branch above). Offline journaling happens only in the
+        // network-failure catch below.
       }
 
       setIsSubmitting(false);
@@ -455,7 +462,10 @@ export function CartDrawer({
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {completedOrder ? (
-              completedOrder.type === 'dine-in' && completedOrder.paymentMethod !== 'GCash' ? (
+              // Cash (any fulfillment type) is NOT paid yet: the customer must
+              // pay at the cashier and staff must confirm it before the order
+              // continues. Only GCash/Xendit takes the success branch below.
+              completedOrder.paymentMethod !== 'GCash' ? (
                 <div className="text-center py-6 space-y-4">
                   <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-3xl mx-auto border-4 border-rose-200">
                     <Banknote className="w-8 h-8" />
@@ -468,8 +478,8 @@ export function CartDrawer({
                       <span className="font-mono font-bold text-rose-900">{completedOrder.orderNumber}</span>
                     </div>
                     <div className="flex justify-between border-b border-stone-200 py-2">
-                      <span className="text-xs text-stone-500 font-bold uppercase">Table</span>
-                      <span className="font-bold">{tableNumber || 'Counter'}</span>
+                      <span className="text-xs text-stone-500 font-bold uppercase">{completedOrder.type === 'dine-in' ? 'Table' : 'Order Type'}</span>
+                      <span className="font-bold">{completedOrder.type === 'dine-in' ? (tableNumber || 'Counter') : (completedOrder.type === 'delivery' ? 'Delivery' : 'Pick-Up / Take-Out')}</span>
                     </div>
                     <div className="flex justify-between border-b border-stone-200 py-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Amount Due</span>
@@ -478,6 +488,10 @@ export function CartDrawer({
                     <div className="flex justify-between pt-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Payment Method</span>
                       <span className="font-bold text-sm">Cash at Counter</span>
+                    </div>
+                    <div className="flex justify-between border-t border-stone-200 pt-2 mt-2">
+                      <span className="text-xs text-stone-500 font-bold uppercase">Payment Status</span>
+                      <span className="font-black text-sm text-amber-700 uppercase">Unpaid</span>
                     </div>
                   </div>
 
@@ -569,7 +583,7 @@ export function CartDrawer({
                     >
                       <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-stone-200 shrink-0">
                         <Image
-                          src={item.menuItem.image || 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop'}
+                          src={resolveMenuImage(item.menuItem.image)}
                           alt={item.menuItem.name}
                           fill
                           className="object-cover"

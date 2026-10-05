@@ -30,6 +30,10 @@ export type OrderCardProps = {
   deliveryFee?: number;
   discount?: number;
   paymentMethod?: string;
+  // Raw backend payment status (PENDING / PAID / null when no payment row
+  // exists yet). Lets the card show true Unpaid vs Paid instead of inferring
+  // from order status alone.
+  paymentStatus?: string | null;
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
@@ -146,6 +150,7 @@ export function OrderCard({
   deliveryFee: propDeliveryFee,
   discount = 0,
   paymentMethod = 'Cash on Delivery',
+  paymentStatus = null,
   customerName = 'Valued Customer',
   customerPhone = '(032) 492-0000',
   customerAddress = 'Poblacion, Cordova, Cebu',
@@ -166,6 +171,14 @@ export function OrderCard({
   const currentStageIndex = getStageIndex(status);
   const isPending = status === 'pending';
   const isAwaitingPayment = status === 'awaiting_payment';
+  // True payment state from the backend (PENDING/PAID). Server online-cash
+  // orders carry order status pending_payment→'pending', so status alone can
+  // never reveal Unpaid — this flag can. Local-only rows have no payment row
+  // (null), where the legacy status check below still applies.
+  const isPaymentUnpaid =
+    typeof paymentStatus === 'string'
+      ? paymentStatus.toUpperCase() !== 'PAID'
+      : (isPending || isAwaitingPayment);
   const isDelivered = status === 'delivered';
   const isCancelled = status === 'cancelled';
   const isActive = !isDelivered && !isCancelled;
@@ -277,8 +290,8 @@ export function OrderCard({
             </div>
           </div>
 
-          {/* Cash Dine-In Payment Notice */}
-          {isAwaitingPayment && paymentMethod !== 'GCash' && deliveryType === 'dine-in' && (
+          {/* Cash Unpaid Payment Notice (all fulfillment types) */}
+          {isActive && isPaymentUnpaid && paymentMethod !== 'GCash' && (
             <div className="mb-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
