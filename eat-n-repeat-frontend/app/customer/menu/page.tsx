@@ -176,6 +176,14 @@ export default function MenuPage() {
     });
   }, [formattedMenuItems, selectedCategory, searchQuery, sortBy]);
 
+  // Diagnostics: compare with the API item IDs logged by AdminDataContext.
+  // (console.info only — safe in production, no PII. IDs alone can't prove
+  // DB-driven rendering since seed mirrors mock ids, so names+prices log too.)
+  useEffect(() => {
+    console.info(`[customer-menu] rendered item IDs: ${filteredItems.map((i) => i.id).join(", ")}`);
+    console.info(`[customer-menu] rendered names: ${filteredItems.map((i) => `${i.name} (₱${i.price})`).join(" | ")}`);
+  }, [filteredItems]);
+
   // Same item in different sizes/add-ons stays on separate cart lines.
   const cartAddonKey = (a: any) =>
     String(a?.id ?? a?.name ?? '');

@@ -6,8 +6,8 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
-import { useIsLocalBackend } from '@/lib/config';
-import { journalOrder } from '@/lib/offlineSync';
+import { useCustomerPortalMode } from '@/lib/config';
+import { MENU_IMAGE_FALLBACK } from '@/lib/menu-image';
 
 type CartCheckoutItem = {
   id: string;
@@ -32,7 +32,7 @@ const defaultCheckoutItems: CartCheckoutItem[] = [
     id: 'mi-1',
     name: 'House Special Latte',
     price: 145,
-    image: 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
+    image: MENU_IMAGE_FALLBACK,
     quantity: 1,
   },
 ];
@@ -41,7 +41,9 @@ export default function CheckoutPage() {
   const router = useRouter();
   const { addDeliveryOrder, addStoreOrder } = useAdminData();
   const { data: session, status } = useSession();
-  const isLocalMode = useIsLocalBackend();
+  // Portal variant: 'local' preserves counter/offline behavior (LAN,
+  // Electron); 'online' on loopback only when the dev override flag is set.
+  const isLocalMode = useCustomerPortalMode() === 'local';
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
@@ -78,7 +80,7 @@ export default function CheckoutPage() {
               id: item.menuItem?.id ?? item.id ?? 'item-1',
               name: item.menuItem?.name ?? item.name ?? 'Delicious Item',
               price: item.menuItem?.price ?? item.price ?? 100,
-              image: item.menuItem?.image || item.image || 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
+              image: item.menuItem?.image || item.image || MENU_IMAGE_FALLBACK,
               quantity: item.quantity || 1,
               size: item.size ?? nestedSize?.name,
               sizePrice: item.sizePrice ?? nestedSize?.price,
@@ -175,7 +177,9 @@ export default function CheckoutPage() {
         paymentMethod: 'cash',
         orderType: 'dine-in'
       });
-      journalOrder({ id: checkoutOrderId, time: new Date().toISOString(), items: orderItemsSummary, total, status: "awaiting_payment", paid: false, notes: "checkout" });
+      // NOTE: no journalOrder here — local-mode orders are already persisted
+      // by the LAN backend. Journaling them would queue a replay that inserts
+      // a second (customer-less) row with the same order number.
     } else {
       addDeliveryOrder({
         orderNumber: checkoutOrderId,

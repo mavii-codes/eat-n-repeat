@@ -236,6 +236,26 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
     };
   }, [refreshBackendOrders]);
 
+  // Surface failed order-status writes (the context reverts the optimistic
+  // change and fires this event). Scoped to order-status details only so
+  // unrelated staff-sync events stay silent on this page.
+  const [orderStatusSyncError, setOrderStatusSyncError] = useState<string | null>(null);
+  useEffect(() => {
+    // Build marker: if this line is missing from the console, this browser
+    // is NOT running the status-sync fix — hard-refresh or restart the
+    // frontend dev server before testing.
+    console.info("[staff-orders] status-sync build active (resolve-then-PATCH + sync-error banner).");
+    const onStatusSyncFailed = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail === "string" && detail.startsWith("Order status change")) {
+        setOrderStatusSyncError(detail);
+      }
+    };
+    window.addEventListener("eat-n-repeat:staff-sync-failed", onStatusSyncFailed);
+    return () =>
+      window.removeEventListener("eat-n-repeat:staff-sync-failed", onStatusSyncFailed);
+  }, []);
+
   // Form states for adding/editing menu items
   const [menuModalOpen, setMenuModalOpen] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
@@ -970,6 +990,19 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
 
               {/* ACTIVE ORDERS PANEL */}
               <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
+                {orderStatusSyncError && (
+                  <div className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-800 flex items-center justify-between gap-3">
+                    <span>{orderStatusSyncError} Check the browser console for the order id and PATCH status, then retry.</span>
+                    <button
+                      type="button"
+                      onClick={() => setOrderStatusSyncError(null)}
+                      className="shrink-0 rounded-full px-2 py-0.5 hover:bg-red-100"
+                      aria-label="Dismiss status sync error"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
                 {/* FILTERS */}
                 <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">

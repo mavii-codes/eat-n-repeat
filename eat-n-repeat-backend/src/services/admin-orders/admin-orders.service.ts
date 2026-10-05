@@ -92,13 +92,22 @@ export async function updateAdminOrderStatus(orderIdParam: string, status: strin
   const title = `Order #${order.orderNumber} Updated`;
   const description = statusMessages[status] || `Order status updated to ${status}`;
 
-  await adminOrdersRepository.createCustomerNotification({
-    id: uuidv4(),
-    customerId: order.customerId || "",
-    type: "order_update",
-    title,
-    description,
-  });
+  // Notify customer (best-effort, never fails the status update:
+  // guest/walk-in orders have no customerId, and the notifications FK
+  // would reject an empty id with P2003 after the status was saved).
+  if (order.customerId) {
+    try {
+      await adminOrdersRepository.createCustomerNotification({
+        id: uuidv4(),
+        customerId: order.customerId,
+        type: "order_update",
+        title,
+        description,
+      });
+    } catch (notifyError) {
+      console.error("Order status saved but customer notification failed:", notifyError);
+    }
+  }
 
   return updatedOrder;
 }

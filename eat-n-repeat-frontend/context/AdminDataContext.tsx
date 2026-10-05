@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { initialAdminData } from "@/lib/admin/mock-data";
@@ -477,7 +478,7 @@ type AdminDataContextValue = AdminDataState & {
   restoreDeliveryOrder: (id: string) => void;
   archiveStoreOrder: (id: string) => void;
   restoreStoreOrder: (id: string) => void;
-  updateStoreOrderStatus: (id: string, status: "pending" | "completed" | "cancelled") => void;
+  updateStoreOrderStatus: (id: string, status: RecentOrder["status"]) => void;
   confirmStoreOrderPayment: (id: string, cashReceived?: number) => void;
   fetchActiveCashShift: () => Promise<void>;
   addStoreOrder: (input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => void;
@@ -529,12 +530,32 @@ function readStoredAdminData(): AdminDataState {
 }
 
 export function AdminDataProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AdminDataState>(readStoredAdminData);
+  // SSR-identical initial state: the server always renders initialAdminData,
+  // so the first client render must match it exactly or React reports a
+  // hydration mismatch (server mock vs localStorage cache). The real cached
+  // state hydrates in the mount effect below (client-only), then reconciles.
+  const [data, setData] = useState<AdminDataState>(initialAdminData);
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffSyncError, setStaffSyncError] = useState<string | null>(null);
   const [serverStaffIds, setServerStaffIds] = useState<string[]>([]);
+  // Guards the persist effect below: without it, the mount-time write would
+  // persist the SSR placeholder OVER the real cache before hydration reads it.
+  const hydratedFromStorage = useRef(false);
+  // Latest state snapshot for async flows (status PATCH + revert) that run
+  // outside setData updaters and must not close over stale renders.
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  // Client-only cache hydration (runs after first paint, post-hydration).
+  useEffect(() => {
+    setData(readStoredAdminData());
+  }, []);
 
   useEffect(() => {
+    // Skip the very first run: state is still the SSR placeholder and the
+    // hydration above hasn't committed yet — writing now would clobber the
+    // real cache with mock data.
+    if (!hydratedFromStorage.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e: any) {
@@ -551,17 +572,32 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [data]);
 
+  // Marks hydration complete AFTER the persist guard above has run, so the
+  // next data change is safe to write. Declared after the persist effect on
+  // purpose: mount effects run in order (hydrate → persist-skip → flip).
+  useEffect(() => {
+    hydratedFromStorage.current = true;
+  });
+
   // Load the shared menu from the backend once on mount. Server rows win for
   // matching ids; device-only rows (created offline) are kept alongside.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        // Diagnostics: prove whether the rendered menu comes from the API.
+        // (console.info only — safe in production, no PII.)
+        const { getApiUrl } = await import("@/lib/config");
+        console.info(`[customer-menu] API URL: ${getApiUrl()}`);
+        console.info("[customer-menu] fetching /api/menu/items");
         const [catRes, itemRes] = await Promise.all([
           menuApi("/api/menu/categories"),
           menuApi("/api/menu/items"),
         ]);
-        if (!catRes.ok || !itemRes.ok) return;
+        if (!catRes.ok || !itemRes.ok) {
+          console.warn("[customer-menu] API failed, using cached fallback.");
+          return;
+        }
         const catJson = await catRes.json();
         const itemJson = await itemRes.json();
         if (cancelled) return;
@@ -571,6 +607,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         const serverItems = ensureArchived(
           (itemJson.items ?? []) as MenuItem[],
         );
+        console.info(`[customer-menu] API response count: ${serverItems.length}`);
+        console.info(`[customer-menu] API item IDs: ${serverItems.map((i) => i.id).join(", ")}`);
         // Tombstones: ids the server reports as archived. Cached rows with
         // these ids were removed on another device — mark them archived in
         // place (kept for offline cache, hidden from customer views). Rows
@@ -606,6 +644,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         });
       } catch {
         // Backend unreachable — keep the local cache (offline mode).
+        console.warn("[customer-menu] API failed, using cached fallback.");
       }
     })();
     return () => {
@@ -1439,8 +1478,73 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     [data.stockItems],
   );
 
+  // Persists a staff status change to the database. The backend resolves the
+  // param by DB id OR order number (findOrderByIdentifier), so both server
+  // rows (uuid ids) and order-number-keyed rows work. Returns true only when
+  // the database row was actually updated.
+  const patchOneOrderStatus = useCallback(
+    async (
+      identifier: string,
+      status: string,
+    ): Promise<{ ok: boolean; httpStatus: number | null; notFound: boolean }> => {
+      try {
+        const res = await staffApi(
+          `/api/admin-orders/${encodeURIComponent(identifier)}/status`,
+          { method: "PATCH", body: JSON.stringify({ status }) },
+          STAFF_WRITE_TIMEOUT_MS,
+        );
+        if (!res.ok) {
+          return { ok: false, httpStatus: res.status, notFound: res.status === 404 };
+        }
+        const json = await res.json().catch(() => null);
+        return {
+          ok: json?.success === true,
+          httpStatus: res.status,
+          notFound: false,
+        };
+      } catch {
+        return { ok: false, httpStatus: null, notFound: false };
+      }
+    },
+    [],
+  );
+
+  // Client-generated row ids (createId("ord"/"do")) are unknown to the
+  // server. When the direct PATCH 404s on one, retry once with the row's
+  // order number, which the backend also resolves.
+  const isClientRowId = (id: string) => /^(ord|do)-/i.test(id);
+
+  const patchBackendOrderStatus = useCallback(
+    async (id: string, status: string, fallbackIdentifier?: string): Promise<boolean> => {
+      console.info(
+        `[order-status] PATCH attempt id="${id}" (${isClientRowId(id) ? "client" : "server"} id) status="${status}".`,
+      );
+      const first = await patchOneOrderStatus(id, status);
+      if (first.ok) return true;
+      console.warn(
+        `[order-status] PATCH id="${id}" (${isClientRowId(id) ? "client" : "server"} id)` +
+          ` failed (http=${first.httpStatus ?? "network"}) — ${first.notFound ? "row unknown to server" : "server/network error"}.`,
+      );
+      if (first.notFound && fallbackIdentifier && fallbackIdentifier !== id) {
+        console.warn(`[order-status] Retrying with order number "${fallbackIdentifier}".`);
+        const second = await patchOneOrderStatus(fallbackIdentifier, status);
+        if (!second.ok) {
+          console.warn(
+            `[order-status] Retry also failed (http=${second.httpStatus ?? "network"}).`,
+          );
+        }
+        return second.ok;
+      }
+      return false;
+    },
+    [patchOneOrderStatus],
+  );
+
   const updateDeliveryStatus = useCallback(
     (id: string, status: DeliveryStatus) => {
+      const row = dataRef.current.deliveryOrders.find((o) => o.id === id);
+      const prevStatus = row?.status;
+      // Optimistic: staff UI updates immediately.
       setData((prev) => ({
         ...prev,
         deliveryOrders: prev.deliveryOrders.map((order) =>
@@ -1456,8 +1560,29 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             : order,
         ),
       }));
+      // Database is the source of truth — persist, and revert the optimistic
+      // change if the API update fails so staff and customer can never
+      // disagree. Failures surface on the existing staff-sync-failed channel.
+      patchBackendOrderStatus(id, status, row?.orderNumber).then((ok) => {
+        if (ok) {
+          // Collapse the optimistic→poll window: re-pull immediately so the
+          // confirmed row (and its server timestamps) replaces the guess.
+          refreshBackendOrders();
+          return;
+        }
+        if (prevStatus === undefined) return;
+        setData((prev) => ({
+          ...prev,
+          deliveryOrders: prev.deliveryOrders.map((order) =>
+            order.id === id ? { ...order, status: prevStatus } : order,
+          ),
+        }));
+        notifyStaffSyncFailed(
+          `Order status change to "${status}" did not reach the server — reverted.`,
+        );
+      });
     },
-    [],
+    [patchBackendOrderStatus, refreshBackendOrders],
   );
 
   const addDeliveryOrder = useCallback((input: DeliveryOrderInput) => {
@@ -1521,14 +1646,38 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const updateStoreOrderStatus = useCallback((id: string, status: "pending" | "completed" | "cancelled") => {
+  const updateStoreOrderStatus = useCallback((id: string, status: RecentOrder["status"]) => {
+    const row = dataRef.current.storeOrders.find((o) => o.id === id);
+    const prevStatus = row?.status;
+    // Optimistic: staff UI updates immediately.
     setData((prev) => ({
       ...prev,
       storeOrders: prev.storeOrders.map((order) =>
         order.id === id ? { ...order, status } : order
       ),
     }));
-  }, []);
+    // Database is the source of truth — persist, and revert the optimistic
+    // change if the API update fails so staff and customer can never
+    // disagree. Failures surface on the existing staff-sync-failed channel.
+    patchBackendOrderStatus(id, status, row?.orderId).then((ok) => {
+      if (ok) {
+        // Collapse the optimistic→poll window: re-pull immediately so the
+        // confirmed row (and its server timestamps) replaces the guess.
+        refreshBackendOrders();
+        return;
+      }
+      if (prevStatus === undefined) return;
+      setData((prev) => ({
+        ...prev,
+        storeOrders: prev.storeOrders.map((order) =>
+          order.id === id ? { ...order, status: prevStatus } : order
+        ),
+      }));
+      notifyStaffSyncFailed(
+        `Order status change to "${status}" did not reach the server — reverted.`,
+      );
+    });
+  }, [patchBackendOrderStatus, refreshBackendOrders]);
 
   const confirmStoreOrderPayment = useCallback(async (id: string, cashReceived?: number) => {
     const markPaidLocally = () => {
@@ -1579,7 +1728,13 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       if (data.success) {
         setData(prev => ({ ...prev, activeCashShift: data.shift }));
       }
-    } catch (e) { console.error("Error fetching cash shift", e); }
+    } catch (e) {
+      // Deliberately console.warn (never console.error): a down/unreachable
+      // backend is routine in café operation, and Next.js dev surfaces
+      // console.error(Error) as a fullscreen blocking overlay. The shift
+      // simply stays unset until the backend is reachable again.
+      console.warn("[cash-shift] Backend unreachable, keeping previous shift state.", e);
+    }
   }, []);
 
   // Poll for active cash shift updates every 10 seconds

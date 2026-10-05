@@ -194,6 +194,7 @@ function OrdersPageContent() {
                 deliveryFee: o.deliveryFee,
                 total: o.total,
                 paymentMethod: o.paymentMethod || 'Unknown',
+                paymentStatus: o.paymentStatus ?? null,
                 customerName: o.customerName || 'Valued Customer',
                 customerPhone: o.phone || '',
                 customerAddress: o.address || '',

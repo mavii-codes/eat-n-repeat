@@ -72,6 +72,19 @@ export class SyncRepository {
       // Sync Offline Orders (INSERT IGNORE)
       if (offline_orders && offline_orders.length > 0) {
         for (const order of offline_orders) {
+          // Idempotency guard: the offline queue must never resurrect an
+          // order the server already created (e.g. an online checkout whose
+          // journal entry outlived the success). order_number has no UNIQUE
+          // constraint by design, so check explicitly and skip replays.
+          // Genuine offline orders carry a new order_number and insert
+          // normally below.
+          const alreadyThere = await tx.$queryRaw<{ id: string }[]>`
+            SELECT id FROM orders WHERE order_number = ${order.id} LIMIT 1
+          `;
+          if (alreadyThere.length > 0) {
+            continue;
+          }
+
           const items =
             order.items !== undefined && order.items !== null && typeof order.items !== "string"
               ? JSON.stringify(order.items)
