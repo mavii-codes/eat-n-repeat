@@ -173,12 +173,13 @@ export function OrderCard({
   const isAwaitingPayment = status === 'awaiting_payment';
   // True payment state from the backend (PENDING/PAID). Server online-cash
   // orders carry order status pending_payment→'pending', so status alone can
-  // never reveal Unpaid — this flag can. Local-only rows have no payment row
-  // (null), where the legacy status check below still applies.
-  const isPaymentUnpaid =
-    typeof paymentStatus === 'string'
-      ? paymentStatus.toUpperCase() !== 'PAID'
-      : (isPending || isAwaitingPayment);
+  // never reveal Unpaid — this flag can. Unknown (null, e.g. local orders
+  // with no payment row yet) counts as UNPAID: displaying Paid without a
+  // confirmed payment record would mislead the cashier. Only an explicit
+  // PAID record renders Paid.
+  const isPaymentPaid =
+    typeof paymentStatus === "string" && paymentStatus.toUpperCase() === "PAID";
+  const isPaymentUnpaid = !isPaymentPaid;
   const isDelivered = status === 'delivered';
   const isCancelled = status === 'cancelled';
   const isActive = !isDelivered && !isCancelled;
@@ -427,6 +428,16 @@ export function OrderCard({
               <div className="flex justify-between text-xs text-stone-600 pt-1 border-t border-stone-200">
                 <span>Payment Method</span>
                 <span className="font-bold text-emerald-700">{paymentMethod}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs text-stone-600 pt-1 border-t border-stone-200">
+                <span>Payment Status</span>
+                {isPaymentUnpaid ? (
+                  <span className="font-black uppercase text-amber-700">Unpaid</span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-black uppercase text-green-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Paid
+                  </span>
+                )}
               </div>
               <div className="flex justify-between text-sm font-black text-[#451a03] pt-1.5 border-t border-stone-300">
                 <span>Total Amount</span>

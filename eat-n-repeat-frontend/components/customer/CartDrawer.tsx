@@ -359,6 +359,8 @@ export function CartDrawer({
       if (isNetworkFailure) {
         // Offline: the backend never saw this order, so journal it locally
         // for the background sync. Same id => retries overwrite, never duplicate.
+        // Address + customer notes mirror orderDetails above so the replayed
+        // order keeps them (the drain writes both columns).
         journalOrder({
           id: orderNumber,
           time: new Date().toISOString(),
@@ -367,6 +369,8 @@ export function CartDrawer({
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
           notes: 'cart-offline',
+          address: fulfillmentType === 'dine-in' ? (tableNumber || 'Counter') : (address.trim() || null),
+          customerNotes: cartItems.filter(ci => ci.notes).map(ci => `${ci.menuItem.name}: ${ci.notes}`).join('; ') || null,
         });
         lastJournaledId.current = orderNumber;
         alert("You're offline — order saved on this device and will sync automatically when you reconnect. Your cart is kept so you can review it.");

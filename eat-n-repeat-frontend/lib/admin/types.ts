@@ -230,6 +230,7 @@ export type DeliveryOrder = {
   status: DeliveryStatus;
   orderedAt: string;
   deliveredAt?: string;
+  notes?: string;
   archived: boolean;
   archivedAt?: string;
 };

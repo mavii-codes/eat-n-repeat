@@ -18,6 +18,11 @@ export interface OfflineOrder {
   status: string;
   paid: boolean;
   notes: string;
+  // Customer-facing fields carried through offline sync so the replayed
+  // order keeps its delivery address and customer notes. Optional so older
+  // queued entries (markers only) still validate.
+  address?: string | null;
+  customerNotes?: string | null;
   syncStatus: 'pending' | 'syncing' | 'synced' | 'failed';
   timestamp: string;
 }
@@ -144,8 +149,8 @@ export async function clearSyncedStockTransactions() {
 
 // ── JOURNAL HELPER ─────────────────────
 
-export function journalOrder(o: { id: string; time: string; items: string; total: number; status: string; paid: boolean; notes?: string }): void {  try {
-    const p = saveOfflineOrder({ id: o.id, time: o.time, items: o.items, total: o.total, status: o.status, paid: o.paid, notes: o.notes ?? "" });
+export function journalOrder(o: { id: string; time: string; items: string; total: number; status: string; paid: boolean; notes?: string; address?: string | null; customerNotes?: string | null }): void {  try {
+    const p = saveOfflineOrder({ id: o.id, time: o.time, items: o.items, total: o.total, status: o.status, paid: o.paid, notes: o.notes ?? "", address: o.address ?? null, customerNotes: o.customerNotes ?? null });
     if (p && typeof (p as any).catch === "function") (p as any).catch(() => {});
   } catch { /* journaling must never break a sale */ }
 }

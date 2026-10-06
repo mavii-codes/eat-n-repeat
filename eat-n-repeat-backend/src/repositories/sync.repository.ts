@@ -95,9 +95,12 @@ export class SyncRepository {
           // NOTE: no payment_method column exists on orders (payment data
           // lives in the payments table). Referencing one throws MySQL 1054
           // and rolls back the whole offline drain, so it must stay out.
+          // address/notes ARE real columns: replayed offline orders keep the
+          // customer's delivery address and notes (null when the journal
+          // predates those fields).
           await tx.$executeRaw`
-            INSERT IGNORE INTO orders (id, order_number, type, items, total, status, archived, created_at)
-            VALUES (${order.id}, ${order.id}, 'dine-in', ${items}, ${order.total}, ${order.status}, 0, ${createdAt})
+            INSERT IGNORE INTO orders (id, order_number, type, items, total, status, archived, created_at, address, notes)
+            VALUES (${order.id}, ${order.id}, 'dine-in', ${items}, ${order.total}, ${order.status}, 0, ${createdAt}, ${order.address ?? null}, ${order.customerNotes ?? null})
           `;
         }
       }

@@ -203,6 +203,7 @@ type BackendOrderRow = {
   total?: unknown;
   status?: string | null;
   archived?: boolean | null;
+  notes?: string | null;
   createdAt?: string | null;
   deliveredAt?: string | null;
   orderMode?: string | null;
@@ -310,6 +311,7 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
         deliveryFee: Number(row.deliveryFee) || 0,
         total: Number.isFinite(total) ? total : 0,
         status: mapDeliveryStatus(row.status),
+        notes: typeof row.notes === "string" ? row.notes : undefined,
         orderedAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : new Date().toISOString(),
         deliveredAt: row.deliveredAt ?? undefined,
         archived: Boolean(row.archived),
@@ -330,6 +332,7 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
         items,
         total: Number.isFinite(total) ? total : 0,
         status: mapStoreStatus(row.status),
+        notes: typeof row.notes === "string" ? row.notes : undefined,
         paid,
         paymentStatus: paid ? "paid" : undefined,
         paymentMethod: paymentMethod ?? undefined,
