@@ -82,11 +82,20 @@ export class PaymentsRepository {
   }
 
   async findOrderByIdentifier(orderIdParam: string) {
-    return prisma.order.findFirst({
-      where: {
-        OR: [{ id: orderIdParam }, { orderNumber: orderIdParam }],
-      },
+    // Exact primary-key match first: deterministic even when a duplicate
+    // walk-in twin shares the same order number (twin PK == orderNumber).
+    const byId = await prisma.order.findUnique({
+      where: { id: orderIdParam },
     });
+    if (byId) return byId;
+    // Order-number fallback (retry/payment flows): when several rows share
+    // the number, prefer the real customer row over a customer-less replay
+    // twin so payments attach to the existing order instead of its ghost.
+    const matches = await prisma.order.findMany({
+      where: { orderNumber: orderIdParam },
+      orderBy: { createdAt: "asc" },
+    });
+    return matches.find((o) => o.customerId) ?? matches[0] ?? null;
   }
 
   async updateOrderStatus(id: string, status: string) {
