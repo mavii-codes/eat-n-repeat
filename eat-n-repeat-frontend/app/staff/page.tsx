@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
 import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
@@ -144,7 +146,89 @@ function toDisplayRows(storeOrders: RecentOrder[], deliveryOrders: DeliveryOrder
   ];
 }
 
-export default function StaffPortalPage() {  const { user, logout, changePassword, verifyCurrentPassword, updateProfile } = useAuth();
+// MARK AS PAID visibility: cash-like (or unknown — e.g. local orders with no
+// payment row yet) method, unpaid, not cancelled, and a server-shaped id.
+// Device-only ord-*/do-* rows cannot be PATCHed yet; they become actionable
+// after sync instead of showing a button guaranteed to fail.
+function canMarkCashPaid(order: {
+  id: string;
+  paymentMethod?: string;
+  paid?: boolean;
+  status: string;
+}): boolean {
+  const method = (order.paymentMethod || "").trim().toLowerCase();
+  if (method !== "" && method !== "cash") return false;
+  if (order.paid) return false;
+  if ((order.status || "").toLowerCase() === "cancelled") return false;
+  return !/^(ord|do)-/i.test(order.id);
+}
+
+// Horizontal-scroll affordance for wide staff tables. Wraps an EXISTING
+// overflow container (its classes pass through untouched) and adds only:
+// (1) a subtle hint shown while content overflows to the right and the user
+//     is at the left edge (fades once scrolled, returns when scrolled back),
+// (2) a pointer-events-none right-edge fade while more content sits right.
+// Purely presentational: no data, filtering, action, or backend logic inside.
+// Decorative (aria-hidden) — the native scrollbar remains the operable surface.
+function OrderTableScroll({ className, children }: { className?: string; children: ReactNode }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [atLeftEdge, setAtLeftEdge] = useState(true);
+
+  const measure = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setCanScrollRight(el.scrollLeft < max - 4);
+    setAtLeftEdge(el.scrollLeft <= 4);
+  }, []);
+
+  useEffect(() => {
+    measure();
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (observer) observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      if (observer) observer.disconnect();
+    };
+  }, [measure]);
+
+  const showHint = canScrollRight && atLeftEdge;
+
+  return (
+    <div className="relative">
+      <div ref={scrollerRef} className={className}>
+        {children}
+      </div>
+      {/* Right-edge fade — never intercepts clicks. */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute right-0 top-0 bottom-6 w-10 bg-gradient-to-l from-white/90 to-transparent transition-opacity duration-300 ${
+          canScrollRight ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      {/* Fixed-height hint row (no layout shift when it fades). */}
+      <div className="flex h-6 items-center justify-center" aria-hidden="true">
+        <span
+          className={`text-[11px] font-bold text-stone-500 transition-opacity duration-300 ${
+            showHint ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <span className="sm:hidden">← Swipe to see more →</span>
+          <span className="hidden sm:inline">← Scroll horizontally to see more →</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+  export default function StaffPortalPage() {  const { user, logout, changePassword, verifyCurrentPassword, updateProfile } = useAuth();
   const {
     storeOrders,
     deliveryOrders,
@@ -255,6 +339,63 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
     return () =>
       window.removeEventListener("eat-n-repeat:staff-sync-failed", onStatusSyncFailed);
   }, []);
+
+  // Strict cash-payment confirmation: unlike confirmStoreOrderStatus paths,
+  // paid is recorded ONLY after the backend accepts the update — never
+  // optimistically, never on failure.
+  const { confirm } = useConfirm();
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+
+  const handleMarkCashPaid = async (order: {
+    id: string;
+    orderId?: string;
+    orderNumber?: string;
+    total?: number;
+  }) => {
+    if (markingPaidId) return;
+    const displayId = order.orderId || order.orderNumber || order.id;
+    const total = Number(order.total);
+    const confirmed = await confirm({
+      title: "Mark Payment as Paid?",
+      message: `Confirm that you have received the cash payment for Order #${displayId}${
+        Number.isFinite(total) ? ` (₱${total.toFixed(2)})` : ""
+      }.`,
+      confirmLabel: "Mark as Paid",
+      variant: "warning",
+    });
+    if (!confirmed) return;
+    setMarkingPaidId(order.id);
+    try {
+      const { getApiUrl } = await import("@/lib/config");
+      const token =
+        localStorage.getItem("eat-n-repeat-admin-token") ||
+        localStorage.getItem("eat-n-repeat-staff-token");
+      const response = await fetch(
+        `${getApiUrl()}/api/admin-orders/${encodeURIComponent(order.id)}/payment`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ method: "Cash" }),
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Payment update was not accepted by the server.");
+      }
+      // Re-pull immediately so the Paid state comes from the database, not
+      // from local guessing. The 20s poll + customer 10s poll converge after.
+      refreshBackendOrders();
+    } catch (e: any) {
+      alert(
+        `Unable to mark payment as paid. Please try again.${e?.message ? ` (${e.message})` : ""}`,
+      );
+    } finally {
+      setMarkingPaidId(null);
+    }
+  };
 
   // Form states for adding/editing menu items
   const [menuModalOpen, setMenuModalOpen] = useState(false);
@@ -1054,7 +1195,7 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
                   ) : (
                     <>
                       {/* DESKTOP TABLE */}
-                      <div className="hidden md:block overflow-x-auto">
+                      <OrderTableScroll className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left text-sm">
                           <thead>
                             <tr className="text-muted border-b border-accent/10">
@@ -1087,6 +1228,16 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
                                     <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-200">Confirmed Paid</span>
                                   ) : (
                                     <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
+                                  )}
+                                  {canMarkCashPaid(order) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMarkCashPaid(order)}
+                                      disabled={markingPaidId === order.id}
+                                      className="mt-2 w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wide rounded-lg shadow transition"
+                                    >
+                                      {markingPaidId === order.id ? "Processing…" : "Mark as Paid"}
+                                    </button>
                                   )}
                                 </td>
                                 <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatOrderDateTime(order) || "—"}</td>
@@ -1123,7 +1274,7 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
                             ))}
                           </tbody>
                         </table>
-                      </div>
+                      </OrderTableScroll>
 
                       {/* MOBILE CARDS */}
                       <div className="md:hidden flex flex-col gap-3 p-2">
@@ -1180,6 +1331,16 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
                                   <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Pending</span>
                                 )}
                               </div>
+                              {canMarkCashPaid(order) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkCashPaid(order)}
+                                  disabled={markingPaidId === order.id}
+                                  className="w-full px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wide rounded-xl shadow transition"
+                                >
+                                  {markingPaidId === order.id ? "Processing…" : "Mark as Paid"}
+                                </button>
+                              )}
                             </div>
 
                             <button
@@ -1230,7 +1391,7 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
                   ) : (
                     <>
                       {/* DESKTOP TABLE */}
-                      <div className="hidden md:block">
+                      <OrderTableScroll className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left text-sm min-w-[640px]">
                           <thead>
                             <tr className="text-muted border-b border-accent/10">
@@ -1273,7 +1434,7 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
                             ))}
                           </tbody>
                         </table>
-                      </div>
+                      </OrderTableScroll>
                       
                       {/* MOBILE HISTORY CARDS */}
                       <div className="md:hidden flex flex-col gap-3 p-2">
