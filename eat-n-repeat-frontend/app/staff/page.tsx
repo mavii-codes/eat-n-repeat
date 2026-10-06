@@ -9,6 +9,7 @@ import { Logo } from "@/components/brand/Logo";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
+import { CafeQrPanel } from "@/components/staff/CafeQrPanel";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
@@ -25,7 +26,7 @@ import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/adm
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus, RecentOrder, DeliveryOrder } from "@/lib/admin/types";
 import { formatPhDateTime, formatOrderDateTime, orderEpoch } from "@/lib/admin/delivery-utils";
 
-type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
+type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos" | "qr";
 
 // Never render "₱NaN": order totals can be missing on legacy/partial rows,
 // so fall back through subtotal+fee and finally 0.
@@ -447,6 +448,19 @@ export default function StaffPortalPage() {  const { user, logout, changePasswor
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
           <circle cx="12" cy="12" r="3" />
           <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+        </svg>
+      ),
+    });
+
+    list.push({
+      id: "qr",
+      label: "Café QR",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <path d="M14 14h3v3h-3zM20 14v.01M14 20v.01M18 18h3v3h-3z" />
         </svg>
       ),
     });
