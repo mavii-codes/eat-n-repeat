@@ -15,7 +15,7 @@ import type { SystemSettings } from "@/lib/admin/types";
 
 export default function SettingsPage() {
   const { systemSettings, updateSystemSettings } = useAdminData();
-  const { user, changePassword } = useAuth();
+  const { user, changePassword, verifyCurrentPassword } = useAuth();
   const [form, setForm] = useState<SystemSettings>(systemSettings);
   const [saved, setSaved] = useState(false);
 
@@ -43,14 +43,14 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2500);
   }
 
-  function handlePasswordChange(e: React.FormEvent) {
+  async function handlePasswordChange(e: React.FormEvent) {
     e.preventDefault();
     setPwdError(null);
     setPwdSuccess(null);
 
     if (!user) return;
 
-    if (currentPwd !== user.password) {
+    if (!(await verifyCurrentPassword(currentPwd))) {
       setPwdError("Current password is incorrect.");
       return;
     }

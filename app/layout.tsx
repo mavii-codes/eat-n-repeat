@@ -31,10 +31,16 @@ export const metadata: Metadata = {
     icon: "/logo.png?v=2",
     apple: "/logo.png?v=2",
   },
+  // Invisible deploy tracer: proves exactly which commit serves production.
+  // Vercel injects VERCEL_GIT_COMMIT_SHA at build time; local builds say "local".
+  other: {
+    "app-build": process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+  },
 };
 
 import { AdminDataProvider } from "@/context/AdminDataContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { NetworkStatusProvider } from "@/context/NetworkStatusContext";
 import { OnlineIndicator } from "@/components/shared/OnlineIndicator";
 
 export default function RootLayout({
@@ -50,7 +56,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <OnlineIndicator />
         <AdminDataProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <NetworkStatusProvider>{children}</NetworkStatusProvider>
+          </AuthProvider>
         </AdminDataProvider>
       </body>
     </html>

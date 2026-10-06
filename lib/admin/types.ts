@@ -7,14 +7,36 @@ export type AdminNotification = {
   timestamp: string;
 };
 
+export type PaymentVerificationStatus = "pending" | "paid" | "failed" | "cancelled" | "refunded";
+
 export type RecentOrder = {
   id: string;
   orderId: string;
+  customerName?: string;
+  orderType?: string;
+  orderMode?: string;
   time: string;
+  // ISO creation timestamp for reliable newest-first sorting and full
+  // date+time display. Optional so previously cached rows keep working
+  // (they fall back to parsing `time`, then sort last).
+  // NOTE: this is a frontend carry-through of the existing DB `createdAt`,
+  // not a new database field.
+  orderedAt?: string;
   items: string;
   total: number;
-  status: "pending" | "completed" | "cancelled";
+  status: "pending" | "awaiting_payment" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
+  notes?: string;
   paid?: boolean;
+  paymentMethod?: string;
+  paymentStatus?: PaymentVerificationStatus;
+  // Optional contact fields (present on server-fetched rows; read
+  // optionally by the order details modal).
+  phone?: string;
+  address?: string;
+  serviceAreaId?: string;
+  xenditReference?: string;
+  xenditInvoiceId?: string;
+  paidAt?: string;
   archived: boolean;
   archivedAt?: string;
 };
@@ -43,6 +65,11 @@ export type MenuCategory = {
   archivedAt?: string;
 };
 
+export type MenuItemSize = {
+  name: string;
+  price: number;
+};
+
 export type MenuItem = {
   id: string;
   name: string;
@@ -51,6 +78,10 @@ export type MenuItem = {
   categoryId: string;
   available: boolean;
   image?: string;
+  stockItemId?: string;
+  // Optional size options with absolute per-size prices. Absent/empty =
+  // single base-price item needing no size selection.
+  sizes?: MenuItemSize[];
   archived: boolean;
   archivedAt?: string;
 };
@@ -58,6 +89,41 @@ export type MenuItem = {
 export type StockCategory = {
   id: string;
   name: string;
+};
+
+export type Addon = {
+  id: string;
+  name: string;
+  price: number;
+  available: boolean;
+  createdAt: string;
+};
+
+export type AddonInput = Omit<Addon, "id" | "createdAt">;
+
+export type CashShift = {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  start_time: string;
+  end_time?: string;
+  starting_float: number | string;
+  expected_cash: number | string;
+  actual_cash?: number | string;
+  difference?: number | string;
+  status: 'open' | 'matched' | 'short' | 'over';
+};
+
+export type CashTransaction = {
+  id: string;
+  shift_id: string;
+  order_id?: string;
+  type: 'sale' | 'refund' | 'float_adjustment' | 'float_addition';
+  amount: number | string;
+  admin_id?: string;
+  admin_name?: string;
+  reason?: string;
+  timestamp: string;
 };
 
 export type StockItem = {
@@ -76,6 +142,7 @@ export type StockRequest = {
   ingredientId: string;
   ingredientName: string;
   currentQuantity: number;
+  unit?: string;
   threshold: number;
   message: string;
   status: "Pending" | "Approved" | "Rejected";
@@ -85,7 +152,7 @@ export type StockRequest = {
 
 export type StockRequestInput = Omit<StockRequest, "id" | "status" | "adminNote" | "createdAt">;
 
-export type StaffRole = "admin" | "head_staff" | "staff";
+export type StaffRole = "admin" | "head_staff" | "staff" | "delivery_rider";
 
 export type StaffAccount = {
   id: string;
@@ -95,6 +162,10 @@ export type StaffAccount = {
   password?: string;
   role: StaffRole;
   status: "active" | "inactive";
+  availability?: "Online" | "Offline" | "On Duty" | "Off Duty" | "On Leave";
+  contactNumber?: string;
+  lastActive?: string;
+  createdAt?: string;
   archived: boolean;
   archivedAt?: string;
 };
@@ -127,6 +198,7 @@ export type AdminDataState = {
   serviceAreas: ServiceArea[];
   deliverySettings: DeliverySettings;
   storeOrders: RecentOrder[];
+  activeCashShift: CashShift | null;
 
 };
 
@@ -158,6 +230,7 @@ export type DeliveryOrder = {
   status: DeliveryStatus;
   orderedAt: string;
   deliveredAt?: string;
+  notes?: string;
   archived: boolean;
   archivedAt?: string;
 };
@@ -167,13 +240,18 @@ export type ServiceArea = {
   name: string;
   barangay: string;
   deliveryFee: number;
+  distanceKm?: number;
   active: boolean;
+  archived?: boolean;
+  archivedAt?: string;
 };
 
 export type DeliverySettings = {
   baseDeliveryFee: number;
   freeDeliveryMinimum: number;
   maxDeliveryRadiusKm: number;
+  freeDeliveryRadiusKm?: number;
+  perKmFee?: number;
 };
 
 export type DeliveryOrderInput = Omit<DeliveryOrder, "id" | "archived" | "archivedAt">;

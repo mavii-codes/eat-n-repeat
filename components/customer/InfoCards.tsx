@@ -39,20 +39,20 @@ const infoCards = [
 
 export function InfoCards() {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 w-full max-w-full">
       {infoCards.map((card) => (
         <div
           key={card.label}
-          className="flex items-center gap-3.5 bg-white rounded-2xl border border-[#F3E5D8] px-4 py-3.5 shadow-2xs hover:shadow-md transition-all duration-200"
+          className="flex items-center gap-2.5 sm:gap-3.5 bg-white rounded-xl sm:rounded-2xl border border-[#F3E5D8] p-2.5 sm:px-4 sm:py-3.5 shadow-2xs hover:shadow-md transition-all duration-200 min-w-0"
         >
-          <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0 shadow-2xs">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0 shadow-2xs">
             {card.icon}
           </div>
-          <div className="min-w-0">
-            <p className="text-[10px] sm:text-[11px] font-black text-stone-500 uppercase tracking-wider">
+          <div className="min-w-0 flex-1">
+            <p className="text-[9px] sm:text-[11px] font-black text-stone-500 uppercase tracking-wider truncate">
               {card.label}
             </p>
-            <p className="text-xs sm:text-sm font-extrabold text-[#451a03] truncate">
+            <p className="text-[11px] sm:text-sm font-extrabold text-[#451a03] truncate">
               {card.value}
             </p>
           </div>

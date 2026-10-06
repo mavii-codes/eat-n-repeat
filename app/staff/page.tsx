@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
-import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle } from "lucide-react";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
+import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
+import { POSCashierTab } from "@/components/staff/POSCashierTab";
+import { CafeQrPanel } from "@/components/staff/CafeQrPanel";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
@@ -20,36 +25,79 @@ import {
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
-import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus } from "@/lib/admin/types";
+import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus, RecentOrder, DeliveryOrder } from "@/lib/admin/types";
+import { formatPhDateTime, formatOrderDateTime, orderEpoch } from "@/lib/admin/delivery-utils";
 
-type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
+type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos" | "qr";
 
-type POSCartItem = { item: MenuItem; qty: number };
+// Never render "₱NaN": order totals can be missing on legacy/partial rows,
+// so fall back through subtotal+fee and finally 0.
+function formatOrderTotal(order: any): string {
+  const total = Number(order?.total);
+  if (Number.isFinite(total)) return total.toFixed(2);
+  const computed = Number(order?.subtotal || 0) + Number(order?.deliveryFee || 0);
+  return (Number.isFinite(computed) ? computed : 0).toFixed(2);
+}
 
-const PHP_DENOMINATIONS = [
-  { value: 1000, label: "₱1,000 bill" },
-  { value: 500, label: "₱500 bill" },
-  { value: 200, label: "₱200 bill" },
-  { value: 100, label: "₱100 bill" },
-  { value: 50, label: "₱50 bill" },
-  { value: 20, label: "₱20 bill" },
-  { value: 10, label: "₱10 coin" },
-  { value: 5, label: "₱5 coin" },
-  { value: 1, label: "₱1 coin" },
-  { value: 0.25, label: "₱0.25 coin" },
-];
+// Downscale a menu photo so it fits comfortably in localStorage (which caps
+// around 5MB shared with all other café data). Phone photos of several MB
+// become a few hundred KB; throws with a friendly message when even the
+// compressed result exceeds maxBytes.
+const MENU_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 
-function breakdownChange(change: number): { label: string; count: number }[] {
-  let remaining = Math.round(change * 100) / 100;
-  const result: { label: string; count: number }[] = [];
-  for (const denom of PHP_DENOMINATIONS) {
-    if (remaining >= denom.value) {
-      const count = Math.floor(remaining / denom.value);
-      remaining = Math.round((remaining - count * denom.value) * 100) / 100;
-      result.push({ label: denom.label, count });
-    }
-  }
-  return result;
+function compressMenuImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        const MAX_SIDE = 1200;
+        const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas not supported in this browser.");
+        ctx.drawImage(img, 0, 0, w, h);
+        // PNG/GIF with transparency stay PNG only when already small;
+        // otherwise JPEG keeps photos an order of magnitude smaller.
+        const keepPng = (file.type === "image/png" || file.type === "image/gif") && file.size <= 500 * 1024;
+        const mime = keepPng ? "image/png" : "image/jpeg";
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error("Could not process this image. Try another photo."));
+              return;
+            }
+            if (blob.size > MENU_IMAGE_MAX_BYTES) {
+              reject(
+                new Error(
+                  `Photo is still over 2MB after compression (${(blob.size / 1048576).toFixed(1)}MB). Please pick a smaller photo.`
+                )
+              );
+              return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error("Could not read this photo. Try another file."));
+            reader.readAsDataURL(blob);
+          },
+          mime,
+          0.82
+        );
+      } catch (e: any) {
+        reject(new Error(e?.message || "Could not process this image. Try another photo."));
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("This file is not a readable image. Try another photo."));
+    };
+    img.src = objectUrl;
+  });
 }
 
 function getWeekRange(dateStr: string): { start: string; end: string; label: string } {
@@ -77,8 +125,111 @@ function getMonthLabel(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-export default function StaffPortalPage() {
-  const { user, logout, changePassword, updateProfile } = useAuth();
+// Shared order-row shape for the Customer Orders tab: delivery rows are
+// normalized onto the store shape (orderId/time/orderType filled in).
+// Used for BOTH local lists and server history pages so Details,
+// filtering, and display behave identically.
+function toDisplayRows(storeOrders: RecentOrder[], deliveryOrders: DeliveryOrder[]) {
+  return [
+    ...storeOrders,
+    ...deliveryOrders.map((d) => ({
+      ...d,
+      id: d.id,
+      orderId: d.orderNumber,
+      time: d.orderedAt,
+      orderType: "delivery",
+      orderMode: (d as any).orderMode || "online",
+      paid: true, // assume paid for delivery in this mock unless stated
+      customerName: d.customerName,
+      subtotal: d.subtotal,
+      deliveryFee: d.deliveryFee,
+    })),
+  ];
+}
+
+// MARK AS PAID visibility: cash-like (or unknown — e.g. local orders with no
+// payment row yet) method, unpaid, not cancelled, and a server-shaped id.
+// Device-only ord-*/do-* rows cannot be PATCHed yet; they become actionable
+// after sync instead of showing a button guaranteed to fail.
+function canMarkCashPaid(order: {
+  id: string;
+  paymentMethod?: string;
+  paid?: boolean;
+  status: string;
+}): boolean {
+  const method = (order.paymentMethod || "").trim().toLowerCase();
+  if (method !== "" && method !== "cash") return false;
+  if (order.paid) return false;
+  if ((order.status || "").toLowerCase() === "cancelled") return false;
+  return !/^(ord|do)-/i.test(order.id);
+}
+
+// Horizontal-scroll affordance for wide staff tables. Wraps an EXISTING
+// overflow container (its classes pass through untouched) and adds only:
+// (1) a subtle hint shown while content overflows to the right and the user
+//     is at the left edge (fades once scrolled, returns when scrolled back),
+// (2) a pointer-events-none right-edge fade while more content sits right.
+// Purely presentational: no data, filtering, action, or backend logic inside.
+// Decorative (aria-hidden) — the native scrollbar remains the operable surface.
+function OrderTableScroll({ className, children }: { className?: string; children: ReactNode }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [atLeftEdge, setAtLeftEdge] = useState(true);
+
+  const measure = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setCanScrollRight(el.scrollLeft < max - 4);
+    setAtLeftEdge(el.scrollLeft <= 4);
+  }, []);
+
+  useEffect(() => {
+    measure();
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (observer) observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      if (observer) observer.disconnect();
+    };
+  }, [measure]);
+
+  const showHint = canScrollRight && atLeftEdge;
+
+  return (
+    <div className="relative">
+      <div ref={scrollerRef} className={className}>
+        {children}
+      </div>
+      {/* Right-edge fade — never intercepts clicks. */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute right-0 top-0 bottom-6 w-10 bg-gradient-to-l from-white/90 to-transparent transition-opacity duration-300 ${
+          canScrollRight ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      {/* Fixed-height hint row (no layout shift when it fades). */}
+      <div className="flex h-6 items-center justify-center" aria-hidden="true">
+        <span
+          className={`text-[11px] font-bold text-stone-500 transition-opacity duration-300 ${
+            showHint ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <span className="sm:hidden">← Swipe to see more →</span>
+          <span className="hidden sm:inline">← Scroll horizontally to see more →</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+  export default function StaffPortalPage() {  const { user, logout, changePassword, verifyCurrentPassword, updateProfile } = useAuth();
   const {
     storeOrders,
     deliveryOrders,
@@ -99,8 +250,9 @@ export default function StaffPortalPage() {
     addStockItem,
     updateStockItem,
     deleteStockItem,
+    refreshBackendOrders,
+    fetchOrderHistoryPage,
   } = useAdminData();
-
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<StaffTab>("dashboard");
 
@@ -119,7 +271,132 @@ export default function StaffPortalPage() {
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
 
+  // Server-paginated history (20/page). Null = offline/unauthenticated, in
+  // which case the local lists below are used exactly as before.
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyServer, setHistoryServer] = useState<{
+    store: RecentOrder[];
+    delivery: DeliveryOrder[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== "orders") return;
+    let cancelled = false;
+    // Small debounce so typing in search doesn't fire per keystroke.
+    const timer = setTimeout(() => {
+      setHistoryLoading(true);
+      fetchOrderHistoryPage({
+        page: historyPage,
+        limit: 20,
+        search: orderHistorySearch,
+        status: orderHistoryStatusFilter,
+      }).then((res) => {
+        if (cancelled) return;
+        setHistoryServer(res);
+        setHistoryLoading(false);
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activeTab, historyPage, orderHistorySearch, orderHistoryStatusFilter, fetchOrderHistoryPage]);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Pull shared orders from the backend (all types) on mount and every 20s
+  // so orders placed on another device appear here without manual refresh.
+  // Silent on auth/network failure (offline mode keeps the local cache).
+  useEffect(() => {
+    let mounted = true;
+    refreshBackendOrders();
+    const interval = setInterval(() => {
+      if (mounted) refreshBackendOrders();
+    }, 20000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [refreshBackendOrders]);
+
+  // Surface failed order-status writes (the context reverts the optimistic
+  // change and fires this event). Scoped to order-status details only so
+  // unrelated staff-sync events stay silent on this page.
+  const [orderStatusSyncError, setOrderStatusSyncError] = useState<string | null>(null);
+  useEffect(() => {
+    // Build marker: if this line is missing from the console, this browser
+    // is NOT running the status-sync fix — hard-refresh or restart the
+    // frontend dev server before testing.
+    console.info("[staff-orders] status-sync build active (resolve-then-PATCH + sync-error banner).");
+    const onStatusSyncFailed = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail === "string" && detail.startsWith("Order status change")) {
+        setOrderStatusSyncError(detail);
+      }
+    };
+    window.addEventListener("eat-n-repeat:staff-sync-failed", onStatusSyncFailed);
+    return () =>
+      window.removeEventListener("eat-n-repeat:staff-sync-failed", onStatusSyncFailed);
+  }, []);
+
+  // Strict cash-payment confirmation: unlike confirmStoreOrderStatus paths,
+  // paid is recorded ONLY after the backend accepts the update — never
+  // optimistically, never on failure.
+  const { confirm } = useConfirm();
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+
+  const handleMarkCashPaid = async (order: {
+    id: string;
+    orderId?: string;
+    orderNumber?: string;
+    total?: number;
+  }) => {
+    if (markingPaidId) return;
+    const displayId = order.orderId || order.orderNumber || order.id;
+    const total = Number(order.total);
+    const confirmed = await confirm({
+      title: "Mark Payment as Paid?",
+      message: `Confirm that you have received the cash payment for Order #${displayId}${
+        Number.isFinite(total) ? ` (₱${total.toFixed(2)})` : ""
+      }.`,
+      confirmLabel: "Mark as Paid",
+      variant: "warning",
+    });
+    if (!confirmed) return;
+    setMarkingPaidId(order.id);
+    try {
+      const { getApiUrl } = await import("@/lib/config");
+      const token =
+        localStorage.getItem("eat-n-repeat-admin-token") ||
+        localStorage.getItem("eat-n-repeat-staff-token");
+      const response = await fetch(
+        `${getApiUrl()}/api/admin-orders/${encodeURIComponent(order.id)}/payment`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ method: "Cash" }),
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Payment update was not accepted by the server.");
+      }
+      // Re-pull immediately so the Paid state comes from the database, not
+      // from local guessing. The 20s poll + customer 10s poll converge after.
+      refreshBackendOrders();
+    } catch (e: any) {
+      alert(
+        `Unable to mark payment as paid. Please try again.${e?.message ? ` (${e.message})` : ""}`,
+      );
+    } finally {
+      setMarkingPaidId(null);
+    }
+  };
 
   // Form states for adding/editing menu items
   const [menuModalOpen, setMenuModalOpen] = useState(false);
@@ -132,6 +409,38 @@ export default function StaffPortalPage() {
     available: true,
     image: "",
   });
+  const [menuImageError, setMenuImageError] = useState<string | null>(null);
+  const [menuImageProcessing, setMenuImageProcessing] = useState(false);
+  const [menuSubmitError, setMenuSubmitError] = useState<string | null>(null);
+
+  // Surface background storage-quota failures (persist happens in context,
+  // outside the submit handler) while the menu modal is in play.
+  useEffect(() => {
+    const onStorageFull = () => {
+      const msg =
+        "Not enough local storage — your last change may not have saved. Remove the photo or clear old orders, then try again.";
+      if (menuModalOpen) {
+        setMenuSubmitError(msg);
+      } else {
+        alert(msg);
+      }
+    };
+    const onMenuSyncFailed = () => {
+      const msg =
+        "Saved on this device, but the server rejected it (login may have expired). Please log in again — otherwise other devices won't see this change.";
+      if (menuModalOpen) {
+        setMenuSubmitError(msg);
+      } else {
+        alert(msg);
+      }
+    };
+    window.addEventListener("eat-n-repeat:storage-full", onStorageFull);
+    window.addEventListener("eat-n-repeat:menu-sync-failed", onMenuSyncFailed);
+    return () => {
+      window.removeEventListener("eat-n-repeat:storage-full", onStorageFull);
+      window.removeEventListener("eat-n-repeat:menu-sync-failed", onMenuSyncFailed);
+    };
+  }, [menuModalOpen]);
 
   // Profile Form States
   const [profileName, setProfileName] = useState("");
@@ -147,26 +456,6 @@ export default function StaffPortalPage() {
   const [pwdError, setPwdError] = useState<string | null>(null);
   const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
 
-
-  // POS Cashier States
-  const [posCart, setPosCart] = useState<POSCartItem[]>([]);
-  const [posTendered, setPosTendered] = useState("");
-  const [posReceiptOpen, setPosReceiptOpen] = useState(false);
-  const [posSearchTerm, setPosSearchTerm] = useState("");
-  const [posCategoryFilter, setPosCategoryFilter] = useState("all");
-  const [posReceiptData, setPosReceiptData] = useState<{
-    cart: POSCartItem[];
-    subtotal: number;
-    tax: number;
-    total: number;
-    tendered: number;
-    change: number;
-    breakdown: { label: string; count: number }[];
-    receiptNo: string;
-    date: string;
-    time: string;
-    cashier: string;
-  } | null>(null);
 
   const [chatOpen, setChatOpen] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
@@ -304,6 +593,19 @@ export default function StaffPortalPage() {
       ),
     });
 
+    list.push({
+      id: "qr",
+      label: "Café QR",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <path d="M14 14h3v3h-3zM20 14v.01M14 20v.01M18 18h3v3h-3z" />
+        </svg>
+      ),
+    });
+
     return list;
   }, [user]);
 
@@ -354,6 +656,8 @@ export default function StaffPortalPage() {
   // Handle open add menu item
   function openAddMenu() {
     setEditingMenuItem(null);
+    setMenuSubmitError(null);
+    setMenuImageError(null);
     setMenuForm({
       name: "",
       description: "",
@@ -368,6 +672,8 @@ export default function StaffPortalPage() {
   // Handle open edit menu item
   function openEditMenu(item: MenuItem) {
     setEditingMenuItem(item);
+    setMenuSubmitError(null);
+    setMenuImageError(null);
     setMenuForm({
       name: item.name,
       description: item.description,
@@ -381,12 +687,40 @@ export default function StaffPortalPage() {
 
   // Submit Menu Item Form
   function handleMenuSubmit() {
-    if (!menuForm.name.trim() || menuForm.price <= 0) return;
+    if (menuImageProcessing) {
+      setMenuSubmitError("Please wait for the photo to finish processing, then save again.");
+      return;
+    }
+    if (!menuForm.name.trim()) {
+      setMenuSubmitError("Item name is required.");
+      return;
+    }
+    if (!menuForm.categoryId) {
+      setMenuSubmitError("Please choose a category.");
+      return;
+    }
+    if (!(menuForm.price > 0)) {
+      setMenuSubmitError("Price must be greater than ₱0.");
+      return;
+    }
+    setMenuSubmitError(null);
 
-    if (editingMenuItem) {
-      updateMenuItem(editingMenuItem.id, menuForm);
-    } else {
-      addMenuItem(menuForm);
+    try {
+      if (editingMenuItem) {
+        updateMenuItem(editingMenuItem.id, menuForm);
+      } else {
+        addMenuItem(menuForm);
+      }
+    } catch (e: any) {
+      const msg = typeof e?.message === "string" ? e.message : "";
+      // localStorage quota blowouts surface here (DOMException QuotaExceededError).
+      if (e?.name === "QuotaExceededError" || msg.includes("quota") || msg.includes("exceed")) {
+        setMenuSubmitError(
+          "Not enough local storage for this item (likely the photo). Try a smaller photo or remove the image, then save again."
+        );
+        return;
+      }
+      throw e;
     }
     setMenuModalOpen(false);
   }
@@ -407,14 +741,14 @@ export default function StaffPortalPage() {
   }
 
   // Password Change Submission
-  function handlePasswordUpdate(e: React.FormEvent) {
+  async function handlePasswordUpdate(e: React.FormEvent) {
     e.preventDefault();
     setPwdError(null);
     setPwdSuccess(null);
 
     if (!user) return;
 
-    if (currentPwd !== user.password) {
+    if (!(await verifyCurrentPassword(currentPwd))) {
       setPwdError("Current password is incorrect.");
       return;
     }
@@ -436,87 +770,35 @@ export default function StaffPortalPage() {
     setConfirmNewPwd("");
   }
 
-  // POS Cashier Functions
-  const posSubtotal = posCart.reduce((sum, ci) => sum + ci.item.price * ci.qty, 0);
-  const posTaxRate = 0; // No tax for simplicity, set to e.g. 0.12 for 12% VAT
-  const posTax = Math.round(posSubtotal * posTaxRate * 100) / 100;
-  const posTotal = posSubtotal + posTax;
-  const posTenderedNum = parseFloat(posTendered) || 0;
-  const posChange = posTenderedNum - posTotal;
-
-  function posAddToCart(item: MenuItem) {
-    setPosCart((prev) => {
-      const existing = prev.find((ci) => ci.item.id === item.id);
-      if (existing) return prev.map((ci) => ci.item.id === item.id ? { ...ci, qty: ci.qty + 1 } : ci);
-      return [...prev, { item, qty: 1 }];
-    });
-  }
-
-  function posRemoveFromCart(itemId: string) {
-    setPosCart((prev) => prev.filter((ci) => ci.item.id !== itemId));
-  }
-
-  function posUpdateQty(itemId: string, qty: number) {
-    if (qty <= 0) { posRemoveFromCart(itemId); return; }
-    setPosCart((prev) => prev.map((ci) => ci.item.id === itemId ? { ...ci, qty } : ci));
-  }
-
-  function posClearCart() {
-    setPosCart([]);
-    setPosTendered("");
-  }
-
-  function posCompleteTransaction() {
-    if (posCart.length === 0 || posTenderedNum < posTotal) return;
-    const now = new Date();
-    const receiptNo = `ENR-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    
-    // Save to global context storeOrders list
-    addStoreOrder({
-      orderId: receiptNo.slice(-8), // use short ID for dashboard visibility
-      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      items: posCart.map((ci) => `${ci.item.name} (${ci.qty}x)`).join(", "),
-      total: posTotal,
-      status: "completed",
-      paid: true,
-    });
-
-    setPosReceiptData({
-      cart: [...posCart],
-      subtotal: posSubtotal,
-      tax: posTax,
-      total: posTotal,
-      tendered: posTenderedNum,
-      change: posChange,
-      breakdown: breakdownChange(posChange),
-      receiptNo,
-      date: now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }),
-      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-      cashier: user?.name || "Cashier",
-    });
-    setPosReceiptOpen(true);
-  }
-
-  function posNewTransaction() {
-    setPosCart([]);
-    setPosTendered("");
-    setPosReceiptOpen(false);
-    setPosReceiptData(null);
-  }
-
-  const posFilteredItems = menuItems.filter((item) => {
-    if (item.archived || !item.available) return false;
-    if (posCategoryFilter !== "all" && item.categoryId !== posCategoryFilter) return false;
-    if (posSearchTerm && !item.name.toLowerCase().includes(posSearchTerm.toLowerCase())) return false;
-    return true;
-  });
-
   if (!user) return null;
 
   return (
-    <div className="admin-shell min-h-screen flex text-[#1c1c1c]">
-      {/* LEFT SIDEBAR */}
-      <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
+    <div className="admin-shell min-h-screen flex flex-col text-[#1c1c1c] lg:flex-row">
+      <div className="admin-shell-bg" aria-hidden="true">
+        <div className="admin-shell-bg-image" />
+        <div className="admin-shell-bg-overlay" />
+      </div>
+      {/* Mobile drawer backdrop */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {/* LEFT SIDEBAR — off-canvas drawer on mobile, fixed nav on desktop.
+          The open/closed translate classes are mutually exclusive branches so
+          no two conflicting translate utilities ever coexist (their winner
+          would otherwise depend on stylesheet order and the drawer could
+          stick hidden or cover content on some viewports). */}
+      <aside className={`admin-sidebar fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto text-white transition-transform duration-300 lg:z-40 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+        <button
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="absolute right-4 top-4 rounded-full bg-white/5 p-2.5 text-white/60 transition-colors hover:text-white lg:hidden"
+          aria-label="Close menu"
+        >
+          <X className="h-5 w-5" />
+        </button>
         <div className="border-b border-white/8 px-6 py-6">
           <Logo size="md" showText={false} />
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/45">
@@ -565,9 +847,20 @@ export default function StaffPortalPage() {
           </div>
         </div>
       </aside>
-
+      {/* Mobile header */}
+      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#1a0a0d]/90 px-4 py-3 backdrop-blur-md lg:hidden">
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="rounded-lg p-2.5 -ml-2 text-white transition-colors hover:bg-white/10"
+          aria-label="Open menu"
+        >
+          <Menu className="h-6 w-6" />
+        </button>
+        <div className="font-serif text-lg font-medium text-white/90">Staff Portal</div>
+        <div className="w-10" aria-hidden="true" />
+      </div>
       {/* MAIN MAIN AREA */}
-      <main className="relative z-10 pl-72 flex-1 mx-auto max-w-6xl px-8 py-8">
+      <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 lg:pl-72">
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === "dashboard" && (
@@ -583,10 +876,9 @@ export default function StaffPortalPage() {
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <button className="relative rounded-full bg-[#fffaf7] p-2.5 text-[#63131d] shadow-sm border border-accent/10 hover:bg-white transition-colors cursor-pointer">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-                  {stockNotifications.length > 0 && <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-[#fffaf7]"></span>}
-                </button>
+                <StaffNotificationPanel
+                  onNavigateToOrder={() => setActiveTab("orders")}
+                />
               </div>
             </header>
 
@@ -648,9 +940,9 @@ export default function StaffPortalPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, orderId: o.orderNumber, time: o.orderedAt, type: "Delivery"}))]
+                        {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, type: "Delivery", orderId: o.orderNumber, total: o.subtotal + (o.deliveryFee || 0)}))]
                           .filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered")
-                          .sort((a, b) => b.id.localeCompare(a.id))
+                          .sort((a, b) => orderEpoch(b) - orderEpoch(a))
                           .slice(0, 5)
                           .map((order) => (
                           <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
@@ -677,14 +969,14 @@ export default function StaffPortalPage() {
 
                 <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
                   <div className="divide-y divide-accent/5 px-5 py-2">
-                    {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: o.time, raw: o})), 
-                      ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderNumber} received`, time: o.orderedAt, raw: o}))]
-                      .sort((a, b) => b.id.localeCompare(a.id))
+                      {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: formatOrderDateTime(o), epoch: orderEpoch(o), raw: o})),
+                        ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderNumber} received`, time: formatPhDateTime(o.orderedAt), epoch: orderEpoch(o), raw: o}))]
+                      .sort((a, b) => b.epoch - a.epoch)
                       .slice(0, 4)
                       .map((activity, i) => (
                       <div key={`act-${activity.id}-${i}`} className="flex items-start gap-3 py-3 text-sm">
                         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#63131d]/10 text-[#63131d]">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                          <ShoppingBag className="h-3 w-3" />
                         </span>
                         <div className="flex-1">
                           <p className="text-[#1c1c1c] font-medium">{activity.text}</p>
@@ -772,24 +1064,7 @@ export default function StaffPortalPage() {
         {/* TAB 2: CUSTOMER ORDERS */}
         {activeTab === "orders" && (() => {
           // Process data
-          const allOrders = [
-            ...storeOrders.map(o => ({
-              ...o,
-              customerName: "",
-              orderType: "dine-in",
-            })),
-            ...deliveryOrders.map(d => ({
-              ...d,
-              id: d.id,
-              orderId: d.orderNumber,
-              time: d.orderedAt,
-              orderType: "delivery",
-              paid: true, // assume paid for delivery in this mock unless stated
-              customerName: d.customerName,
-              subtotal: d.subtotal,
-              deliveryFee: d.deliveryFee
-            })),
-          ];
+          const allOrders = toDisplayRows(storeOrders, deliveryOrders);
 
           const activeOrders = allOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled");
           const historyOrders = allOrders.filter(o => o.status === "completed" || o.status === "cancelled");
@@ -806,20 +1081,41 @@ export default function StaffPortalPage() {
 
           // Filter active
           const filteredActive = activeOrders.filter(o => {
-            const matchesSearch = o.orderId?.toLowerCase().includes(orderSearch.toLowerCase()) || 
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderSearch.toLowerCase()) ||
                                   o.customerName?.toLowerCase().includes(orderSearch.toLowerCase());
             const matchesStatus = orderStatusFilter === "all" || o.status === orderStatusFilter;
             const matchesType = orderTypeFilter === "all" || (o.orderType || "dine-in") === orderTypeFilter;
             return matchesSearch && matchesStatus && matchesType;
-          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+          }).sort((a, b) => orderEpoch(b) - orderEpoch(a));
 
-          // Filter history
-          const filteredHistory = historyOrders.filter(o => {
-            const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) || 
+          // Filter history (local/offline path; server mode filters server-side)
+          const filteredHistoryLocal = historyOrders.filter(o => {
+            const matchesSearch = o.orderId?.toLowerCase().includes(orderHistorySearch.toLowerCase()) ||
                                   o.customerName?.toLowerCase().includes(orderHistorySearch.toLowerCase());
             const matchesStatus = orderHistoryStatusFilter === "all" || o.status === orderHistoryStatusFilter;
             return matchesSearch && matchesStatus;
-          }).sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+          }).sort((a, b) => orderEpoch(b) - orderEpoch(a));
+
+          // Server page wins when reachable (already filtered/sorted newest-first
+          // by the database); otherwise the local lists above are used as before.
+          const serverHistoryRows = historyServer
+            ? toDisplayRows(historyServer.store, historyServer.delivery)
+            : null;
+          const displayHistory = serverHistoryRows ?? filteredHistoryLocal;
+          const historyPagination = historyServer?.pagination ?? null;
+
+          // Compact page window: 1 … p-1 p p+1 … N
+          const historyPageList = (() => {
+            if (!historyPagination || historyPagination.totalPages <= 7) {
+              return historyPagination
+                ? Array.from({ length: historyPagination.totalPages }, (_, i) => i + 1)
+                : [];
+            }
+            const total = historyPagination.totalPages;
+            const current = historyPagination.page;
+            const pages = new Set([1, 2, current - 1, current, current + 1, total - 1, total]);
+            return [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+          })();
 
           return (
             <div className="space-y-6">
@@ -849,6 +1145,19 @@ export default function StaffPortalPage() {
 
               {/* ACTIVE ORDERS PANEL */}
               <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
+                {orderStatusSyncError && (
+                  <div className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-800 flex items-center justify-between gap-3">
+                    <span>{orderStatusSyncError} Check the browser console for the order id and PATCH status, then retry.</span>
+                    <button
+                      type="button"
+                      onClick={() => setOrderStatusSyncError(null)}
+                      className="shrink-0 rounded-full px-2 py-0.5 hover:bg-red-100"
+                      aria-label="Dismiss status sync error"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
                 {/* FILTERS */}
                 <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">
@@ -869,6 +1178,7 @@ export default function StaffPortalPage() {
                     >
                       <option value="all">All Types</option>
                       <option value="dine-in">Dine-in</option>
+                      <option value="pickup">Pickup</option>
                       <option value="takeout">Takeout</option>
                       <option value="delivery">Delivery</option>
                     </select>
@@ -899,7 +1209,7 @@ export default function StaffPortalPage() {
                   ) : (
                     <>
                       {/* DESKTOP TABLE */}
-                      <div className="hidden md:block overflow-x-auto">
+                      <OrderTableScroll className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left text-sm">
                           <thead>
                             <tr className="text-muted border-b border-accent/10">
@@ -909,6 +1219,7 @@ export default function StaffPortalPage() {
                               <th className="px-4 py-3 font-medium">Items</th>
                               <th className="px-4 py-3 font-medium">Total</th>
                               <th className="px-4 py-3 font-medium">Payment</th>
+                              <th className="px-4 py-3 font-medium">Ordered</th>
                               <th className="px-4 py-3 font-medium">Status</th>
                               <th className="px-4 py-3 font-medium text-right">Actions</th>
                             </tr>
@@ -916,7 +1227,8 @@ export default function StaffPortalPage() {
                           <tbody>
                             {filteredActive.map((order) => (
                               <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10">
-                                <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}</td>
+                                <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}
+                                </td>
                                 <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
                                 <td className="px-4 py-3">
                                   <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-accent/10 shadow-sm">
@@ -924,14 +1236,25 @@ export default function StaffPortalPage() {
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 text-xs text-muted max-w-[150px] truncate">{order.items}</td>
-                                <td className="px-4 py-3 font-bold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3 font-bold">₱{formatOrderTotal(order)}</td>
                                 <td className="px-4 py-3">
                                   {order.paid ? (
                                     <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-200">Confirmed Paid</span>
                                   ) : (
                                     <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
                                   )}
+                                  {canMarkCashPaid(order) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMarkCashPaid(order)}
+                                      disabled={markingPaidId === order.id}
+                                      className="mt-2 w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wide rounded-lg shadow transition"
+                                    >
+                                      {markingPaidId === order.id ? "Processing…" : "Mark as Paid"}
+                                    </button>
+                                  )}
                                 </td>
+                                <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatOrderDateTime(order) || "—"}</td>
                                 <td className="px-4 py-3">
                                   <AdminSelect
                                     value={order.status}
@@ -965,7 +1288,7 @@ export default function StaffPortalPage() {
                             ))}
                           </tbody>
                         </table>
-                      </div>
+                      </OrderTableScroll>
 
                       {/* MOBILE CARDS */}
                       <div className="md:hidden flex flex-col gap-3 p-2">
@@ -973,7 +1296,8 @@ export default function StaffPortalPage() {
                           <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
                             <div className="flex justify-between items-start">
                               <div>
-                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}
+                                </h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
                               </div>
                               <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
@@ -983,10 +1307,14 @@ export default function StaffPortalPage() {
                             
                             <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
                               <span className="text-muted truncate max-w-[60%]">{order.items}</span>
-                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                              <span className="font-bold text-lg">₱{formatOrderTotal(order)}</span>
                             </div>
 
                             <div className="flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-semibold text-muted">Ordered:</span>
+                                <span className="text-xs font-bold">{formatOrderDateTime(order) || "—"}</span>
+                              </div>
                               <div className="flex justify-between items-center">
                                 <span className="text-xs font-semibold text-muted">Status:</span>
                                 <AdminSelect
@@ -1017,6 +1345,16 @@ export default function StaffPortalPage() {
                                   <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Pending</span>
                                 )}
                               </div>
+                              {canMarkCashPaid(order) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkCashPaid(order)}
+                                  disabled={markingPaidId === order.id}
+                                  className="w-full px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wide rounded-xl shadow transition"
+                                >
+                                  {markingPaidId === order.id ? "Processing…" : "Mark as Paid"}
+                                </button>
+                              )}
                             </div>
 
                             <button
@@ -1038,18 +1376,18 @@ export default function StaffPortalPage() {
                 <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
-                    <input 
-                      type="text" 
-                      placeholder="Search history..." 
-                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
-                      value={orderHistorySearch}
-                      onChange={(e) => setOrderHistorySearch(e.target.value)}
-                    />
+                      <input
+                        type="text"
+                        placeholder="Search history..."
+                        className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                        value={orderHistorySearch}
+                        onChange={(e) => { setOrderHistorySearch(e.target.value); setHistoryPage(1); }}
+                      />
                   </div>
                   <select 
                     className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium w-full md:w-auto"
                     value={orderHistoryStatusFilter}
-                    onChange={(e) => setOrderHistoryStatusFilter(e.target.value)}
+                    onChange={(e) => { setOrderHistoryStatusFilter(e.target.value); setHistoryPage(1); }}
                   >
                     <option value="all">All Statuses</option>
                     <option value="completed">Completed</option>
@@ -1057,7 +1395,7 @@ export default function StaffPortalPage() {
                   </select>
                 </div>
                 <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl overflow-x-auto">
-                  {filteredHistory.length === 0 ? (
+                  {displayHistory.length === 0 ? (
                     <div className="text-center py-12 text-muted flex flex-col items-center">
                       <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
                         <Filter className="h-6 w-6 text-accent/40" />
@@ -1067,7 +1405,7 @@ export default function StaffPortalPage() {
                   ) : (
                     <>
                       {/* DESKTOP TABLE */}
-                      <div className="hidden md:block">
+                      <OrderTableScroll className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left text-sm min-w-[640px]">
                           <thead>
                             <tr className="text-muted border-b border-accent/10">
@@ -1081,17 +1419,18 @@ export default function StaffPortalPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {filteredHistory.map((order) => (
+                            {displayHistory.map((order) => (
                               <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10 text-[#2B2523]">
-                                <td className="px-4 py-3 font-bold">{order.orderId}</td>
+                                <td className="px-4 py-3 font-bold">{order.orderId}
+                                </td>
                                 <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
-                                <td className="px-4 py-3 text-xs text-muted">{order.time}</td>
+                                <td className="px-4 py-3 text-xs text-muted whitespace-nowrap">{formatOrderDateTime(order) || "—"}</td>
                                 <td className="px-4 py-3">
                                   <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-200">
                                     {order.orderType || "dine-in"}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 font-semibold">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</td>
+                                <td className="px-4 py-3 font-semibold">₱{formatOrderTotal(order)}</td>
                                 <td className="px-4 py-3">
                                   <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
                                     {order.status}
@@ -1109,15 +1448,16 @@ export default function StaffPortalPage() {
                             ))}
                           </tbody>
                         </table>
-                      </div>
+                      </OrderTableScroll>
                       
                       {/* MOBILE HISTORY CARDS */}
                       <div className="md:hidden flex flex-col gap-3 p-2">
-                        {filteredHistory.map((order) => (
+                        {displayHistory.map((order) => (
                           <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 opacity-90">
                             <div className="flex justify-between items-start">
                               <div>
-                                <h3 className="font-bold text-[#800000]">{order.orderId}</h3>
+                                <h3 className="font-bold text-[#800000]">{order.orderId}
+                                </h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
                               </div>
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
@@ -1126,8 +1466,8 @@ export default function StaffPortalPage() {
                             </div>
                             
                             <div className="flex justify-between items-center text-sm border-y border-accent/5 py-2">
-                              <span className="text-muted text-xs">{order.time}</span>
-                              <span className="font-bold text-lg">₱{order.total?.toFixed(2) || ((order as any).subtotal + ((order as any).deliveryFee||0)).toFixed(2)}</span>
+                              <span className="text-muted text-xs">{formatOrderDateTime(order) || "—"}</span>
+                              <span className="font-bold text-lg">₱{formatOrderTotal(order)}</span>
                             </div>
 
                             <button
@@ -1142,19 +1482,67 @@ export default function StaffPortalPage() {
                     </>
                   )}
                 </div>
+                {historyPagination && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-accent/10 bg-white/40">
+                    <p className="text-xs font-semibold text-muted">
+                      Page {historyPagination.page} of {historyPagination.totalPages} · {historyPagination.total} record{historyPagination.total === 1 ? "" : "s"}
+                      {historyLoading ? " · Loading…" : ""}
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={historyPagination.page <= 1 || historyLoading}
+                        onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                        className="px-3 py-1.5 rounded-lg border border-accent/20 bg-white text-xs font-bold text-[#2B2523] disabled:opacity-40 hover:bg-accent-light/20 transition-colors"
+                      >
+                        ‹ Previous
+                      </button>
+                      {historyPageList.map((p, i, arr) => (
+                        <span key={`${p}-${i}`} className="flex items-center gap-1.5">
+                          {i > 0 && p - arr[i - 1] > 1 && (
+                            <span className="text-xs text-muted px-0.5">…</span>
+                          )}
+                          <button
+                            type="button"
+                            disabled={historyLoading}
+                            onClick={() => setHistoryPage(p)}
+                            aria-current={p === historyPagination.page ? "page" : undefined}
+                            className={`min-w-[2rem] px-2 py-1.5 rounded-lg border text-xs font-bold transition-colors disabled:opacity-40 ${
+                              p === historyPagination.page
+                                ? "bg-accent text-white border-accent"
+                                : "border-accent/20 bg-white text-[#2B2523] hover:bg-accent-light/20"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        </span>
+                      ))}
+                      <button
+                        type="button"
+                        disabled={historyPagination.page >= historyPagination.totalPages || historyLoading}
+                        onClick={() => setHistoryPage((p) => p + 1)}
+                        className="px-3 py-1.5 rounded-lg border border-accent/20 bg-white text-xs font-bold text-[#2B2523] disabled:opacity-40 hover:bg-accent-light/20 transition-colors"
+                      >
+                        Next ›
+                      </button>
+                    </div>
+                  </div>
+                )}
               </AdminPanel>
 
               {/* ORDER DETAILS MODAL */}
               {selectedOrderDetails && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
-                  <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                  <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
                     {/* Header */}
-                    <div className="flex justify-between items-center p-5 border-b border-accent/10 bg-white">
+                    <div className="flex justify-between items-center p-4 sm:p-5 border-b border-accent/10 bg-white">
                       <div>
-                        <h2 className="font-serif text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
-                        <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 mt-1 border border-gray-200 shadow-sm">
-                          {selectedOrderDetails.orderType || "Dine-in"}
-                        </span>
+                        <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200 shadow-sm">
+                            {selectedOrderDetails.orderType || "Dine-in"}
+                          </span>
+                        </div>
                       </div>
                       <button 
                         onClick={() => setSelectedOrderDetails(null)}
@@ -1183,8 +1571,8 @@ export default function StaffPortalPage() {
                             </div>
                           )}
                           <div>
-                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Date & Time</p>
-                            <p className="font-medium mt-1">{selectedOrderDetails.time}</p>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Ordered Time</p>
+                            <p className="font-medium mt-1">{formatOrderDateTime(selectedOrderDetails) || "—"}</p>
                           </div>
                           <div>
                             <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Status</p>
@@ -1203,6 +1591,14 @@ export default function StaffPortalPage() {
                             </button>
                           </div>
                         )}
+                        <div className="mt-5 pt-4 border-t border-accent/5">
+                          <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5">Customer Notes</p>
+                          {typeof selectedOrderDetails.notes === 'string' && selectedOrderDetails.notes.trim() ? (
+                            <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.notes}</p>
+                          ) : (
+                            <p className="text-sm text-muted italic">No customer notes</p>
+                          )}
+                        </div>
                       </div>
 
                       {/* Order Items */}
@@ -1231,7 +1627,7 @@ export default function StaffPortalPage() {
                             )}
                             <div className="flex justify-between items-center">
                               <span className="font-bold text-[#800000]">Total</span>
-                              <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{selectedOrderDetails.total?.toFixed(2) || ((selectedOrderDetails as any).subtotal + ((selectedOrderDetails as any).deliveryFee||0)).toFixed(2)}</span>
+                              <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{formatOrderTotal(selectedOrderDetails)}</span>
                             </div>
                           </div>
                         </div>
@@ -1245,9 +1641,20 @@ export default function StaffPortalPage() {
                             <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Confirmed Paid
                           </span>
                         ) : (
-                          <span className="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200 shadow-sm flex items-center gap-1.5">
-                            <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div> Pending Payment
-                          </span>
+                          <div className="flex gap-3 items-center">
+                            <span className="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200 shadow-sm flex items-center gap-1.5">
+                              <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div> Pending Payment
+                            </span>
+                            <button
+                              onClick={() => {
+                                confirmStoreOrderPayment(selectedOrderDetails.id);
+                                setSelectedOrderDetails(null);
+                              }}
+                              className="px-4 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-lg shadow hover:bg-emerald-700 transition"
+                            >
+                              Confirm Payment
+                            </button>
+                          </div>
                         )}
                       </div>
 
@@ -1630,6 +2037,7 @@ export default function StaffPortalPage() {
                       <th className="px-4 py-3 font-medium">Customer Details</th>
                       <th className="px-4 py-3 font-medium">Manifest</th>
                       <th className="px-4 py-3 font-medium">Total Price</th>
+                      <th className="px-4 py-3 font-medium">Ordered</th>
                       <th className="px-4 py-3 font-medium">Delivery Status</th>
                       <th className="px-4 py-3 font-medium rounded-r-lg text-right">Actions</th>
                     </tr>
@@ -1637,10 +2045,12 @@ export default function StaffPortalPage() {
                   <tbody>
                     {deliveryOrders.filter(o => !o.archived).length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="text-center py-8 text-muted">No delivery orders listed.</td>
+                        <td colSpan={7} className="text-center py-8 text-muted">No delivery orders listed.</td>
                       </tr>
                     ) : (
-                      deliveryOrders.filter(o => !o.archived).map((order) => (
+                      [...deliveryOrders.filter(o => !o.archived)]
+                        .sort((a, b) => orderEpoch(b) - orderEpoch(a))
+                        .map((order) => (
                         <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
                           <td className="px-4 py-3 font-bold text-[#800000]">{order.orderNumber}</td>
                           <td className="px-4 py-3 text-xs leading-4">
@@ -1660,6 +2070,7 @@ export default function StaffPortalPage() {
                           </td>
                           <td className="px-4 py-3 text-xs">{order.items}</td>
                           <td className="px-4 py-3 font-semibold">₱{order.total}</td>
+                          <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatPhDateTime(order.orderedAt) || "—"}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
                               order.status === "delivered"
@@ -1821,299 +2232,12 @@ export default function StaffPortalPage() {
         )}
 
         {/* TAB: POS CASHIER */}
-        {activeTab === "pos" && (
-          <div className="space-y-5">
-            <header>
-              <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Point of Sale</span>
-              <h1 className="font-serif text-3xl font-bold tracking-tight text-[#800000] mt-1.5">POS Cashier</h1>
-              <p className="text-sm text-muted">Process walk-in transactions, calculate change, and generate receipts.</p>
-            </header>
+        {activeTab === "pos" && <POSCashierTab />}
 
-            <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-              {/* LEFT: Menu Item Picker */}
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-3">
-                  <div className="flex-1 min-w-[180px]">
-                    <AdminInput
-                      type="text"
-                      value={posSearchTerm}
-                      onChange={(e) => setPosSearchTerm(e.target.value)}
-                      placeholder="Search menu items..."
-                    />
-                  </div>
-                  <div className="min-w-[140px]">
-                    <AdminSelect value={posCategoryFilter} onChange={(e) => setPosCategoryFilter(e.target.value)}>
-                      <option value="all">All Categories</option>
-                      {menuCategories.filter((c) => !c.archived).map((cat) => (
-                        <option key={cat.id} value={cat.id}>{cat.name}</option>
-                      ))}
-                    </AdminSelect>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
-                  {posFilteredItems.length === 0 ? (
-                    <p className="col-span-full text-center py-12 text-sm text-muted">No menu items found.</p>
-                  ) : (
-                    posFilteredItems.map((item) => {
-                      const inCart = posCart.find((ci) => ci.item.id === item.id);
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => posAddToCart(item)}
-                          className="group relative flex items-center gap-3 rounded-xl border border-accent/10 bg-white p-3 text-left shadow-sm transition-all hover:shadow-md hover:border-[#800000]/30 active:scale-[0.98] cursor-pointer"
-                        >
-                          {item.image ? (
-                            <img src={item.image} alt={item.name} className="h-11 w-11 shrink-0 rounded-lg object-cover border border-accent/5 shadow-sm" />
-                          ) : (
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#800000]/10 to-[#800000]/5 text-[#800000] font-serif font-bold text-lg">
-                              {item.name.charAt(0)}
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-ink truncate">{item.name}</p>
-                            <p className="text-xs text-muted">{getMenuCategoryName(item.categoryId)}</p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="font-bold text-[#800000] text-sm">₱{item.price.toFixed(2)}</p>
-                            {inCart && (
-                              <span className="inline-flex items-center justify-center rounded-full bg-[#800000] text-white text-[10px] font-bold h-5 min-w-5 px-1">
-                                {inCart.qty}
-                              </span>
-                            )}
-                          </div>
-                          <span className="absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-[#800000]/20 pointer-events-none transition-all" />
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* RIGHT: Cart & Transaction */}
-              <div className="space-y-4">
-                <AdminPanel title="Current Transaction" subtitle={posCart.length > 0 ? `${posCart.reduce((s, c) => s + c.qty, 0)} item(s)` : "No items yet"}>
-                  <div className="px-4 py-3">
-                    {posCart.length === 0 ? (
-                      <div className="text-center py-10">
-                        <p className="text-4xl mb-3">🛒</p>
-                        <p className="text-sm text-muted">Tap menu items on the left to add them to the cart.</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="max-h-[280px] overflow-y-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="text-xs text-muted border-b border-accent/10">
-                                <th className="text-left py-2 font-medium">Item</th>
-                                <th className="text-center py-2 font-medium w-24">Qty</th>
-                                <th className="text-right py-2 font-medium">Total</th>
-                                <th className="w-8"></th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-accent/5">
-                              {posCart.map((ci) => (
-                                <tr key={ci.item.id} className="text-ink">
-                                  <td className="py-2.5">
-                                    <p className="font-semibold text-xs">{ci.item.name}</p>
-                                    <p className="text-[10px] text-muted">₱{ci.item.price.toFixed(2)} each</p>
-                                  </td>
-                                  <td className="py-2.5">
-                                    <div className="flex items-center justify-center gap-1">
-                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty - 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">−</button>
-                                      <span className="w-6 text-center font-bold text-xs">{ci.qty}</span>
-                                      <button onClick={() => posUpdateQty(ci.item.id, ci.qty + 1)} className="h-6 w-6 rounded bg-accent/10 text-[#800000] font-bold text-xs hover:bg-accent/20 transition-colors cursor-pointer">+</button>
-                                    </div>
-                                  </td>
-                                  <td className="py-2.5 text-right font-bold text-xs text-[#800000]">₱{(ci.item.price * ci.qty).toFixed(2)}</td>
-                                  <td className="py-2.5">
-                                    <button onClick={() => posRemoveFromCart(ci.item.id)} className="text-red-400 hover:text-red-600 transition-colors cursor-pointer" title="Remove">
-                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Totals */}
-                        <div className="border-t border-accent/10 pt-3 mt-3 space-y-1.5">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted">Subtotal</span>
-                            <span className="font-semibold">₱{posSubtotal.toFixed(2)}</span>
-                          </div>
-                          {posTax > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted">Tax ({(posTaxRate * 100).toFixed(0)}%)</span>
-                              <span className="font-semibold">₱{posTax.toFixed(2)}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between text-lg font-bold border-t border-dashed border-accent/20 pt-2">
-                            <span className="text-[#800000]">TOTAL</span>
-                            <span className="text-[#800000]">₱{posTotal.toFixed(2)}</span>
-                          </div>
-                        </div>
-
-                        {/* Tendered */}
-                        <div className="mt-4 space-y-3">
-                          <AdminField label="Amount Tendered (₱)">
-                            <AdminInput
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={posTendered}
-                              onChange={(e) => setPosTendered(e.target.value)}
-                              placeholder="Enter amount given by customer..."
-                            />
-                          </AdminField>
-
-                          {posTendered && (
-                            <div className={`rounded-xl p-3 text-center font-bold text-sm ${
-                              posChange >= 0
-                                ? "bg-green-50 text-green-700 border border-green-200"
-                                : "bg-red-50 text-red-600 border border-red-200"
-                            }`}>
-                              {posChange >= 0
-                                ? `Change: ₱${posChange.toFixed(2)}`
-                                : `Insufficient: ₱${Math.abs(posChange).toFixed(2)} short`
-                              }
-                            </div>
-                          )}
-
-                          {/* Change Denomination Preview */}
-                          {posTendered && posChange > 0 && (
-                            <div className="rounded-xl border border-accent/10 bg-[#fffaf7] p-3">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-2">Change Breakdown</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {breakdownChange(posChange).map((d) => (
-                                  <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-white border border-accent/15 px-2 py-0.5 text-[11px] font-semibold text-ink shadow-sm">
-                                    <span className="text-[#800000] font-bold">{d.count}×</span> {d.label}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="mt-4 flex gap-2">
-                          <button
-                            onClick={posClearCart}
-                            className="flex-1 py-2.5 rounded-xl border border-accent/20 text-sm font-semibold text-muted hover:bg-accent/5 transition-colors cursor-pointer"
-                          >
-                            Clear Cart
-                          </button>
-                          <button
-                            onClick={posCompleteTransaction}
-                            disabled={posCart.length === 0 || posTenderedNum < posTotal || !posTendered}
-                            className="flex-[2] py-2.5 rounded-xl bg-[#800000] text-white text-sm font-bold shadow-md hover:bg-[#6b0000] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                          >
-                            Complete Transaction
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </AdminPanel>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* TAB: CAFE QR */}
+        {activeTab === "qr" && <CafeQrPanel />}
 
       </main>
-
-      {/* POS RECEIPT MODAL */}
-      <AdminModal
-        open={posReceiptOpen}
-        title="Transaction Receipt"
-        onClose={() => setPosReceiptOpen(false)}
-        footer={
-          <>
-            <AdminButton variant="secondary" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print Receipt</AdminButton>
-            <AdminButton onClick={posNewTransaction}>New Transaction</AdminButton>
-          </>
-        }
-      >
-        {posReceiptData && (
-          <div className="font-mono text-xs text-ink bg-white rounded-xl border border-accent/10 p-5 max-w-[320px] mx-auto shadow-inner">
-            {/* Header */}
-            <div className="text-center border-b border-dashed border-gray-300 pb-3 mb-3">
-              <p className="font-serif text-lg font-bold text-[#800000] not-italic">Eat n&apos; Repeat Café</p>
-              <p className="text-[10px] text-muted mt-0.5">Cordova Branch</p>
-              <p className="text-[10px] text-muted">Tel: (032) 555-1234</p>
-              <p className="text-[10px] text-muted mt-1">{posReceiptData.date}</p>
-              <p className="text-[10px] text-muted">{posReceiptData.time}</p>
-              <p className="text-[10px] text-muted mt-1">Receipt #: {posReceiptData.receiptNo}</p>
-              <p className="text-[10px] text-muted">Cashier: {posReceiptData.cashier}</p>
-            </div>
-
-            {/* Items */}
-            <div className="border-b border-dashed border-gray-300 pb-3 mb-3 space-y-1">
-              <div className="flex justify-between font-bold text-[10px] text-muted uppercase">
-                <span>Item</span>
-                <span>Amount</span>
-              </div>
-              {posReceiptData.cart.map((ci) => (
-                <div key={ci.item.id}>
-                  <div className="flex justify-between">
-                    <span className="truncate mr-2">{ci.item.name}</span>
-                    <span className="shrink-0 font-semibold">₱{(ci.item.price * ci.qty).toFixed(2)}</span>
-                  </div>
-                  <p className="text-[10px] text-muted pl-2">{ci.qty} × ₱{ci.item.price.toFixed(2)}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Totals */}
-            <div className="space-y-1 border-b border-dashed border-gray-300 pb-3 mb-3">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>₱{posReceiptData.subtotal.toFixed(2)}</span>
-              </div>
-              {posReceiptData.tax > 0 && (
-                <div className="flex justify-between">
-                  <span>Tax</span>
-                  <span>₱{posReceiptData.tax.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-bold text-sm border-t border-gray-300 pt-1">
-                <span>TOTAL</span>
-                <span>₱{posReceiptData.total.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span>Amount Paid</span>
-                <span>₱{posReceiptData.tendered.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-green-700">
-                <span>Change</span>
-                <span>₱{posReceiptData.change.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Denomination Breakdown */}
-            {posReceiptData.breakdown.length > 0 && (
-              <div className="border-b border-dashed border-gray-300 pb-3 mb-3">
-                <p className="text-[10px] font-bold text-muted uppercase mb-1">Change Breakdown:</p>
-                {posReceiptData.breakdown.map((d) => (
-                  <div key={d.label} className="flex justify-between text-[10px]">
-                    <span>{d.label}</span>
-                    <span>× {d.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Footer */}
-            <div className="text-center pt-1">
-              <p className="font-serif text-xs font-semibold text-[#800000] not-italic">Thank you for dining at</p>
-              <p className="font-serif text-sm font-bold text-[#800000] not-italic">Eat n&apos; Repeat!</p>
-              <p className="text-[10px] text-muted mt-2">Please come again ♥</p>
-              <p className="text-[10px] text-muted mt-1">━━━━━━━━━━━━━━━━━━━━━━</p>
-            </div>
-          </div>
-        )}
-      </AdminModal>
 
       {/* ADD/EDIT MENU ITEM MODAL */}
       <AdminModal
@@ -2125,13 +2249,22 @@ export default function StaffPortalPage() {
             <AdminButton variant="secondary" onClick={() => setMenuModalOpen(false)}>
               Cancel
             </AdminButton>
-            <AdminButton onClick={handleMenuSubmit}>
-              {editingMenuItem ? "Save Changes" : "Add Item"}
+            <AdminButton onClick={handleMenuSubmit} disabled={menuImageProcessing}>
+              {menuImageProcessing
+                ? "Processing photo…"
+                : editingMenuItem
+                  ? "Save Changes"
+                  : "Add Item"}
             </AdminButton>
           </>
         }
       >
         <div className="space-y-4">
+          {menuSubmitError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800">
+              {menuSubmitError}
+            </div>
+          )}
           <AdminField label="Item Name">
             <AdminInput
               value={menuForm.name}
@@ -2192,19 +2325,40 @@ export default function StaffPortalPage() {
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(e) => {
+                  disabled={menuImageProcessing}
+                  onChange={async (e) => {
                     const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        setMenuForm(prev => ({ ...prev, image: reader.result as string }));
-                      };
-                      reader.readAsDataURL(file);
+                    // Reset so the same file can be picked again after an error.
+                    e.target.value = "";
+                    if (!file) return;
+                    if (!file.type.startsWith("image/")) {
+                      setMenuImageError("Please choose an image file (PNG, JPG, or GIF).");
+                      return;
+                    }
+                    setMenuImageError(null);
+                    setMenuImageProcessing(true);
+                    try {
+                      const dataUrl = await compressMenuImage(file);
+                      setMenuForm((prev) => ({ ...prev, image: dataUrl }));
+                    } catch (err: any) {
+                      setMenuImageError(
+                        typeof err?.message === "string" && err.message
+                          ? err.message
+                          : "Could not use this photo. Try another file."
+                      );
+                    } finally {
+                      setMenuImageProcessing(false);
                     }
                   }}
-                  className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-accent hover:file:bg-accent/20 cursor-pointer"
+                  className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-accent hover:file:bg-accent/20 cursor-pointer disabled:opacity-50"
                 />
-                <p className="mt-1 text-[10px] text-muted">PNG, JPG, or GIF. Max size 2MB.</p>
+                <p className="mt-1 text-[10px] text-muted">PNG, JPG, or GIF. Photos are compressed automatically (max 2MB).</p>
+                {menuImageProcessing && (
+                  <p className="mt-1 text-[11px] font-semibold text-accent animate-pulse">Processing photo…</p>
+                )}
+                {menuImageError && (
+                  <p className="mt-1 text-[11px] font-semibold text-red-700">{menuImageError}</p>
+                )}
               </div>
             </div>
           </AdminField>

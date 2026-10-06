@@ -36,6 +36,23 @@ const navGroups = [
     ],
   },
   {
+    label: "Finance",
+    items: [
+      {
+        href: "/admin/cash",
+        label: "Cash Management",
+        description: "Shifts & Reconciliation",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
+            <rect x="2" y="5" width="20" height="14" rx="2" />
+            <circle cx="12" cy="12" r="3" />
+            <path d="M2 9h20M2 15h20" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
     label: "Operations",
     items: [
       {
@@ -55,6 +72,16 @@ const navGroups = [
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
             <path d="M4 7h7v7H4zM13 7h7v4h-7zM13 14h7v3h-7z" />
+          </svg>
+        ),
+      },
+      {
+        href: "/admin/addons",
+        label: "Add-ons",
+        description: "Manage extras",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
+            <path d="M12 5v14M5 12h14" />
           </svg>
         ),
       },
@@ -131,6 +158,16 @@ const navGroups = [
           </svg>
         ),
       },
+      {
+        href: "/admin/reviews",
+        label: "Customer Reviews",
+        description: "Manage customer feedback",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+        ),
+      },
 
     ],
   },
@@ -155,6 +192,7 @@ const navGroups = [
 function isActive(pathname: string, href: string) {
   if (href === "/admin") return pathname === "/admin";
   if (href === "/admin/delivery") return pathname === "/admin/delivery";
+  if (href === "/admin/settings") return pathname === "/admin/settings";
   return pathname.startsWith(href);
 }
 

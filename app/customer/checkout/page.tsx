@@ -6,6 +6,8 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
+import { useCustomerPortalMode } from '@/lib/config';
+import { MENU_IMAGE_FALLBACK } from '@/lib/menu-image';
 
 type CartCheckoutItem = {
   id: string;
@@ -13,6 +15,9 @@ type CartCheckoutItem = {
   price: number;
   image: string;
   quantity: number;
+  size?: string;
+  sizePrice?: number;
+  addons?: { id: string; name: string; price: number }[];
 };
 
 const defaultCheckoutItems: CartCheckoutItem[] = [
@@ -27,15 +32,18 @@ const defaultCheckoutItems: CartCheckoutItem[] = [
     id: 'mi-1',
     name: 'House Special Latte',
     price: 145,
-    image: 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
+    image: MENU_IMAGE_FALLBACK,
     quantity: 1,
   },
 ];
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { addDeliveryOrder } = useAdminData();
+  const { addDeliveryOrder, addStoreOrder } = useAdminData();
   const { data: session, status } = useSession();
+  // Portal variant: 'local' preserves counter/offline behavior (LAN,
+  // Electron); 'online' on loopback only when the dev override flag is set.
+  const isLocalMode = useCustomerPortalMode() === 'local';
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
@@ -65,13 +73,22 @@ export default function CheckoutPage() {
       if (storedCart) {
         const parsed = JSON.parse(storedCart);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const formatted = parsed.map((item: any) => ({
-            id: item.menuItem?.id || item.id || 'item-1',
-            name: item.menuItem?.name || item.name || 'Delicious Item',
-            price: item.menuItem?.price || item.price || 100,
-            image: item.menuItem?.image || item.image || 'https://images.unsplash.com/photo-1541180464527-0245efded371?w=600&auto=format&fit=crop',
-            quantity: item.quantity || 1,
-          }));
+          const formatted = parsed.map((item: any) => {
+            const nestedSize = item.menuItem?.selectedSize ?? item.selectedSize;
+            const nestedAddons = item.menuItem?.selectedAddons ?? item.selectedAddons ?? [];
+            return {
+              id: item.menuItem?.id ?? item.id ?? 'item-1',
+              name: item.menuItem?.name ?? item.name ?? 'Delicious Item',
+              price: item.menuItem?.price ?? item.price ?? 100,
+              image: item.menuItem?.image || item.image || MENU_IMAGE_FALLBACK,
+              quantity: item.quantity || 1,
+              size: item.size ?? nestedSize?.name,
+              sizePrice: item.sizePrice ?? nestedSize?.price,
+              addons: (item.addons ?? (Array.isArray(nestedAddons) ? nestedAddons : []))
+                .filter((a: any) => a && a.name)
+                .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 })),
+            };
+          });
           setItems(formatted);
         }
       }
@@ -90,6 +107,8 @@ export default function CheckoutPage() {
           newItems.map((it) => ({
             menuItem: { id: it.id, name: it.name, price: it.price, image: it.image },
             quantity: it.quantity,
+            ...(it.size ? { selectedSize: { name: it.size, price: it.sizePrice ?? it.price } } : {}),
+            ...((it.addons ?? []).length > 0 ? { selectedAddons: it.addons } : {}),
           }))
         )
       );
@@ -138,21 +157,44 @@ export default function CheckoutPage() {
     }
 
     // Process order
-    const orderItemsSummary = items.map((it) => `${it.quantity}x ${it.name}`).join(', ');
+    const orderItemsSummary = items.map((it) => {
+      const addonSuffix = (it.addons ?? []).length > 0 ? ` + ${(it.addons ?? []).map((a) => a.name).join(', ')}` : '';
+      return `${it.quantity}x ${it.name}${it.size ? ` (${it.size})` : ''}${addonSuffix}`;
+    }).join(', ');
+    const checkoutOrderId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     
-    addDeliveryOrder({
-      orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
-      customerName: `${firstName.trim()} ${lastName.trim()}`,
-      phone: mobileNumber.trim(),
-      address: 'Near Aby Road, Poblacion, Cordova, Cebu',
-      serviceAreaId: 'sa-2',
-      items: orderItemsSummary,
-      subtotal,
-      deliveryFee: 0,
-      total,
-      status: 'pending',
-      orderedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    });
+    if (isLocalMode) {
+      addStoreOrder({
+        orderId: checkoutOrderId,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        // ISO stamp for reliable newest-first sorting (display uses `time`).
+        orderedAt: new Date().toISOString(),
+        items: orderItemsSummary,
+        total,
+        status: 'awaiting_payment',
+        paid: false,
+        paymentMethod: 'cash',
+        orderType: 'dine-in'
+      });
+      // NOTE: no journalOrder here — local-mode orders are already persisted
+      // by the LAN backend. Journaling them would queue a replay that inserts
+      // a second (customer-less) row with the same order number.
+    } else {
+      addDeliveryOrder({
+        orderNumber: checkoutOrderId,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        phone: mobileNumber.trim(),
+        address: 'Near Aby Road, Poblacion, Cordova, Cebu',
+        serviceAreaId: 'sa-2',
+        items: orderItemsSummary,
+        subtotal,
+        deliveryFee: 0,
+        total,
+        status: 'pending',
+        orderedAt: new Date().toISOString(),
+      });
+    }
 
     localStorage.removeItem('eat-n-repeat-cart');
     setOrderSuccess(true);
@@ -165,10 +207,22 @@ export default function CheckoutPage() {
           <div className="w-16 h-16 bg-[#FFF1E0] text-[#B91C1C] rounded-full flex items-center justify-center text-3xl mx-auto">
             ✓
           </div>
-          <h2 className="text-2xl font-black text-stone-900">Order Placed Successfully!</h2>
+          <h2 className="text-2xl font-black text-stone-900">
+            {isLocalMode ? 'Payment Required' : 'Order Placed Successfully!'}
+          </h2>
           <p className="text-sm text-stone-600">
-            Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
-            <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.
+            {isLocalMode ? (
+              <>
+                Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
+                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received. <br /><br />
+                <strong className="text-stone-900 text-base">Please proceed to the cashier to complete your payment.</strong>
+              </>
+            ) : (
+              <>
+                Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
+                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.
+              </>
+            )}
           </p>
           <div className="pt-4 space-y-2">
             <Link
@@ -334,7 +388,9 @@ export default function CheckoutPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-lg">💳</span>
                     <span>
-                      {paymentMethod === 'cod'
+                      {isLocalMode
+                        ? 'Cash (Pay at Cashier)'
+                        : paymentMethod === 'cod'
                         ? 'Cash on Delivery (COD)'
                         : paymentMethod === 'gcash'
                         ? 'GCash E-Wallet'
@@ -348,28 +404,41 @@ export default function CheckoutPage() {
 
                 {showPaymentOptions && (
                   <div className="mt-2 bg-white rounded-xl border border-stone-200 shadow-lg p-2 space-y-1">
-                    {[
-                      { id: 'cod', label: '💵 Cash on Delivery (COD)' },
-                      { id: 'gcash', label: '📱 GCash E-Wallet' },
-                      { id: 'maya', label: '📱 Maya E-Wallet' },
-                      { id: 'card', label: '💳 Credit / Debit Card' },
-                    ].map((opt) => (
+                    {isLocalMode ? (
                       <button
-                        key={opt.id}
                         type="button"
                         onClick={() => {
-                          setPaymentMethod(opt.id as any);
+                          setPaymentMethod('cod');
                           setShowPaymentOptions(false);
                         }}
-                        className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition ${
-                          paymentMethod === opt.id
-                            ? 'bg-rose-50 text-[#B91C1C]'
-                            : 'hover:bg-stone-50 text-stone-700'
-                        }`}
+                        className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition bg-rose-50 text-[#B91C1C]`}
                       >
-                        {opt.label}
+                        💵 Cash (Pay at Cashier)
                       </button>
-                    ))}
+                    ) : (
+                      [
+                        { id: 'cod', label: '💵 Cash on Delivery (COD)' },
+                        { id: 'gcash', label: '📱 GCash E-Wallet' },
+                        { id: 'maya', label: '📱 Maya E-Wallet' },
+                        { id: 'card', label: '💳 Credit / Debit Card' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            setPaymentMethod(opt.id as any);
+                            setShowPaymentOptions(false);
+                          }}
+                          className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition ${
+                            paymentMethod === opt.id
+                              ? 'bg-rose-50 text-[#B91C1C]'
+                              : 'hover:bg-stone-50 text-stone-700'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -412,6 +481,16 @@ export default function CheckoutPage() {
                         <div className="flex items-start justify-between gap-2">
                           <h4 className="text-xs font-extrabold text-stone-900 line-clamp-2 leading-tight">
                             {item.name}
+                            {item.size && (
+                              <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-extrabold uppercase text-amber-900 ring-1 ring-amber-200">
+                                {item.size}
+                              </span>
+                            )}
+                            {(item.addons ?? []).length > 0 && (
+                              <span className="mt-0.5 block text-[11px] font-semibold text-stone-600">
+                                + {(item.addons ?? []).map((a) => `${a.name} ₱${a.price.toFixed(2)}`).join(', ')}
+                              </span>
+                            )}
                           </h4>
                           <span className="text-xs font-black text-stone-900 shrink-0">
                             ₱{item.price.toFixed(2)}
@@ -491,7 +570,7 @@ export default function CheckoutPage() {
         </div>
       </main>
 
-      {status === 'unauthenticated' && (
+      {status === 'unauthenticated' && !isLocalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-amber-200/80 shadow-2xl space-y-6 text-center animate-in fade-in-50 zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-[#FFF1E0] text-[#E85A1C] rounded-full flex items-center justify-center text-3xl mx-auto shadow-2xs">
