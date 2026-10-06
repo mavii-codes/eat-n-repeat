@@ -463,7 +463,7 @@ export function OrderCard({
           {/* Cancellation Rules & Notice */}
           {!isCancelled && !isDelivered && (
             <div className="mb-4">
-              {isPending ? (
+              {(isPending || isAwaitingPayment) ? (
                 <div className="flex items-center justify-between bg-amber-50 p-3 rounded-xl border border-amber-200">
                   <p className="text-xs text-amber-800 font-semibold">
                     Order is currently Pending. You can cancel if needed.

@@ -144,7 +144,7 @@ function OrdersPageContent() {
     }
   }, [status, router]);
 
-  const { updateDeliveryStatus, menuItems } = useAdminData();
+  const { menuItems } = useAdminData();
   const [liveOrders, setLiveOrders] = useState<OrderCardProps[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   // Distinguishes "API loaded, customer genuinely has no orders" (show the
@@ -310,9 +310,40 @@ function OrdersPageContent() {
     setIsCartOpen(true);
   };
 
-  // Order Cancellation Handler
-  const handleCancelOrder = (orderId: string) => {
-    updateDeliveryStatus(orderId, 'cancelled');
+  // Order Cancellation Handler — customer-owned endpoint (pending orders
+  // only, ownership enforced server-side). Strict: the UI flips to Cancelled
+  // only after the backend confirms; failures keep Pending with an alert.
+  // Offline cancels are refused outright (nothing is journaled — a queued
+  // cancel could never be ordered safely against later server state).
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const handleCancelOrder = async (orderId: string) => {
+    if (cancellingId) return;
+    setCancellingId(orderId);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const accessToken = (session as any)?.accessToken as string | undefined;
+      const response = await fetch(
+        `${getApiUrl()}/api/customer-orders/${encodeURIComponent(orderId)}/cancel`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+          },
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || 'Cancellation was not accepted by the server.');
+      }
+      setLiveOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' as const } : o)),
+      );
+    } catch (error: any) {
+      alert(error?.message || 'Could not cancel this order. Please try again.');
+    } finally {
+      setCancellingId(null);
+    }
   };
 
   const handleUpdateQuantity = (id: string, delta: number) => {
