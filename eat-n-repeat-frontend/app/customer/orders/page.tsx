@@ -85,6 +85,15 @@ function OrdersPageContent() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
 
+  // Mount-gated hydration: false on server + first client render (matches SSR),
+  // then reconciles to real session after useEffect commits. Prevents React
+  // #310 hydration mismatch when session.data is null on server but populated
+  // on client initial render.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
   // Payment redirect banner state
   const [paymentBanner, setPaymentBanner] = useState<{
     type: 'success' | 'failed';
@@ -106,8 +115,9 @@ function OrdersPageContent() {
     }
   }, [searchParams]);
 
-  // Retry failed GCash payment
+  // Retry failed GCash payment — session accessed only after hydration
   const handleRetryPayment = async (orderNumber: string) => {
+    if (!hydrated) return;
     setIsRetrying(true);
     try {
       const { getApiUrl } = await import('@/lib/config');
@@ -142,7 +152,7 @@ function OrdersPageContent() {
     if (status === 'unauthenticated') {
       router.push('/customer/login?callbackUrl=/customer/orders');
     }
-  }, [status, router]);
+  }, [status, hydrated, router]);
 
   const { menuItems } = useAdminData();
   const [liveOrders, setLiveOrders] = useState<OrderCardProps[]>([]);
@@ -246,7 +256,7 @@ function OrdersPageContent() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [status, session]);
+  }, [status, hydrated, session]);
 
   if (status === 'loading' || status === 'unauthenticated' || isLoadingOrders) {
     return (
