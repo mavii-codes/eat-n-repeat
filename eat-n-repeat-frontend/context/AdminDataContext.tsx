@@ -345,7 +345,14 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
 }
 
 function createId(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  // Fallback for non-secure contexts (HTTP localhost/LAN) where crypto.randomUUID is unavailable.
+  // Combines timestamp + random for uniqueness without requiring HTTPS.
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).substring(2, 10);
+  return `${prefix}-${timestamp}${randomPart}`.slice(0, prefix.length + 1 + 16);
 }
 
 function archiveTimestamp() {
