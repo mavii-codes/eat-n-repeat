@@ -79,6 +79,7 @@ model Order {
   syncStatus            String    @default("pending") @db.VarChar(10) @map("sync_status")
 
   payments Payment[]
+  chatMessages OrderChatMessage[]
 
   @@map("orders")
   @@index([customerId], map: "orders_customer_id_fkey")
@@ -329,4 +330,19 @@ model MenuItem {
 
   @@map("menu_items")
   @@index([categoryId], map: "menu_items_category_id_fkey")
+}
+
+model OrderChatMessage {
+  id          String   @id @db.VarChar(64) @map("id")
+  orderId     String   @db.VarChar(64) @map("order_id")
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  senderId    String   @db.VarChar(64) @map("sender_id")
+  senderRole  String   @db.VarChar(20) @map("sender_role") // "customer" | "staff"
+  message     String   @db.Text @map("message")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("order_chat_messages")
+  @@index([orderId], map: "order_chat_messages_order_id_fkey")
+  @@index([senderId], map: "order_chat_messages_sender_id_fkey")
 }

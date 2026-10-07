@@ -20,6 +20,7 @@ import adminOrdersRouter from "./routes/admin-orders.routes";
 import cashRouter from "./routes/cash.routes";
 import menuRouter from "./routes/menu.routes";
 import adminCafeAvailabilityRouter from "./routes/admin-cafe-availability.routes";
+import orderChatRouter from "./routes/order-chat.routes";
 
 export const routes = Router();
 
@@ -43,3 +44,4 @@ routes.use("/sync", syncRouter);
 routes.use("/cash", cashRouter);
 routes.use("/menu", menuRouter);
 routes.use("/admin/cafe-availability", adminCafeAvailabilityRouter);
+routes.use("/order-chat", orderChatRouter);

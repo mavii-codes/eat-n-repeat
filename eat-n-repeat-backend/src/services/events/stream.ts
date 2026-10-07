@@ -1,4 +1,4 @@
-export { emitPaymentEvent, addSSEClient, removeSSEClient } from "@/lib/sse";
+export { emitPaymentEvent, addPaymentSSEClient as addSSEClient, removePaymentSSEClient as removeSSEClient } from "@/lib/sse";
 
 export class StreamService {
   async execute() {

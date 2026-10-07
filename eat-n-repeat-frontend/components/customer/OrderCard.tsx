@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import { WriteReviewModal } from './WriteReviewModal';
 import { CustomerReceiptModal } from './CustomerReceiptModal';
+import { CustomerOrderChat } from './CustomerOrderChat';
 import { useReviews } from '@/context/ReviewsContext';
 import { 
   Hourglass, Check, ChefHat, CheckCheck, Bike, BadgeCheck, 
   XCircle, PartyPopper, Utensils, Zap, FileText, Lock, 
   Bell, Receipt, RefreshCw, Star, ChevronUp, ChevronDown, Banknote,
-  ShoppingBag
+  ShoppingBag, MessageSquare
 } from 'lucide-react';
 export type OrderStatus =
   | 'pending'
@@ -167,6 +168,7 @@ export function OrderCard({
   outForDeliveryAt,
   deliveredAt,
 }: OrderCardProps) {
+  const [showChat, setShowChat] = useState(false);
   const config = statusConfig[status] || statusConfig.pending;
   const currentStageIndex = getStageIndex(status);
   const isPending = status === 'pending';
@@ -554,6 +556,17 @@ export function OrderCard({
               <Receipt className="w-4 h-4" /> View / Print Receipt
             </button>
 
+            {/* Chat Button (Delivery Orders) */}
+            {deliveryType === 'delivery' && !isDelivered && !isCancelled && (
+              <button
+                type="button"
+                onClick={() => setShowChat(true)}
+                className="py-2.5 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-black text-xs shadow-sm flex items-center gap-1.5 transition"
+              >
+                <MessageSquare className="w-4 h-4" /> Chat with Rider
+              </button>
+            )}
+
             {/* RepEat Order Button (Completed Orders) */}
             {isDelivered && onReorder && (
               <button
@@ -614,6 +627,16 @@ export function OrderCard({
         discount={discount}
         total={total}
       />
+
+      {/* Delivery Chat Modal */}
+      {deliveryType === 'delivery' && (
+        <CustomerOrderChat
+          orderId={id}
+          orderNumber={orderNumber}
+          isOpen={showChat}
+          onClose={() => setShowChat(false)}
+        />
+      )}
     </>
   );
 }
