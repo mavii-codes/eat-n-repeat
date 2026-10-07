@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Bell, Check, Package, Bike, Utensils, ShoppingBag, CreditCard, AlertTriangle, Truck, Wallet } from "lucide-react";
+import { Bell, Check, X, Package, Bike, Utensils, ShoppingBag, CreditCard, AlertTriangle, Truck, Wallet } from "lucide-react";
 import { useStaffNotifications } from "@/context/StaffNotificationContext";
 
 function formatTime(isoString: string): string {
@@ -88,14 +88,23 @@ export function StaffNotificationPanel({
       {/* Header - Sticky */}
       <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-4 py-3 sticky top-0 z-10 bg-stone-50">
         <h3 className="font-bold text-stone-800">Notifications</h3>
-        {unreadCount > 0 && (
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              className="text-xs font-semibold text-accent hover:text-accent-hover transition-colors flex items-center gap-1"
+            >
+              <Check className="h-3.5 w-3.5" /> Mark all read
+            </button>
+          )}
           <button
-            onClick={handleMarkAllRead}
-            className="text-xs font-semibold text-accent hover:text-accent-hover transition-colors flex items-center gap-1"
+            onClick={() => setIsOpen(false)}
+            className="p-1.5 rounded-lg text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+            aria-label="Close notifications"
           >
-            <Check className="h-3.5 w-3.5" /> Mark all read
+            <X className="h-4 w-4" />
           </button>
-        )}
+        </div>
       </div>
 
       {/* List - Scrollable */}
