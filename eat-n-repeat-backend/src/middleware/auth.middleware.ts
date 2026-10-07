@@ -5,7 +5,11 @@ import { env } from "@/config/env";
 export type AuthenticatedRequest = Request & { auth?: { userId: string; role?: string } };
 
 export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const token = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  // Check Authorization header first, then query parameter (for SSE connections)
+  const headerToken = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  const queryToken = req.query.token as string | undefined;
+  const token = headerToken || queryToken;
+  
   if (!token) return res.status(401).json({ message: "Authentication required." });
 
   try {
@@ -24,7 +28,9 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
 }
 
 export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
-  const token = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  const headerToken = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  const queryToken = req.query.token as string | undefined;
+  const token = headerToken || queryToken;
   if (!token) return next();
 
   try {
