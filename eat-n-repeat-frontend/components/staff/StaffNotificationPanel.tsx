@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Bell, Check, Circle, AlertCircle, Package, Bike, Utensils, ShoppingBag, CreditCard, AlertTriangle } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Bell, Check, Package, Bike, Utensils, ShoppingBag, CreditCard, AlertTriangle, Truck, Wallet } from "lucide-react";
 import { useStaffNotifications } from "@/context/StaffNotificationContext";
 
 function formatTime(isoString: string): string {
@@ -17,13 +18,15 @@ function formatTime(isoString: string): string {
   if (diffMins < 1) return "Just now";
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
-  return `${diffDays}d ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  // For older notifications, show formatted date
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function getNotificationIcon(type: string): React.ReactNode {
   switch (type) {
     case "delivery":
-      return <Bike className="h-4 w-4 text-blue-500" />;
+      return <Truck className="h-4 w-4 text-blue-500" />;
     case "dine-in":
       return <Utensils className="h-4 w-4 text-amber-500" />;
     case "pickup":
@@ -37,6 +40,11 @@ function getNotificationIcon(type: string): React.ReactNode {
     default:
       return <Package className="h-4 w-4 text-stone-500" />;
   }
+}
+
+// Helper to get timestamp from notification (handles both createdAt and created_at)
+function getNotificationTime(notification: any): string {
+  return notification.createdAt ?? notification.created_at ?? "";
 }
 
 export function StaffNotificationPanel({ 
@@ -75,8 +83,70 @@ export function StaffNotificationPanel({
     markAllAsRead();
   };
 
+  const dropdownContent = (
+    <div className="w-96 rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 z-[100] overflow-hidden flex flex-col max-h-[480px]">
+      {/* Header - Sticky */}
+      <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-4 py-3 sticky top-0 z-10 bg-stone-50">
+        <h3 className="font-bold text-stone-800">Notifications</h3>
+        {unreadCount > 0 && (
+          <button
+            onClick={handleMarkAllRead}
+            className="text-xs font-semibold text-accent hover:text-accent-hover transition-colors flex items-center gap-1"
+          >
+            <Check className="h-3.5 w-3.5" /> Mark all read
+          </button>
+        )}
+      </div>
+
+      {/* List - Scrollable */}
+      <div className="overflow-y-auto flex-1 p-2 space-y-1">
+        {notifications.length === 0 ? (
+          <div className="py-8 text-center text-sm text-stone-500">
+            <Bell className="mx-auto h-8 w-8 text-stone-300 mb-2" />
+            <p className="font-medium text-stone-700">No notifications</p>
+            <p className="text-xs text-stone-500 mt-0.5">You're all caught up.</p>
+          </div>
+        ) : (
+          notifications.map((notification) => {
+            const icon = getNotificationIcon(notification.type);
+            const timeStr = formatTime(getNotificationTime(notification));
+            return (
+              <div
+                key={notification.id}
+                onClick={() => handleNotificationClick(notification)}
+                className={`relative flex cursor-pointer items-start gap-3 rounded-xl p-3 transition-colors ${
+                  !notification.is_read ? "bg-red-50/50 hover:bg-red-50" : "hover:bg-stone-50"
+                }`}
+              >
+                <div className="flex-shrink-0">
+                  {icon}
+                </div>
+                {!notification.is_read && (
+                  <span className="absolute top-3 right-2.5 h-2 w-2 rounded-full bg-red-500" />
+                )}
+                <div className="flex-1 min-w-0 pl-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className={`text-sm ${!notification.is_read ? "font-bold text-stone-900" : "font-semibold text-stone-700"}`}>
+                      {notification.title}
+                    </p>
+                    <span className="shrink-0 text-[10px] font-medium text-stone-400 whitespace-nowrap mt-0.5">
+                      {formatTime(getNotificationTime(notification))}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-stone-600 line-clamp-3 whitespace-pre-line leading-relaxed">
+                    {notification.message}
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative">
       <button
         ref={bellRef}
         onClick={() => setIsOpen(!isOpen)}
@@ -98,65 +168,11 @@ export function StaffNotificationPanel({
         )}
       </button>
 
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-76 rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 z-[100] overflow-hidden flex flex-col max-h-[480px]">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-4 py-3">
-            <h3 className="font-bold text-stone-800">Notifications</h3>
-            {unreadCount > 0 && (
-              <button
-                onClick={handleMarkAllRead}
-                className="text-xs font-semibold text-accent hover:text-accent-hover transition-colors flex items-center gap-1"
-              >
-                <Check className="h-3.5 w-3.5" /> Mark all read
-              </button>
-            )}
-          </div>
-
-          {/* List */}
-          <div className="overflow-y-auto flex-1 p-2 space-y-1">
-            {notifications.length === 0 ? (
-              <div className="py-8 text-center text-sm text-stone-500">
-                <Bell className="mx-auto h-8 w-8 text-stone-300 mb-2" />
-                <p className="font-medium text-stone-700">No notifications</p>
-                <p className="text-xs text-stone-500 mt-0.5">You're all caught up.</p>
-              </div>
-            ) : (
-              notifications.map((notification) => {
-                const icon = getNotificationIcon(notification.type);
-                return (
-                  <div
-                    key={notification.id}
-                    onClick={() => handleNotificationClick(notification)}
-                    className={`relative flex cursor-pointer items-start gap-3 rounded-xl p-3 transition-colors ${
-                      !notification.is_read ? "bg-red-50/50 hover:bg-red-50" : "hover:bg-stone-50"
-                    }`}
-                  >
-                    <div className="flex-shrink-0">
-                      {icon}
-                    </div>
-                    {!notification.is_read && (
-                      <span className="absolute top-3 right-2.5 h-2 w-2 rounded-full bg-red-500" />
-                    )}
-                    <div className="flex-1 min-w-0 pl-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className={`text-sm ${!notification.is_read ? "font-bold text-stone-900" : "font-semibold text-stone-700"}`}>
-                          {notification.title}
-                        </p>
-                        <span className="shrink-0 text-[10px] font-medium text-stone-400 whitespace-nowrap mt-0.5">
-                          {formatTime(notification.created_at)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-stone-600 line-clamp-3 whitespace-pre-line leading-relaxed">
-                        {notification.message}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
+      {isOpen && createPortal(
+        <div className="fixed right-4 top-[80px] w-96 rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 z-[9999] overflow-hidden flex flex-col max-h-[480px]">
+          {dropdownContent}
+        </div>,
+        document.body
       )}
     </div>
   );
