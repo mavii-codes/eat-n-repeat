@@ -491,7 +491,9 @@ export function CartDrawer({
                     </div>
                     <div className="flex justify-between pt-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Payment Method</span>
-                      <span className="font-bold text-sm">Cash at Counter</span>
+                      <span className="font-bold text-sm">
+                        {completedOrder.type === 'delivery' ? 'Cash on Delivery' : 'Cash at Counter'}
+                      </span>
                     </div>
                     <div className="flex justify-between border-t border-stone-200 pt-2 mt-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Payment Status</span>
@@ -502,13 +504,19 @@ export function CartDrawer({
                   <div className="p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 shadow-sm text-left mx-auto max-w-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></div>
-                      <h4 className="font-black text-sm uppercase">Awaiting Cash Payment</h4>
+                      <h4 className="font-black text-sm uppercase">
+                        {completedOrder.type === 'delivery' ? 'Awaiting Rider Collection' : 'Awaiting Cash Payment'}
+                      </h4>
                     </div>
                     <p className="text-xs font-medium opacity-90 leading-relaxed mb-2">
-                      Please proceed to the cashier and present your Order ID. Your order will only be sent to the kitchen after the cashier confirms your cash payment.
+                      {completedOrder.type === 'delivery'
+                        ? 'Your rider will collect cash payment upon delivery. Your order will be prepared and dispatched for delivery.'
+                        : 'Please proceed to the cashier and present your Order ID. Your order will only be sent to the kitchen after the cashier confirms your cash payment.'}
                     </p>
                     <p className="text-[11px] font-bold text-rose-700 bg-white/50 p-2 rounded border border-rose-100">
-                      Your order is not yet being prepared. Payment must be confirmed by the cashier first.
+                      {completedOrder.type === 'delivery'
+                        ? 'Your order will be prepared for delivery. The rider will collect payment upon arrival.'
+                        : 'Your order is not yet being prepared. Payment must be confirmed by the cashier first.'}
                     </p>
                   </div>
                   

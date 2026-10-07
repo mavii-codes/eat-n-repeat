@@ -54,6 +54,12 @@ export async function checkout(
     }
   }
 
+  // ── Online COD for Delivery ──
+  // Allow Cash on Delivery for delivery orders in online mode.
+  // This creates the order with PENDING payment status (unpaid).
+  // No Xendit invoice is created; payment is collected by rider on delivery.
+  const isOnlineCOD = orderMode !== "local" && type === "delivery" && normalizedMethod === "cash";
+
   // ── Online Ordering Availability Gate ──
   // Only gate non-local orders; local orders bypass availability check.
   if (orderMode !== "local") {
@@ -163,13 +169,33 @@ export async function checkout(
     subtotal,
     deliveryFee: deliveryFee || 0,
     total,
-    status: orderMode === "local" ? "pending" : "pending_payment",
+    // COD delivery orders: status "pending" (awaiting rider delivery + cash collection)
+    // Other online orders: "pending_payment" (awaiting online payment)
+    // Local mode: "pending" (will be paid at cashier)
+    status: isOnlineCOD ? "pending" : orderMode === "local" ? "pending" : "pending_payment",
     notes: notes || null,
     orderMode,
   });
 
   // For local mode cash orders, skip payment record — handled by Staff POS at cashier
   if (orderMode === "local") {
+    return {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+    };
+  }
+
+  // For COD delivery orders, create payment record with PENDING status
+  // but skip Xendit invoice creation. Payment will be collected by rider on delivery.
+  if (isOnlineCOD) {
+    const paymentId = uuidv4();
+    await paymentsRepository.createPayment({
+      id: paymentId,
+      orderId: order.id,
+      paymentMethod,
+      amount: total,
+      status: "PENDING",
+    });
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
