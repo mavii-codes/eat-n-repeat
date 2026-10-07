@@ -152,7 +152,7 @@ function OrdersPageContent() {
     if (status === 'unauthenticated') {
       router.push('/customer/login?callbackUrl=/customer/orders');
     }
-  }, [status, hydrated, router]);
+  }, [status, router]);
 
   const { menuItems } = useAdminData();
   const [liveOrders, setLiveOrders] = useState<OrderCardProps[]>([]);
@@ -163,9 +163,13 @@ function OrdersPageContent() {
   // stand in for a successful empty response.
   const [ordersFetchFailed, setOrdersFetchFailed] = useState(false);
 
+  // Cancellation state — must be before early return to keep hook order stable
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
   // Fetch real customer orders from the backend
   useEffect(() => {
     if (status !== 'authenticated') return;
+    if (!hydrated) return;
 
     let mounted = true;
     const fetchOrders = async () => {
@@ -256,7 +260,7 @@ function OrdersPageContent() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [status, hydrated, session]);
+  }, [status, session]);
 
   if (status === 'loading' || status === 'unauthenticated' || isLoadingOrders) {
     return (
@@ -325,7 +329,6 @@ function OrdersPageContent() {
   // only after the backend confirms; failures keep Pending with an alert.
   // Offline cancels are refused outright (nothing is journaled — a queued
   // cancel could never be ordered safely against later server state).
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const handleCancelOrder = async (orderId: string) => {
     if (cancellingId) return;
     setCancellingId(orderId);
