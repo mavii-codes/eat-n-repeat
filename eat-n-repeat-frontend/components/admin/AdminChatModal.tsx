@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdminModal } from "./AdminModal";
 import { AdminInput } from "./AdminForm";
-import { X, Loader2, Check, Wifi, WifiOff } from "lucide-react";
-import { useSession } from "next-auth/react";
-import { getApiUrl } from "@/lib/config";
+import { X } from "lucide-react";
+import { getApiUrl } from "@/lib/config-shared";
 import { MessageList } from "./MessageList";
 
 type Message = {
@@ -22,7 +21,10 @@ type AdminChatModalProps = {
   open: boolean;
   onClose: () => void;
   customerName: string;
+  /** Database order id used for the chat API. */
   orderId: string;
+  /** Human-friendly order number shown in the header. Defaults to orderId. */
+  orderNumber?: string;
 };
 
 function formatTime(isoString: string): string {
@@ -32,127 +34,183 @@ function formatTime(isoString: string): string {
   return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
-export function AdminChatModal({ open, onClose, customerName, orderId }: AdminChatModalProps) {
-  const { data: session } = useSession();
+function getStaffToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return (
+    localStorage.getItem("eat-n-repeat-admin-token") ||
+    localStorage.getItem("eat-n-repeat-staff-token")
+  );
+}
+
+export function AdminChatModal({ open, onClose, customerName, orderId, orderNumber }: AdminChatModalProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [eventSource, setEventSource] = useState<EventSource | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
 
-  const loadMessages = useCallback(async () => {
-    if (!session?.user) return;
-    try {
-      setIsLoading(true);
-      const accessToken = (session as any)?.accessToken as string | undefined;
-      const response = await fetch(`${getApiUrl()}/api/order-chat/${orderId}/messages`, {
-        headers: {
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.messages) {
-          setMessages(data.messages);
-        }
+  const displayOrderNumber = orderNumber ?? orderId;
+
+  // Single SSE connection per open session. Refs (not state) track the
+  // connection so state updates can never retrigger the effect loop.
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+
+    const closeConnection = () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
       }
-    } catch (error) {
-      console.error("Failed to load chat messages:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orderId, session]);
-
-  const connectSSE = useCallback(() => {
-    const accessToken = (session as any)?.accessToken as string | undefined;
-    const url = `${getApiUrl()}/api/events/order-chat/${orderId}/stream${accessToken ? `?token=${accessToken}` : ""}`;
-    
-    const es = new EventSource(url);
-    setEventSource(es);
-
-    es.onopen = () => {
-      setIsConnected(true);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (!cancelled) setIsConnected(false);
     };
 
-    es.onmessage = (event) => {
+    const loadMessages = async () => {
+      const token = getStaffToken();
+      if (!token) {
+        if (!cancelled) {
+          setLoadError("Not signed in as staff. Please log in again.");
+          setIsLoading(false);
+        }
+        return;
+      }
       try {
-        const data = JSON.parse(event.data);
-        if (data.type === "NEW_MESSAGE" && data.message) {
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === data.message.id)) return prev;
-            return [...prev, data.message];
-          });
+        setIsLoading(true);
+        setLoadError(null);
+        const response = await fetch(
+          `${getApiUrl()}/api/order-chat/${encodeURIComponent(orderId)}/messages`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const data = await response.json().catch(() => null);
+        if (!cancelled) {
+          if (response.ok && data?.success && Array.isArray(data.messages)) {
+            setMessages(data.messages);
+          } else if (response.status === 404) {
+            setLoadError("This order hasn't synced to the server yet, so chat isn't available.");
+          } else {
+            setLoadError(data?.message || "Could not load messages.");
+          }
         }
       } catch (error) {
-        console.error("Failed to parse SSE message:", error);
+        console.error("Failed to load chat messages:", error);
+        if (!cancelled) setLoadError("Could not reach the server.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    es.onerror = () => {
-      setIsConnected(false);
-      // Auto-reconnect after 5 seconds
-      setTimeout(() => {
-        if (open) connectSSE();
-      }, 5000);
+    const connectSSE = () => {
+      const token = getStaffToken();
+      if (!token || !openRef.current || eventSourceRef.current) return;
+      const url =
+        `/api/events/order-chat/${encodeURIComponent(orderId)}/stream` +
+        `?token=${encodeURIComponent(token)}`;
+      const es = new EventSource(url);
+      eventSourceRef.current = es;
+
+      es.onopen = () => {
+        if (!cancelled) setIsConnected(true);
+      };
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data?.type === "NEW_MESSAGE" && data.message) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === data.message.id)) return prev;
+              return [...prev, data.message];
+            });
+          }
+        } catch (error) {
+          console.error("Failed to parse SSE message:", error);
+        }
+      };
+      es.onerror = () => {
+        if (cancelled) return;
+        setIsConnected(false);
+        eventSourceRef.current = null;
+        // Reconnect once after a pause; the guard above prevents duplicates.
+        if (!reconnectTimerRef.current && openRef.current) {
+          reconnectTimerRef.current = setTimeout(() => {
+            reconnectTimerRef.current = null;
+            connectSSE();
+          }, 5000);
+        }
+      };
     };
 
-    setEventSource(es);
-  }, [orderId, session, open]);
-
-  // Load messages and connect SSE when chat opens
-  useEffect(() => {
-    if (open) {
-      loadMessages();
-      connectSSE();
-    } else {
-      if (eventSource) {
-        eventSource.close();
-        setEventSource(null);
-      }
-      setIsConnected(false);
-    }
-    return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-    };
-  }, [open, loadMessages, connectSSE, eventSource]);
-
-  // Mark messages as read when chat opens
-  useEffect(() => {
-    if (open && session?.user) {
-      fetch(`${getApiUrl()}/api/order-chat/${orderId}/messages/read`, {
+    const markRead = () => {
+      const token = getStaffToken();
+      if (!token) return;
+      fetch(`${getApiUrl()}/api/order-chat/${encodeURIComponent(orderId)}/messages/read`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...((session as any)?.accessToken ? { Authorization: `Bearer ${(session as any).accessToken}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
-      }).catch(console.error);
-    }
-  }, [open, orderId, session]);
+      }).catch((error) => console.error("Failed to mark messages as read:", error));
+    };
 
-  const handleSend = useCallback(async (e: React.FormEvent) => {
+    setMessages([]);
+    setInputMessage("");
+    setLoadError(null);
+    loadMessages();
+    connectSSE();
+    markRead();
+
+    return () => {
+      cancelled = true;
+      closeConnection();
+      setMessages([]);
+    };
+  }, [open, orderId]);
+
+  // Scroll chat area to bottom when messages list updates
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!inputMessage.trim() || isSending || !session?.user) return;
+    if (!inputMessage.trim() || isSending) return;
+    const token = getStaffToken();
+    if (!token) {
+      setLoadError("Not signed in as staff. Please log in again.");
+      return;
+    }
 
     setIsSending(true);
     try {
-      const accessToken = (session as any)?.accessToken as string | undefined;
-      const response = await fetch(`${getApiUrl()}/api/order-chat/${orderId}/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
-        body: JSON.stringify({ message: inputMessage }),
-      });
-      if (response.ok) {
+      const response = await fetch(
+        `${getApiUrl()}/api/order-chat/${encodeURIComponent(orderId)}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ message: inputMessage.trim() }),
+        }
+      );
+      const data = await response.json().catch(() => null);
+      if (response.ok && data?.success && data.message) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === data.message.id)) return prev;
+          return [...prev, data.message];
+        });
         setInputMessage("");
       } else {
-        const data = await response.json().catch(() => ({}));
-        alert(data.message || "Failed to send message");
+        alert(data?.message || "Failed to send message");
       }
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -160,85 +218,65 @@ export function AdminChatModal({ open, onClose, customerName, orderId }: AdminCh
     } finally {
       setIsSending(false);
     }
-  }, [orderId, session, isSending]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages]);
-
-  if (!open) return null;
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-fade-in">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="pointer-events-auto w-full max-w-md bg-white rounded-3xl shadow-2xl flex flex-col animate-slide-up">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-[#800000] to-[#B91C1C] text-white px-4 py-3 rounded-t-3xl flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm">Chat with {customerName}</span>
-            <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full">Order #{orderId}</span>
+    <AdminModal
+      open={open}
+      title={`Chat with ${customerName}`}
+      onClose={onClose}
+      footer={
+        <form onSubmit={handleSend} className="flex w-full items-center gap-2">
+          <div className="flex-1">
+            <AdminInput
+              type="text"
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              placeholder={`Message ${customerName}...`}
+              className="w-full text-ink focus:outline-none"
+              disabled={isSending}
+            />
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`flex items-center gap-1 text-[10px] font-medium ${isConnected ? "text-emerald-300" : "text-amber-300"}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
-              {isConnected ? "Connected" : "Connecting..."}
-            </span>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
-              aria-label="Close chat"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={!inputMessage.trim() || isSending}
+            className="rounded-xl bg-gradient-to-r from-accent to-accent-dark px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-110 disabled:opacity-50 transition-all cursor-pointer"
+          >
+            Send
+          </button>
+        </form>
+      }
+    >
+      <div className="flex flex-col h-[320px] bg-accent-light/30 rounded-2xl p-4 border border-accent/5">
+        <div className="text-center pb-2 mb-2 border-b border-accent/10">
+          <p className="text-[10px] uppercase font-bold tracking-widest text-muted">
+            Order Ticket: #{displayOrderNumber}
+          </p>
+          <p className={`text-[10px] font-semibold mt-1 ${isConnected ? "text-emerald-600" : "text-amber-600"}`}>
+            {isConnected ? "Connected" : "Connecting..."}
+          </p>
         </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[400px] bg-white">
+        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-[#800000]/30 border-t-[#800000] rounded-full animate-spin" />
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            </div>
+          ) : loadError && messages.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted">
+              <p className="font-semibold text-ink">Chat unavailable</p>
+              <p className="text-xs mt-1">{loadError}</p>
             </div>
           ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center text-stone-500">
-              <span className="text-4xl mb-2" aria-hidden="true">💬</span>
-              <p className="font-medium text-stone-700">No messages yet</p>
-              <p className="text-xs text-stone-500 mt-1">Start the conversation with the customer</p>
+            <div className="py-8 text-center text-sm text-muted">
+              <p className="font-semibold text-ink">No messages yet</p>
+              <p className="text-xs mt-1">Start the conversation with {customerName}.</p>
             </div>
           ) : (
             <MessageList messages={messages} customerName={customerName} formatTime={formatTime} />
           )}
           <div ref={messagesEndRef} />
         </div>
-
-        {/* Input */}
-        <form onSubmit={handleSend} className="p-4 border-t border-stone-200 bg-white rounded-b-3xl">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder={`Message ${customerName}...`}
-              className="flex-1 px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:border-[#800000] focus:ring-1 focus:ring-[#800000] placeholder:text-stone-400"
-              disabled={isSending}
-            />
-            <button
-              type="submit"
-              disabled={!inputMessage.trim() || isSending}
-              className="w-10 h-10 rounded-xl bg-gradient-to-r from-[#800000] to-[#B91C1C] hover:from-[#991B1B] hover:to-[#D97706] disabled:opacity-50 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-sm"
-              aria-label="Send message"
-            >
-              <span className="text-lg" aria-hidden="true">›</span>
-            </button>
-          </div>
-        </form>
       </div>
-    </div>
+    </AdminModal>
   );
 }

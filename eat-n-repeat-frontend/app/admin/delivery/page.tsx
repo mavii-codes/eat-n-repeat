@@ -26,10 +26,10 @@ export default function DeliveryPage() {
 
   const [tab, setTab] = useState<Tab>("all");
   const [chatOpen, setChatOpen] = useState(false);
-  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
+  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderId: string; orderNumber: string } | null>(null);
 
-  const handleOpenChat = (customerName: string, orderNumber: string) => {
-    setActiveChatOrder({ customerName, orderNumber });
+  const handleOpenChat = (customerName: string, orderId: string, orderNumber: string) => {
+    setActiveChatOrder({ customerName, orderId, orderNumber });
     setChatOpen(true);
   };
 
@@ -131,7 +131,7 @@ export default function DeliveryPage() {
           getServiceAreaName={getServiceAreaName}
           showStatusControl={tab === "active"}
           onStatusChange={updateDeliveryStatus}
-          onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
+          onChat={(order) => handleOpenChat(order.customerName, order.id, order.orderNumber)}
           onArchive={
             tab === "history"
               ? (order) => {
@@ -190,7 +190,8 @@ export default function DeliveryPage() {
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           customerName={activeChatOrder.customerName}
-          orderId={activeChatOrder.orderNumber}
+          orderId={activeChatOrder.orderId}
+          orderNumber={activeChatOrder.orderNumber}
         />
       )}
     </>

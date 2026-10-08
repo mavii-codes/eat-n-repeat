@@ -1,21 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApiUrl } from "@/lib/config";
+import { getApiUrl } from "@/lib/config-shared";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ orderId: string }> }
 ) {
   const { orderId } = await params;
-  const accessToken = request.headers.get("authorization");
-  
-  const response = await fetch(`${getApiUrl()}/api/events/order-chat/${orderId}/stream${accessToken ? `?token=${accessToken}` : ""}`, {
-    headers: {
-      ...(accessToken ? { Authorization: accessToken } : {}),
-    },
-  });
+  // EventSource cannot set request headers, so the token travels as a
+  // query parameter. Forward it (plus any Authorization header) upstream.
+  const headerToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const queryToken = request.nextUrl.searchParams.get("token");
+  const token = headerToken || queryToken;
+
+  const response = await fetch(
+    `${getApiUrl()}/api/events/order-chat/${encodeURIComponent(orderId)}/stream${
+      token ? `?token=${encodeURIComponent(token)}` : ""
+    }`,
+    {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    }
+  );
 
   if (!response.ok || !response.body) {
-    return NextResponse.json({ error: "Failed to connect to SSE" }, { status: 500 });
+    const detail = await response.text().catch(() => "");
+    return NextResponse.json(
+      { error: "Failed to connect to chat stream", detail: detail.slice(0, 200) },
+      { status: response.status || 500 }
+    );
   }
 
   // Create a readable stream to proxy the SSE

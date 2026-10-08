@@ -2,24 +2,35 @@ import type { Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
 import { orderChatService } from "@/services/order-chat";
 
+async function authorizeOrderChat(req: AuthenticatedRequest) {
+  const userId = req.auth?.userId;
+  if (!userId) return { error: "Unauthorized" as const };
+  // Role is derived server-side so pre-existing JWTs (no `role` claim)
+  // keep working without forcing every user to re-login.
+  const role = await orderChatService.resolveActorRole(userId);
+  if (!role) return { error: "Unauthorized" as const };
+  return { userId, role };
+}
+
 export class OrderChatController {
   async getMessages(req: AuthenticatedRequest, res: Response) {
     try {
-      const orderId = req.params.orderId as string;
-      const userId = req.auth?.userId;
-      const role = req.auth?.role as "customer" | "staff";
-
-      if (!userId) {
-        return res.status(401).json({ success: false, message: "Unauthorized" });
+      const identifier = req.params.orderId as string;
+      const auth = await authorizeOrderChat(req);
+      if ("error" in auth) {
+        return res.status(401).json({ success: false, message: auth.error });
       }
 
-      // Verify user has access to this order's chat
-      const hasAccess = await orderChatService.verifyOrderAccess(orderId, userId, role);
+      const orderDbId = await orderChatService.resolveOrderId(identifier);
+      if (!orderDbId) {
+        return res.status(404).json({ success: false, message: "Order not found" });
+      }
+      const hasAccess = await orderChatService.verifyOrderAccess(orderDbId, auth.userId, auth.role);
       if (!hasAccess) {
         return res.status(403).json({ success: false, message: "Access denied to this order's chat" });
       }
 
-      const messages = await orderChatService.getMessages(orderId);
+      const messages = await orderChatService.getMessages(orderDbId);
       res.json({ success: true, messages });
     } catch (error) {
       console.error("Error fetching chat messages:", error);
@@ -29,31 +40,31 @@ export class OrderChatController {
 
   async sendMessage(req: AuthenticatedRequest, res: Response) {
     try {
-      const orderId = req.params.orderId as string;
+      const identifier = req.params.orderId as string;
       const { message } = req.body;
-      const userId = req.auth?.userId;
-      const role = req.auth?.role as "customer" | "staff";
-
-      if (!userId || !role) {
-        return res.status(401).json({ success: false, message: "Unauthorized" });
+      if (typeof message !== "string" || !message.trim() || message.trim().length > 2000) {
+        return res.status(400).json({ success: false, message: "Message must be 1-2000 characters." });
+      }
+      const auth = await authorizeOrderChat(req);
+      if ("error" in auth) {
+        return res.status(401).json({ success: false, message: auth.error });
       }
 
-      // Verify user has access to this order's chat
-      const hasAccess = await orderChatService.verifyOrderAccess(orderId, userId, role);
+      const orderDbId = await orderChatService.resolveOrderId(identifier);
+      if (!orderDbId) {
+        return res.status(404).json({ success: false, message: "Order not found" });
+      }
+      const hasAccess = await orderChatService.verifyOrderAccess(orderDbId, auth.userId, auth.role);
       if (!hasAccess) {
         return res.status(403).json({ success: false, message: "Access denied to this order's chat" });
       }
 
-      const senderRole = role === "customer" ? "customer" : "staff";
       const newMessage = await orderChatService.sendMessage({
-        orderId,
-        senderId: userId,
-        senderRole,
-        message,
+        orderId: orderDbId,
+        senderId: auth.userId,
+        senderRole: auth.role,
+        message: message.trim(),
       });
-
-      // Emit realtime event via SSE
-      await orderChatService.emitNewMessage(orderId, newMessage);
 
       res.json({ success: true, message: newMessage });
     } catch (error: any) {
@@ -67,15 +78,17 @@ export class OrderChatController {
 
   async markAsRead(req: AuthenticatedRequest, res: Response) {
     try {
-      const orderId = req.params.orderId as string;
-      const userId = req.auth?.userId;
-      const role = req.auth?.role as "customer" | "staff";
-
-      if (!userId || !role) {
-        return res.status(401).json({ success: false, message: "Unauthorized" });
+      const identifier = req.params.orderId as string;
+      const auth = await authorizeOrderChat(req);
+      if ("error" in auth) {
+        return res.status(401).json({ success: false, message: auth.error });
       }
 
-      await orderChatService.markAsRead(orderId, userId, role);
+      const orderDbId = await orderChatService.resolveOrderId(identifier);
+      if (!orderDbId) {
+        return res.status(404).json({ success: false, message: "Order not found" });
+      }
+      await orderChatService.markAsRead(orderDbId, auth.userId, auth.role);
       res.json({ success: true });
     } catch (error) {
       console.error("Error marking messages as read:", error);
@@ -85,15 +98,17 @@ export class OrderChatController {
 
   async getUnreadCount(req: AuthenticatedRequest, res: Response) {
     try {
-      const orderId = req.params.orderId as string;
-      const userId = req.auth?.userId;
-      const role = req.auth?.role as "customer" | "staff";
-
-      if (!userId || !role) {
-        return res.status(401).json({ success: false, message: "Unauthorized" });
+      const identifier = req.params.orderId as string;
+      const auth = await authorizeOrderChat(req);
+      if ("error" in auth) {
+        return res.status(401).json({ success: false, message: auth.error });
       }
 
-      const count = await orderChatService.getUnreadCount(orderId, userId, role);
+      const orderDbId = await orderChatService.resolveOrderId(identifier);
+      if (!orderDbId) {
+        return res.status(404).json({ success: false, message: "Order not found" });
+      }
+      const count = await orderChatService.getUnreadCount(orderDbId, auth.userId, auth.role);
       res.json({ success: true, unreadCount: count });
     } catch (error) {
       console.error("Error getting unread count:", error);

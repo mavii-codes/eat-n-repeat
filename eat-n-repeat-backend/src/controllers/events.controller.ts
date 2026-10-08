@@ -18,18 +18,27 @@ export class EventsController {
   }
 
   async streamOrderChat(req: AuthenticatedRequest, res: Response) {
-    const orderId = req.params.orderId as string;
+    const identifier = req.params.orderId as string;
     const userId = req.auth?.userId;
-    const role = req.auth?.role;
-
-    if (!userId || !role) {
+    if (!userId) {
       res.status(401).json({ success: false, message: "Unauthorized" });
       return;
     }
 
-    // Verify access to this order's chat
+    // Role is derived server-side so pre-existing JWTs (no `role` claim)
+    // keep working without forcing every user to re-login.
     const { orderChatService } = await import("@/services/order-chat");
-    const hasAccess = await orderChatService.verifyOrderAccess(orderId, userId, role);
+    const role = await orderChatService.resolveActorRole(userId);
+    if (!role) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    const orderDbId = await orderChatService.resolveOrderId(identifier);
+    if (!orderDbId) {
+      res.status(404).json({ success: false, message: "Order not found" });
+      return;
+    }
+    const hasAccess = await orderChatService.verifyOrderAccess(orderDbId, userId, role);
     if (!hasAccess) {
       res.status(403).json({ success: false, message: "Access denied to this order's chat" });
       return;
@@ -42,10 +51,10 @@ export class EventsController {
     res.write('data: {"type":"CONNECTED"}\n\n');
 
     const { addOrderChatSSEClient, removeOrderChatSSEClient } = await import("@/lib/sse");
-    addOrderChatSSEClient(orderId, res);
+    addOrderChatSSEClient(orderDbId, res);
 
     req.on("close", () => {
-      removeOrderChatSSEClient(orderId, res);
+      removeOrderChatSSEClient(orderDbId, res);
     });
   }
 }

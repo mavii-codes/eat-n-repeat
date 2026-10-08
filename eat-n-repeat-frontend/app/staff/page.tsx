@@ -458,10 +458,10 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
 
   const [chatOpen, setChatOpen] = useState(false);
-  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
+  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderId: string; orderNumber: string } | null>(null);
 
-  const handleOpenChat = (customerName: string, orderNumber: string) => {
-    setActiveChatOrder({ customerName, orderNumber });
+  const handleOpenChat = (customerName: string, orderId: string, orderNumber: string) => {
+    setActiveChatOrder({ customerName, orderId, orderNumber });
     setChatOpen(true);
   };
   const [currentTime, setCurrentTime] = useState("");
@@ -1584,7 +1584,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                             <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-accent" /> Delivery Address</p>
                             <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.address}</p>
                             <button
-                              onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.orderId); }}
+                              onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.id, selectedOrderDetails.orderId); }}
                               className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 bg-accent/5 text-accent font-bold text-sm rounded-lg border border-accent/10 hover:bg-accent/10 hover:shadow-sm transition-all"
                             >
                               <MessageCircle className="h-4 w-4" /> Chat with Customer
@@ -2059,7 +2059,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                             <p className="text-muted mt-0.5">{order.address}</p>
                             <button
                               type="button"
-                              onClick={() => handleOpenChat(order.customerName, order.orderNumber)}
+                              onClick={() => handleOpenChat(order.customerName, order.id, order.orderNumber)}
                               className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent hover:underline cursor-pointer focus:outline-none"
                             >
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3 w-3">
@@ -2370,7 +2370,8 @@ function OrderTableScroll({ className, children }: { className?: string; childre
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           customerName={activeChatOrder.customerName}
-          orderId={activeChatOrder.orderNumber}
+          orderId={activeChatOrder.orderId}
+          orderNumber={activeChatOrder.orderNumber}
         />
       )}
     </div>
