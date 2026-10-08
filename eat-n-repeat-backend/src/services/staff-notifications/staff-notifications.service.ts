@@ -19,7 +19,20 @@ export async function notifyAllStaff(type: string, title: string, message: strin
 }
 
 export async function getStaffNotifications() {
-  return staffNotificationsRepository.findAllStaffNotifications();
+  const rows = await staffNotificationsRepository.findAllStaffNotifications();
+  // Map Prisma camelCase fields to the frontend's snake_case contract.
+  // The frontend StaffNotification type expects: id, user_id, type, title,
+  // message, related_order_id, is_read, created_at. Prisma returns camelCase.
+  return rows.map((n) => ({
+    id: n.id,
+    user_id: n.userId,
+    type: n.type,
+    title: n.title,
+    message: n.message,
+    related_order_id: n.relatedOrderId,
+    is_read: n.isRead,
+    created_at: n.createdAt instanceof Date ? n.createdAt.toISOString() : n.createdAt,
+  }));
 }
 
 export async function markNotificationAsRead(id: string) {

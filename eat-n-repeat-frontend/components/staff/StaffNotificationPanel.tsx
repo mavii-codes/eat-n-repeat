@@ -56,19 +56,21 @@ export function StaffNotificationPanel({
 }) {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useStaffNotifications();
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const bellRef = useRef<HTMLButtonElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside (covers both the bell and the portal panel)
   useEffect(() => {
+    if (!isOpen) return;
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+      const target = event.target as Node;
+      if (wrapperRef.current && wrapperRef.current.contains(target)) return;
+      if (panelRef.current && panelRef.current.contains(target)) return;
+      setIsOpen(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [isOpen]);
 
   const handleNotificationClick = (notification: any) => {
     markAsRead(notification.id);
@@ -84,9 +86,9 @@ export function StaffNotificationPanel({
   };
 
   const dropdownContent = (
-    <div className="w-96 rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 z-[100] overflow-hidden flex flex-col max-h-[480px]">
+    <div className="w-[400px] max-w-[calc(100vw-2rem)] rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 overflow-hidden flex flex-col max-h-[480px]">
       {/* Header - Sticky */}
-      <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-4 py-3 sticky top-0 z-10 bg-stone-50">
+      <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-4 py-3 shrink-0">
         <h3 className="font-bold text-stone-800">Notifications</h3>
         <div className="flex items-center gap-2">
           {unreadCount > 0 && (
@@ -108,7 +110,7 @@ export function StaffNotificationPanel({
       </div>
 
       {/* List - Scrollable */}
-      <div className="overflow-y-auto flex-1 p-2 space-y-1">
+      <div className="overflow-y-auto flex-1 p-2 space-y-1 min-h-0">
         {notifications.length === 0 ? (
           <div className="py-8 text-center text-sm text-stone-500">
             <Bell className="mx-auto h-8 w-8 text-stone-300 mb-2" />
@@ -118,7 +120,6 @@ export function StaffNotificationPanel({
         ) : (
           notifications.map((notification) => {
             const icon = getNotificationIcon(notification.type);
-            const timeStr = formatTime(getNotificationTime(notification));
             return (
               <div
                 key={notification.id}
@@ -127,13 +128,13 @@ export function StaffNotificationPanel({
                   !notification.is_read ? "bg-red-50/50 hover:bg-red-50" : "hover:bg-stone-50"
                 }`}
               >
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 mt-0.5">
                   {icon}
                 </div>
                 {!notification.is_read && (
                   <span className="absolute top-3 right-2.5 h-2 w-2 rounded-full bg-red-500" />
                 )}
-                <div className="flex-1 min-w-0 pl-1">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <p className={`text-sm ${!notification.is_read ? "font-bold text-stone-900" : "font-semibold text-stone-700"}`}>
                       {notification.title}
@@ -155,9 +156,8 @@ export function StaffNotificationPanel({
   );
 
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapperRef}>
       <button
-        ref={bellRef}
         onClick={() => setIsOpen(!isOpen)}
         className={`relative p-2 rounded-xl transition-colors cursor-pointer ${
           theme === "dark" 
@@ -178,7 +178,7 @@ export function StaffNotificationPanel({
       </button>
 
       {isOpen && createPortal(
-        <div className="fixed right-4 top-[80px] w-96 rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 z-[9999] overflow-hidden flex flex-col max-h-[480px]">
+        <div ref={panelRef} className="fixed right-4 top-[72px] z-[9999] sm:right-6">
           {dropdownContent}
         </div>,
         document.body
