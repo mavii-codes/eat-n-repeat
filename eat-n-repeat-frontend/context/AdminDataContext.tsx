@@ -269,6 +269,12 @@ function mapDeliveryStatus(status: string | null | undefined): DeliveryStatus {
       return "out_for_delivery";
     case "delivered":
       return "delivered";
+    // A delivery row the backend persisted as "completed" (staff chose
+    // Completed) must survive mapping. It previously fell into default and
+    // came back as "pending" on every repull/poll, making Completed revert
+    // to Pending and dropping the order out of history filters.
+    case "completed":
+      return "completed";
     case "cancelled":
       return "cancelled";
     case "pending":
@@ -1832,7 +1838,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       data.deliveryOrders.filter(
         (order) =>
           !order.archived &&
-          ["delivered", "cancelled"].includes(order.status),
+          ["delivered", "completed", "cancelled"].includes(order.status),
       ),
     [data.deliveryOrders],
   );

@@ -182,6 +182,7 @@ export async function checkout(
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
+      total: Number(order.total),
     };
   }
 
@@ -199,6 +200,7 @@ export async function checkout(
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
+      total: Number(order.total),
     };
   }
 
@@ -246,6 +248,7 @@ export async function checkout(
       return {
         orderId: order.id,
         orderNumber: order.orderNumber,
+        total: Number(order.total),
         invoiceUrl: invoice.invoiceUrl,
       };
     } catch (error: any) {
@@ -260,6 +263,7 @@ export async function checkout(
   return {
     orderId: order.id,
     orderNumber: order.orderNumber,
+    total: Number(order.total),
   };
 }
 

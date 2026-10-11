@@ -31,7 +31,7 @@ function formatTime(isoString: string): string {
 }
 
 export function CustomerOrderChat({ orderId, orderNumber, isOpen, onClose }: CustomerOrderChatProps) {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -72,8 +72,16 @@ export function CustomerOrderChat({ orderId, orderNumber, isOpen, onClose }: Cus
       const token = sessionTokenRef.current;
       if (!token) {
         if (!cancelled) {
-          setLoadError("Please sign in to view this conversation.");
-          setIsLoading(false);
+          // Session may still be hydrating when the chat is opened fast.
+          // Stay in loading state — the effect below re-runs once the token
+          // arrives (sessionToken dep) instead of stranding the chat with a
+          // sign-in error for an already-signed-in customer.
+          if (sessionStatus === "loading") {
+            setIsLoading(true);
+          } else {
+            setLoadError("Please sign in to view this conversation.");
+            setIsLoading(false);
+          }
         }
         return;
       }
@@ -161,7 +169,11 @@ export function CustomerOrderChat({ orderId, orderNumber, isOpen, onClose }: Cus
       closeConnection();
       setMessages([]);
     };
-  }, [isOpen, orderId]);
+    // sessionToken (and sessionStatus via the loading branch above) re-runs
+    // this effect when auth finishes hydrating after the chat was opened, so
+    // messages load and SSE connects without requiring close/reopen. State
+    // updates inside never retrigger it.
+  }, [isOpen, orderId, sessionToken, sessionStatus]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -170,7 +182,9 @@ export function CustomerOrderChat({ orderId, orderNumber, isOpen, onClose }: Cus
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!inputMessage.trim() || isSending) return;
-    const token = sessionTokenRef.current;
+    // Prefer the connection token, but fall back to the live session token
+    // so Send works even if auth finished hydrating after the chat opened.
+    const token = sessionTokenRef.current ?? sessionToken;
     if (!token) {
       setLoadError("Please sign in to send messages.");
       return;
@@ -224,7 +238,7 @@ export function CustomerOrderChat({ orderId, orderNumber, isOpen, onClose }: Cus
             <div className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
               <div>
-                <h3 className="font-bold text-sm">Delivery Chat</h3>
+                <h3 className="font-bold text-sm">Chat with Staff</h3>
                 <p className="text-[10px] text-amber-100">Order #{orderNumber}</p>
               </div>
             </div>
@@ -259,7 +273,7 @@ export function CustomerOrderChat({ orderId, orderNumber, isOpen, onClose }: Cus
               <div className="flex flex-col items-center justify-center py-8 text-center text-stone-500">
                 <MessageSquare className="w-10 h-10 text-stone-300 mb-2" />
                 <p className="font-medium text-stone-700">No messages yet</p>
-                <p className="text-xs text-stone-500 mt-1">Start the conversation with your delivery rider</p>
+                <p className="text-xs text-stone-500 mt-1">Start the conversation with our staff</p>
               </div>
             ) : (
               <CustomerMessageList messages={messages} formatTime={formatTime} />

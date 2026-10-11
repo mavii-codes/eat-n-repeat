@@ -615,11 +615,14 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     const activeDel = deliveryOrders.filter(o => !o.archived);
 
     const storePaidSales = activeStore.filter(o => o.status === "completed" || o.paid).reduce((sum, o) => sum + o.total, 0);
-    const delDeliveredSales = activeDel.filter(o => o.status === "delivered").reduce((sum, o) => sum + o.total, 0);
+    // Fulfilled delivery revenue covers both terminal delivery states.
+    // ("completed" delivery rows now survive backend mapping instead of
+    // collapsing to "pending"; without this they would leave sales entirely.)
+    const delDeliveredSales = activeDel.filter(o => o.status === "delivered" || o.status === "completed").reduce((sum, o) => sum + o.total, 0);
     const totalSales = storePaidSales + delDeliveredSales;
 
     const totalOrders = activeStore.length + activeDel.length;
-    const completedOrders = activeStore.filter(o => o.status === "completed").length + activeDel.filter(o => o.status === "delivered").length;
+    const completedOrders = activeStore.filter(o => o.status === "completed").length + activeDel.filter(o => o.status === "delivered" || o.status === "completed").length;
     const pendingOrders = activeStore.filter(o => o.status === "pending").length + activeDel.filter(o => ["pending", "confirmed", "preparing", "out_for_delivery"].includes(o.status)).length;
 
     return {
@@ -2073,7 +2076,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                           <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatPhDateTime(order.orderedAt) || "—"}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                              order.status === "delivered"
+                              order.status === "delivered" || order.status === "completed"
                                 ? "bg-green-50 text-green-800 border-green-200"
                                 : order.status === "cancelled"
                                 ? "bg-gray-50 text-gray-700 border-gray-200"
@@ -2093,6 +2096,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                               <option value="preparing">Preparing</option>
                               <option value="out_for_delivery">Out for Delivery</option>
                               <option value="delivered">Delivered</option>
+                              <option value="completed">Completed</option>
                               <option value="cancelled">Cancelled</option>
                             </AdminSelect>
                           </td>

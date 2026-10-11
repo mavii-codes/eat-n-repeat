@@ -556,14 +556,14 @@ export function OrderCard({
               <Receipt className="w-4 h-4" /> View / Print Receipt
             </button>
 
-            {/* Chat Button (Delivery Orders) */}
+            {/* Chat Button (Customer -> Staff, Delivery Orders) */}
             {deliveryType === 'delivery' && !isDelivered && !isCancelled && (
               <button
                 type="button"
                 onClick={() => setShowChat(true)}
                 className="py-2.5 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-black text-xs shadow-sm flex items-center gap-1.5 transition"
               >
-                <MessageSquare className="w-4 h-4" /> Chat with Rider
+                <MessageSquare className="w-4 h-4" /> Chat with Staff
               </button>
             )}
 
@@ -628,7 +628,7 @@ export function OrderCard({
         total={total}
       />
 
-      {/* Delivery Chat Modal */}
+      {/* Staff Chat Modal (Customer -> Staff) */}
       {deliveryType === 'delivery' && (
         <CustomerOrderChat
           orderId={id}

@@ -117,7 +117,11 @@ export function CartDrawer({
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string } | null>(null);
+  // amountDue is captured at checkout time (the persisted order total) so the
+  // "Order Reserved" screen keeps showing the real total after the cart is
+  // cleared. Never derive it from live cartItems here — they are empty by
+  // the time this screen renders, which previously displayed ₱0.00.
+  const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string; amountDue: number } | null>(null);
 
   // Calculations
   useEffect(() => {
@@ -333,11 +337,17 @@ export function CartDrawer({
       }
 
       setIsSubmitting(false);
+      // Prefer the persisted backend total when provided; fall back to the
+      // checkout total that was just sent (identical except when the server
+      // re-prices add-ons from the DB). Never use the live `total` variable
+      // after onClearCart() — it collapses to 0 once the cart is empty.
+      const persistedTotal = Number(data?.total);
       setCompletedOrder({
         id: data.orderId || orderNumber,
         orderNumber: data.orderNumber || orderNumber,
         type: fulfillmentType,
-        paymentMethod: backendPaymentMethod
+        paymentMethod: backendPaymentMethod,
+        amountDue: Number.isFinite(persistedTotal) ? persistedTotal : total,
       });
       onClearCart();
     } catch (error: any) {
@@ -487,7 +497,7 @@ export function CartDrawer({
                     </div>
                     <div className="flex justify-between border-b border-stone-200 py-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Amount Due</span>
-                      <span className="font-bold text-lg text-[#800000]">₱{total.toFixed(2)}</span>
+                      <span className="font-bold text-lg text-[#800000]">₱{completedOrder.amountDue.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between pt-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Payment Method</span>

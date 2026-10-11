@@ -214,6 +214,7 @@ export type DeliveryStatus =
   | "preparing"
   | "out_for_delivery"
   | "delivered"
+  | "completed"
   | "cancelled";
 
 export type DeliveryOrder = {
