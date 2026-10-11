@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { RecentOrdersTable } from "@/components/admin/RecentOrdersTable";
 import { SalesChart } from "@/components/admin/SalesChart";
@@ -23,8 +24,24 @@ function formatChange(value: number) {
 
 export default function ReportsPage() {
   const stats = dashboardStats;
-  const { getActiveStoreOrders, archiveStoreOrder } = useAdminData();
+  const { getActiveStoreOrders, archiveStoreOrder, refreshBackendOrders } = useAdminData();
   const storeOrders = getActiveStoreOrders();
+
+  // Pull shared orders from the backend on mount and every 20s while this
+  // tab is visible, so this page no longer depends on someone having visited
+  // /staff first. Reuses the existing fetch: silent on auth/network failure
+  // (offline mode keeps the local cache), same cadence as the staff page.
+  useEffect(() => {
+    let mounted = true;
+    refreshBackendOrders();
+    const interval = setInterval(() => {
+      if (mounted && document.visibilityState === "visible") refreshBackendOrders();
+    }, 20000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [refreshBackendOrders]);
   const yearlyTotal = monthlySales.reduce((sum, item) => sum + item.amount, 0);
   const weeklyTotal = weeklySales.reduce((sum, item) => sum + item.amount, 0);
 
