@@ -6,6 +6,8 @@ import {
   resetPasswordSchema,
   changeEmailSchema,
   resendVerificationSchema,
+  verifyEmailCodeSchema,
+  verifyResetCodeSchema,
 } from "@/schema/customer-auth/customer-auth.schema";
 import * as customerAuthService from "@/services/customer-auth";
 
@@ -62,7 +64,8 @@ export class CustomerAuthController {
       }
 
       await customerAuthService.forgotPassword(parsed.data.email);
-      return res.json({ message: "A reset link has been sent to your email." });
+      // Generic for existent and non-existent emails alike (anti-enumeration).
+      return res.json({ message: "If an account exists for this email, a verification code has been sent." });
     } catch (error: any) {
       console.error("Forgot Password Error:", error);
       if (error.statusCode) {
@@ -82,7 +85,11 @@ export class CustomerAuthController {
         return res.status(400).json({ message: parsed.error.issues[0].message });
       }
 
-      await customerAuthService.resetPassword(parsed.data.token, parsed.data.password);
+      await customerAuthService.resetPassword({
+        token: parsed.data.token,
+        resetToken: parsed.data.resetToken,
+        password: parsed.data.password,
+      });
       return res.json({ message: "Password has been successfully reset." });
     } catch (error: any) {
       console.error("Reset Password Error:", error);
@@ -109,13 +116,45 @@ export class CustomerAuthController {
     }
   }
 
+  async verifyEmailCode(req: Request, res: Response) {
+    try {
+      const parsed = verifyEmailCodeSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+
+      await customerAuthService.verifyEmailCode(parsed.data.email, parsed.data.code);
+      return res.json({ message: "Email successfully verified!" });
+    } catch (error: any) {
+      console.error("Verify Email Code Error:", error);
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ message: error.message });
+      }
+      return res.status(500).json({ message: "Internal server error." });
+    }
+  }
+
+  async verifyResetCode(req: Request, res: Response) {
+    try {
+      const parsed = verifyResetCodeSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+
+      const result = await customerAuthService.verifyResetCode(parsed.data.email, parsed.data.code);
+      return res.json({ message: "Code verified.", resetToken: result.resetToken });
+    } catch (error: any) {
+      console.error("Verify Reset Code Error:", error);
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ message: error.message });
+      }
+      return res.status(500).json({ message: "Internal server error." });
+    }
+  }
+
   async resendVerification(req: Request, res: Response) {
     try {
       const parsed = resendVerificationSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Valid email is required." });
 
       await customerAuthService.resendVerification(parsed.data.email);
-      return res.json({ message: "If an unverified account exists, a new link has been sent." });
+      return res.json({ message: "If an unverified account exists, a new code has been sent." });
     } catch (error: any) {
       console.error("Resend Verification Error:", error);
       if (error.message === "Email sending failed" || error.message === "Missing SMTP configuration" || error.message === "Failed to send verification email. Please contact support or try again later.") {
@@ -134,7 +173,7 @@ export class CustomerAuthController {
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
 
       await customerAuthService.changeEmail(parsed.data);
-      return res.json({ message: "Email address updated and a new verification link sent." });
+      return res.json({ message: "Email address updated and a new verification code sent." });
     } catch (error: any) {
       console.error("Change Email Error:", error);
       if (error.statusCode) {

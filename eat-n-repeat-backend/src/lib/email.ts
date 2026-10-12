@@ -133,6 +133,44 @@ export async function sendVerificationEmail(email: string, token: string): Promi
   await sendEmail(email, subject, html);
 }
 
+export async function sendEmailVerificationCode(email: string, code: string): Promise<void> {
+  const subject = "Verify your Eat n RepEat Cafe account";
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;border:1px solid #fef3c7;border-radius:16px;background-color:#FFF8F0;">
+      <div style="text-align:center;margin-bottom:20px;">
+        <h1 style="color:#451a03;margin:0;font-size:28px;font-weight:900;">Eat n RepEat</h1>
+      </div>
+      <div style="background-color:white;padding:30px;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.02);text-align:center;">
+        <h2 style="color:#1c1917;font-size:22px;margin-top:0;font-weight:900;">Verify Your Email</h2>
+        <p style="color:#57534e;font-size:16px;line-height:1.6;margin-bottom:12px;">Hello! Your Eat n RepEat Cafe verification code is:</p>
+        <p style="color:#B91C1C;font-size:40px;font-weight:900;letter-spacing:12px;margin:12px 0 20px;">${code}</p>
+        <p style="color:#57534e;font-size:14px;line-height:1.6;margin-bottom:8px;">Enter this code on the Eat n RepEat Cafe website to verify your email.</p>
+        <p style="color:#57534e;font-size:14px;line-height:1.6;margin-bottom:8px;">This code expires in 10 minutes.</p>
+        <p style="color:#a8a29e;font-size:13px;margin-top:20px;margin-bottom:0;">If you did not create this account, you can ignore this email.</p>
+      </div>
+    </div>`;
+  await sendEmail(email, subject, html);
+}
+
+export async function sendPasswordResetCode(email: string, code: string): Promise<void> {
+  const subject = "Your Eat n RepEat Cafe password reset code";
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;border:1px solid #fef3c7;border-radius:16px;background-color:#FFF8F0;">
+      <div style="text-align:center;margin-bottom:20px;">
+        <h1 style="color:#451a03;margin:0;font-size:28px;font-weight:900;">Eat n RepEat</h1>
+      </div>
+      <div style="background-color:white;padding:30px;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.02);text-align:center;">
+        <h2 style="color:#1c1917;font-size:22px;margin-top:0;font-weight:900;">Password Reset Code</h2>
+        <p style="color:#57534e;font-size:16px;line-height:1.6;margin-bottom:12px;">Your Eat n RepEat Cafe password reset code is:</p>
+        <p style="color:#B91C1C;font-size:40px;font-weight:900;letter-spacing:12px;margin:12px 0 20px;">${code}</p>
+        <p style="color:#57534e;font-size:14px;line-height:1.6;margin-bottom:8px;">Enter this code on the Eat n RepEat Cafe website to continue resetting your password.</p>
+        <p style="color:#57534e;font-size:14px;line-height:1.6;margin-bottom:8px;">This code expires in 10 minutes.</p>
+        <p style="color:#a8a29e;font-size:13px;margin-top:20px;margin-bottom:0;">If you did not request this, you can ignore this email.</p>
+      </div>
+    </div>`;
+  await sendEmail(email, subject, html);
+}
+
 export async function sendResetEmail(email: string, token: string): Promise<void> {
   const resetUrl = `${env.clientOrigin}/customer/reset-password?token=${token}`;
   const subject = "Password Reset Request - Eat n RepEat";

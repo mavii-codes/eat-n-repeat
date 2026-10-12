@@ -1,7 +1,12 @@
 import crypto from "crypto";
 import { hash } from "@/lib/bcrypt";
-import { sendResetEmail } from "@/lib/email";
+import { sendPasswordResetCode } from "@/lib/email";
 import { customerAuthRepository } from "@/repositories/customer-auth.repository";
+import {
+  assertResendCooldownOk,
+  codeExpiryDate,
+  generateVerificationCode,
+} from "./verification-code";
 
 export class ForgotPasswordService {
   async execute(email: string) {
@@ -23,20 +28,27 @@ export class ForgotPasswordService {
       return;
     }
 
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = await hash(resetToken, 10);
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const latest = await customerAuthRepository.findLatestPasswordResetTokenByCustomerId(
+      customer.id,
+    );
+    assertResendCooldownOk(latest?.createdAt);
+
+    // A fresh code invalidates any older one: only the latest row can verify.
+    await customerAuthRepository.deletePasswordResetTokensByCustomerId(customer.id);
+
+    const code = generateVerificationCode();
+    const tokenHash = await hash(code, 10);
     const tokenId = `rt-${crypto.randomUUID()}`;
 
     await customerAuthRepository.createPasswordResetToken({
       id: tokenId,
       customerId: customer.id,
       tokenHash,
-      expiresAt,
+      expiresAt: codeExpiryDate(),
     });
 
     try {
-      await sendResetEmail(email, resetToken);
+      await sendPasswordResetCode(email, code);
     } catch (error: any) {
       if (error?.message === "Email sending failed" || error?.message === "Missing SMTP configuration") {
         const err: any = new Error("Failed to send password reset email. Please contact support or try again later.");

@@ -86,6 +86,20 @@ export class CustomerAuthRepository {
     return prisma.emailVerificationToken.findMany();
   }
 
+  async findLatestEmailVerificationTokenByCustomerId(customerId: string) {
+    return prisma.emailVerificationToken.findFirst({
+      where: { customerId },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  async incrementEmailVerificationAttempts(id: string) {
+    return prisma.emailVerificationToken.update({
+      where: { id },
+      data: { attempts: { increment: 1 } },
+    });
+  }
+
   async deleteEmailVerificationTokenById(id: string) {
     return prisma.emailVerificationToken.delete({ where: { id } });
   }
@@ -112,6 +126,20 @@ export class CustomerAuthRepository {
 
   async findAllPasswordResetTokens() {
     return prisma.passwordResetToken.findMany();
+  }
+
+  async findLatestPasswordResetTokenByCustomerId(customerId: string) {
+    return prisma.passwordResetToken.findFirst({
+      where: { customerId },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  async incrementPasswordResetAttempts(id: string) {
+    return prisma.passwordResetToken.update({
+      where: { id },
+      data: { attempts: { increment: 1 } },
+    });
   }
 
   async deletePasswordResetTokenById(id: string) {

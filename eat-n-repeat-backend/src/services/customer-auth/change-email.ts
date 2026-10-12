@@ -1,7 +1,11 @@
 import crypto from "crypto";
 import { hash, compare } from "@/lib/bcrypt";
-import { sendVerificationEmail } from "@/lib/email";
+import { sendEmailVerificationCode } from "@/lib/email";
 import { customerAuthRepository } from "@/repositories/customer-auth.repository";
+import {
+  codeExpiryDate,
+  generateVerificationCode,
+} from "./verification-code";
 
 export class ChangeEmailService {
   async execute(data: { email: string; password: string; newEmail: string }) {
@@ -46,20 +50,19 @@ export class ChangeEmailService {
 
     await customerAuthRepository.deleteEmailVerificationTokensByCustomerId(customer.id);
 
-    const verifyToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = await hash(verifyToken, 10);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const code = generateVerificationCode();
+    const tokenHash = await hash(code, 10);
     const tokenId = `ev-${crypto.randomUUID()}`;
 
     await customerAuthRepository.createEmailVerificationToken({
       id: tokenId,
       customerId: customer.id,
       tokenHash,
-      expiresAt,
+      expiresAt: codeExpiryDate(),
     });
 
     try {
-      await sendVerificationEmail(newEmail, verifyToken);
+      await sendEmailVerificationCode(newEmail, code);
     } catch (error: any) {
       if (error?.message === "Email sending failed" || error?.message === "Missing SMTP configuration") {
         const err: any = new Error("Email updated, but we failed to send the verification email. Please try logging in to resend.");

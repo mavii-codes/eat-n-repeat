@@ -214,6 +214,9 @@ model EmailVerificationToken {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tokenHash  String   @db.VarChar(255) @map("token_hash")
   expiresAt  DateTime @db.Timestamp(0) @map("expires_at")
+  // Wrong-code attempts against the latest row. New codes start at 0
+  // (old rows are deleted on resend), so no extra table is needed.
+  attempts   Int      @default(0) @map("attempts")
   createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
   @@map("email_verification_tokens")
@@ -226,6 +229,8 @@ model PasswordResetToken {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tokenHash  String   @db.VarChar(255) @map("token_hash")
   expiresAt  DateTime @db.Timestamp(0) @map("expires_at")
+  // Wrong-code attempts against the latest row (see EmailVerificationToken).
+  attempts   Int      @default(0) @map("attempts")
   createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
   @@map("password_reset_tokens")

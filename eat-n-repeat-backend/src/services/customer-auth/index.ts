@@ -3,6 +3,8 @@ import { customerLoginService } from "./login";
 import { forgotPasswordService } from "./forgot-password";
 import { resetPasswordService } from "./reset-password";
 import { verifyEmailService } from "./verify-email";
+import { verifyEmailCodeService } from "./verify-email-code";
+import { verifyResetCodeService } from "./verify-reset-code";
 import { resendVerificationService } from "./resend-verification";
 import { changeEmailService } from "./change-email";
 
@@ -18,8 +20,16 @@ export async function forgotPassword(email: string) {
   return forgotPasswordService.execute(email);
 }
 
-export async function resetPassword(token: string, password: string) {
-  return resetPasswordService.execute(token, password);
+export async function resetPassword(input: { token?: string; resetToken?: string; password: string }) {
+  return resetPasswordService.execute(input);
+}
+
+export async function verifyEmailCode(email: string, code: string) {
+  return verifyEmailCodeService.execute(email, code);
+}
+
+export async function verifyResetCode(email: string, code: string) {
+  return verifyResetCodeService.execute(email, code);
 }
 
 export async function verifyEmail(token: string) {

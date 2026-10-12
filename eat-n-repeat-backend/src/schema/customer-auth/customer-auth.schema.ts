@@ -22,15 +22,37 @@ export const forgotPasswordSchema = z.object({
   email: z.string().trim().email(),
 });
 
-export const resetPasswordSchema = z.object({
-  token: z.string().min(1),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters.")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter.")
-    .regex(/[a-z]/, "Password must contain at least one lowercase letter.")
-    .regex(/[0-9]/, "Password must contain at least one number.")
-    .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character."),
+const sixDigitCode = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, "Please enter the 6-digit code.");
+
+export const resetPasswordSchema = z
+  .object({
+    // Legacy emailed link token (kept working for links sent before codes).
+    token: z.string().min(1).optional(),
+    // Short-lived authorization from verify-reset-code (new code flow).
+    resetToken: z.string().min(1).optional(),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters.")
+      .regex(/[A-Z]/, "Password must contain at least one uppercase letter.")
+      .regex(/[a-z]/, "Password must contain at least one lowercase letter.")
+      .regex(/[0-9]/, "Password must contain at least one number.")
+      .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character."),
+  })
+  .refine((v) => v.token || v.resetToken, {
+    message: "A reset token is required.",
+  });
+
+export const verifyEmailCodeSchema = z.object({
+  email: z.string().trim().email(),
+  code: sixDigitCode,
+});
+
+export const verifyResetCodeSchema = z.object({
+  email: z.string().trim().email(),
+  code: sixDigitCode,
 });
 
 export const changeEmailSchema = z.object({
@@ -49,3 +71,5 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangeEmailInput = z.infer<typeof changeEmailSchema>;
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
+export type VerifyEmailCodeInput = z.infer<typeof verifyEmailCodeSchema>;
+export type VerifyResetCodeInput = z.infer<typeof verifyResetCodeSchema>;
