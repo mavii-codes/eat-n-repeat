@@ -8,7 +8,6 @@ import { ReviewsSection } from './ReviewsSection';
 import { useReviews } from '@/context/ReviewsContext';
 import type { CustomizationOption } from '@/lib/admin/types';
 import { MENU_IMAGE_FALLBACK, resolveMenuImage } from '@/lib/menu-image';
-import { AddonCards } from './AddonCards';
 import { Coffee, CupSoda, Croissant, Utensils, Sandwich, Settings, FileText, Star } from 'lucide-react';
 
 type MenuItemDetailsModalProps = {
@@ -454,22 +453,8 @@ export function MenuItemDetailsModal({
                   </div>
                 )}
               </div>
-
-              {/* Add-ons (compact recommendation cards) */}
-              {customizations.addons && customizations.addons.length > 0 && (
-                <div className="pt-2">
-                  <label className="text-xs font-extrabold text-stone-700 block mb-1.5">
-                    Add-ons <span className="font-semibold text-stone-400">· tap + to add</span>
-                  </label>
-                  <AddonCards
-                    addons={customizations.addons}
-                    selected={selectedAddOns}
-                    onToggle={handleToggleAddOn}
-                  />
-                </div>
-              )}
             </div>
-          )}
+            )}
 
           {/* SPECIAL INSTRUCTIONS */}
           {(!customizations || customizations.enableSpecialInstructions) && (
