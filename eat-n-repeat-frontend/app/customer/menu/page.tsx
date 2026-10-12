@@ -466,6 +466,21 @@ export default function MenuPage() {
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
+        onAddRecommendedAddon={(addon) => {
+          // Create a pseudo menu item from the addon
+          const addonMenuItem: CustomerMenuItem = {
+            id: `addon-${addon.id}`,
+            name: addon.name,
+            description: '',
+            price: addon.price,
+            image: addon.image || '',
+            category: 'Add-ons',
+            rating: 5,
+            reviews: 0,
+            available: true,
+          };
+          handleAddToCart(addonMenuItem);
+        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />

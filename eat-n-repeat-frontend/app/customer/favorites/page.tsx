@@ -248,6 +248,20 @@ export default function FavoritesPage() {
         }}
         onRemoveItem={(id) => setCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== id))}
         onClearCart={() => setCartItems([])}
+        onAddRecommendedAddon={(addon) => {
+          const addonMenuItem: CustomerMenuItem = {
+            id: `addon-${addon.id}`,
+            name: addon.name,
+            description: '',
+            price: addon.price,
+            image: addon.image || '',
+            category: 'Add-ons',
+            rating: 5,
+            reviews: 0,
+            available: true,
+          };
+          handleAddToCart(addonMenuItem);
+        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />

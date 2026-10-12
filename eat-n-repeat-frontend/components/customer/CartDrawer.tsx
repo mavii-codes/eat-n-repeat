@@ -5,13 +5,16 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package } from 'lucide-react';
+import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package, Users, Sparkles } from 'lucide-react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
 import { useCustomerPortalMode } from '@/lib/config';
 import { resolveMenuImage } from '@/lib/menu-image';
 import { journalOrder, removeOfflineOrder } from '@/lib/offlineSync';
+import { getApiUrl } from '@/lib/config';
 import type { CustomerMenuItem } from '@/components/customer/MenuCard';
+
+export type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
 export type CartItem = {
   menuItem: CustomerMenuItem;
@@ -19,6 +22,26 @@ export type CartItem = {
   notes?: string;
   selectedSize?: { name: string; price: number };
   selectedAddons?: { id: string; name: string; price: number }[];
+};
+
+// For recommended add-ons shown in the cart
+export type RecommendedAddon = {
+  id: string;
+  name: string;
+  price: number;
+  image?: string | null;
+};
+
+type CartDrawerProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  cartItems: CartItem[];
+  onUpdateQuantity: (id: string, delta: number) => void;
+  onRemoveItem: (id: string) => void;
+  onClearCart: () => void;
+  onAddRecommendedAddon: (addon: RecommendedAddon) => void;
+  fulfillmentType: 'delivery' | 'pickup' | 'dine-in';
+  setFulfillmentType: (type: 'delivery' | 'pickup' | 'dine-in') => void;
 };
 
 // Size may arrive top-level (legacy callers) or nested on menuItem (details
@@ -47,17 +70,6 @@ export function resolveCartAddons(ci: CartItem): { id: string; name: string; pri
     .map((a) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 }));
 }
 
-type CartDrawerProps = {
-  isOpen: boolean;
-  onClose: () => void;
-  cartItems: CartItem[];
-  onUpdateQuantity: (id: string, delta: number) => void;
-  onRemoveItem: (id: string) => void;
-  onClearCart: () => void;
-  fulfillmentType: 'delivery' | 'pickup' | 'dine-in';
-  setFulfillmentType: (type: 'delivery' | 'pickup' | 'dine-in') => void;
-};
-
 export function CartDrawer({
   isOpen,
   onClose,
@@ -65,9 +77,10 @@ export function CartDrawer({
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
+  onAddRecommendedAddon,
   fulfillmentType,
   setFulfillmentType,
-}: CartDrawerProps) {
+}: CartDrawerProps): React.ReactElement | null {
   const { addDeliveryOrder, addStoreOrder, deliverySettings, serviceAreas } = useAdminData();
   const router = useRouter();
   const { data: session } = useSession();
@@ -78,6 +91,33 @@ export function CartDrawer({
   // Portal variant: 'local' preserves counter/offline behavior (LAN,
   // Electron); 'online' on loopback only when the dev override flag is set.
   const isLocalMode = useCustomerPortalMode() === 'local';
+
+  // People Also Ordered / Recommended Add-ons
+  const [recommendedAddons, setRecommendedAddons] = useState<{ id: string; name: string; price: number; image?: string | null }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/addons`);
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const list = data?.addons ?? data ?? [];
+        if (!cancelled && Array.isArray(list)) {
+          setRecommendedAddons(
+            list
+              .filter((a: any) => a && a.available !== false && a.name && Number(a.price) >= 0)
+              .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0, image: typeof a.image === 'string' && a.image ? a.image : null }))
+          );
+        }
+      } catch {
+        // Backend unreachable — items render without add-ons (offline mode).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (isLocalMode && fulfillmentType !== 'dine-in') {
@@ -189,6 +229,11 @@ export function CartDrawer({
     } else {
       setPromoError('Invalid code. Try "EATREPEAT" for 15% off!');
     }
+  };
+
+  // Add recommended addon to cart as a standalone item
+  const handleAddRecommendedAddon = (addon: RecommendedAddon) => {
+    onAddRecommendedAddon(addon);
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
@@ -663,11 +708,63 @@ export function CartDrawer({
                         </button>
                       </div>
                     </div>
-                    );
+);
                   })}
                 </div>
 
-                {/* Promo Code Strip */}
+      {/* People Also Ordered — Recommended Add-ons */}
+      {cartItems.length > 0 && recommendedAddons.length > 0 && (
+        <div className="pt-4 border-t border-stone-200">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-stone-900">
+              <Users className="w-4 h-4 text-[#B91C1C]" />
+              People Also Ordered
+            </h3>
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Recommendations</span>
+          </div>
+          <div
+            className="flex gap-2.5 overflow-x-auto pb-1.5 -mx-0.5 px-0.5 snap-x"
+            role="group"
+            aria-label="Recommended add-ons"
+          >
+            {recommendedAddons
+              .filter((a) => a && a.name)
+              .map((addon) => (
+                <div
+                  key={addon.id ?? addon.name}
+                  className="snap-start shrink-0 w-[100px] rounded-2xl border bg-white p-2 flex flex-col items-center text-center transition shadow-2xs border-stone-200 hover:border-amber-300"
+                >
+                  <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-stone-100 shrink-0">
+                    <Image
+                      src={resolveMenuImage(addon.image)}
+                      alt={addon.name}
+                      fill
+                      sizes="56px"
+                      className="object-cover"
+                      unoptimized={typeof addon.image === 'string' && addon.image?.startsWith('data:')}
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] font-bold text-stone-800 leading-tight line-clamp-2 min-h-[26px]">
+                    {addon.name}
+                  </p>
+                  <p className="text-[10px] font-black text-[#B91C1C]">
+                    ₱{Number(addon.price).toFixed(2)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleAddRecommendedAddon(addon)}
+                    className="mt-1 w-6 h-6 rounded-full flex items-center justify-center text-white shadow-sm transition active:scale-95 bg-emerald-500 hover:bg-emerald-600"
+                    aria-label={`Add ${addon.name}`}
+                  >
+                    <span className="text-[10px] font-black">+</span>
+                  </button>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Promo Code Strip */}
                 <div className="pt-2 border-t border-stone-200">
                   <label className="text-xs font-bold text-stone-800 block mb-1">Promo Code</label>
                   <div className="flex gap-2">
@@ -893,7 +990,11 @@ export function CartDrawer({
                   <div className="flex justify-between">
                     <span>Delivery Fee</span>
                     <span className="font-semibold text-stone-900">
-                      {deliveryFee === 0 ? <span className="text-emerald-600 font-bold">FREE</span> : `₱${deliveryFee.toFixed(2)}`}
+                      {deliveryFee === 0 ? (
+                        <span className="text-emerald-600 font-bold">FREE</span>
+                      ) : (
+                        `₱${deliveryFee.toFixed(2)}`
+                      )}
                     </span>
                   </div>
                 )}

@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
 import { OrderCard, type OrderCardProps } from '@/components/customer/OrderCard';
-import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
+import { CartDrawer, type CartItem, type CustomerMenuItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
 import { Package, Bike, CheckCircle2, XCircle, RefreshCw, Search } from 'lucide-react';
 
@@ -387,6 +387,19 @@ function OrdersPageContent() {
 
   const handleClearCart = () => setCartItems([]);
 
+  const handleAddToCart = (item: CustomerMenuItem) => {
+    const incoming = `addon-${item.id}::${item.id}::`;
+    setCartItems((prev) => {
+      const existing = prev.find((ci) => ci.menuItem.id === item.id);
+      if (existing) {
+        return prev.map((ci) =>
+          ci.menuItem.id === item.id ? { ...ci, quantity: ci.quantity + 1 } : ci
+        );
+      }
+      return [...prev, { menuItem: item, quantity: 1 }];
+    });
+  };
+
   const totalCartCount = cartItems.reduce((acc, ci) => acc + ci.quantity, 0);
   const totalCartSubtotal = cartItems.reduce((acc, ci) => acc + ci.menuItem.price * ci.quantity, 0);
 
@@ -587,6 +600,20 @@ function OrdersPageContent() {
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
+        onAddRecommendedAddon={(addon) => {
+          const addonMenuItem: CustomerMenuItem = {
+            id: `addon-${addon.id}`,
+            name: addon.name,
+            description: '',
+            price: addon.price,
+            image: addon.image || '',
+            category: 'Add-ons',
+            rating: 5,
+            reviews: 0,
+            available: true,
+          };
+          handleAddToCart(addonMenuItem);
+        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />
