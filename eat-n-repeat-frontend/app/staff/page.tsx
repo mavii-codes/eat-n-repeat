@@ -268,6 +268,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
   const [orderTypeFilter, setOrderTypeFilter] = useState("all");
   const [orderHistorySearch, setOrderHistorySearch] = useState("");
+  const [deliverySearch, setDeliverySearch] = useState("");
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
 
@@ -2031,7 +2032,18 @@ function OrderTableScroll({ className, children }: { className?: string; childre
               <p className="text-sm text-muted">View delivery addresses, item manifests, and update progress status.</p>
             </div>
 
-            <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
+              <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
+              <div className="relative px-2 pb-3">
+                <Search className="absolute left-5 top-1/2 -translate-y-[calc(50%+6px)] h-4 w-4 text-muted pointer-events-none" />
+                <input
+                  type="text"
+                  value={deliverySearch}
+                  onChange={(e) => setDeliverySearch(e.target.value)}
+                  placeholder="Search ID, customer, or address..."
+                  aria-label="Search delivery queue"
+                  className="w-full sm:max-w-xs pl-10 pr-4 py-2.5 rounded-xl border border-stone-200 bg-white text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#800000]/20 focus:border-[#800000]/40 transition shadow-sm"
+                />
+              </div>
               <div className="overflow-x-auto p-2">
                 <table className="w-full text-left text-sm min-w-[640px]">
                   <thead>
@@ -2051,7 +2063,18 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                         <td colSpan={7} className="text-center py-8 text-muted">No delivery orders listed.</td>
                       </tr>
                     ) : (
-                      [...deliveryOrders.filter(o => !o.archived)]
+                      [...deliveryOrders.filter(o => {
+                        if (o.archived) return false;
+                        const q = deliverySearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          o.orderNumber.toLowerCase().includes(q) ||
+                          o.customerName.toLowerCase().includes(q) ||
+                          (o.phone ?? "").toLowerCase().includes(q) ||
+                          o.address.toLowerCase().includes(q) ||
+                          o.items.toLowerCase().includes(q)
+                        );
+                      })]
                         .sort((a, b) => orderEpoch(b) - orderEpoch(a))
                         .map((order) => (
                         <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">

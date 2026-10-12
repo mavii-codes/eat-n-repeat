@@ -8,6 +8,7 @@ import { ReviewsSection } from './ReviewsSection';
 import { useReviews } from '@/context/ReviewsContext';
 import type { CustomizationOption } from '@/lib/admin/types';
 import { MENU_IMAGE_FALLBACK, resolveMenuImage } from '@/lib/menu-image';
+import { AddonCards } from './AddonCards';
 import { Coffee, CupSoda, Croissant, Utensils, Sandwich, Settings, FileText, Star } from 'lucide-react';
 
 type MenuItemDetailsModalProps = {
@@ -454,35 +455,17 @@ export function MenuItemDetailsModal({
                 )}
               </div>
 
-              {/* Add-ons */}
+              {/* Add-ons (compact recommendation cards) */}
               {customizations.addons && customizations.addons.length > 0 && (
                 <div className="pt-2">
-                  <label className="text-xs font-extrabold text-stone-700 block mb-1.5">Select Extra Add-ons</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {customizations.addons.map((addon: any) => {
-                      const checked = selectedAddOns.find(a => a.name === addon.name);
-                      return (
-                        <button
-                          key={addon.name}
-                          type="button"
-                          onClick={() => handleToggleAddOn(addon)}
-                          className={`p-2.5 rounded-xl text-xs font-bold transition border flex items-center justify-between ${
-                            checked
-                              ? 'bg-amber-100 text-[#451a03] border-amber-300 shadow-2xs'
-                              : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-amber-50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className={`w-4 h-4 rounded-md border flex items-center justify-center text-[10px] ${checked ? 'bg-[#451a03] text-white border-[#451a03]' : 'bg-white border-stone-300'}`}>
-                              {checked ? '✓' : ''}
-                            </div>
-                            <span>{addon.name}</span>
-                          </div>
-                          <span className="text-[#B91C1C] font-black">+₱{addon.price}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <label className="text-xs font-extrabold text-stone-700 block mb-1.5">
+                    Add-ons <span className="font-semibold text-stone-400">· tap + to add</span>
+                  </label>
+                  <AddonCards
+                    addons={customizations.addons}
+                    selected={selectedAddOns}
+                    onToggle={handleToggleAddOn}
+                  />
                 </div>
               )}
             </div>

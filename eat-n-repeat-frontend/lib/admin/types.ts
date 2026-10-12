@@ -96,6 +96,7 @@ export type Addon = {
   name: string;
   price: number;
   available: boolean;
+  image?: string | null;
   createdAt: string;
 };
 

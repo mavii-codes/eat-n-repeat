@@ -242,6 +242,9 @@ model Addon {
   name      String   @db.VarChar(120) @map("name")
   price     Decimal  @db.Decimal(10, 2) @map("price")
   available Boolean  @default(true) @map("available")
+  // Optional photo (data URL or remote URL, same convention as menu
+  // items). Null = customer cards render the shared fallback art.
+  image     String?  @db.MediumText @map("image")
   createdAt DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
   @@map("addons")

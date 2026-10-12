@@ -1,11 +1,12 @@
 import { addonsRepository } from "@/repositories/addons.repository";
 
-function mapAddon(row: { id: string; name: string; price: any; available: boolean; createdAt: Date }) {
+function mapAddon(row: { id: string; name: string; price: any; available: boolean; image?: string | null; createdAt: Date }) {
   return {
     id: row.id,
     name: row.name,
     price: Number(row.price),
     available: Boolean(row.available),
+    image: row.image ?? null,
     createdAt: row.createdAt,
   };
 }

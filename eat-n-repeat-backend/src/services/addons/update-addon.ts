@@ -7,8 +7,9 @@ export class UpdateAddonService {
       name: data.name,
       price: data.price,
       available: data.available,
+      image: data.image === undefined ? undefined : data.image.trim() ? data.image.trim() : null,
     });
-    return { id: addon.id, name: addon.name, price: Number(addon.price), available: Boolean(addon.available) };
+    return { id: addon.id, name: addon.name, price: Number(addon.price), available: Boolean(addon.available), image: addon.image ?? null };
   }
 }
 

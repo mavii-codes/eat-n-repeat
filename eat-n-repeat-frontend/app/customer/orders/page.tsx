@@ -8,7 +8,7 @@ import { CustomerHeader } from '@/components/customer/CustomerHeader';
 import { OrderCard, type OrderCardProps } from '@/components/customer/OrderCard';
 import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
-import { Package, Bike, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import { Package, Bike, CheckCircle2, XCircle, RefreshCw, Search } from 'lucide-react';
 
 // Realistic sample orders for Cordova branch customer portal
 const fallbackOrders: OrderCardProps[] = [
@@ -81,6 +81,7 @@ function OrdersPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedStatus, setSelectedStatus] = useState<OrderFilterStatus>('all');
+  const [orderSearch, setOrderSearch] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
@@ -277,6 +278,13 @@ function OrdersPageContent() {
     liveOrders.length > 0 ? liveOrders : ordersFetchFailed ? fallbackOrders : [];
 
   const filteredOrders = allOrdersList.filter((order) => {
+    const q = orderSearch.trim().toLowerCase();
+    if (q) {
+      const matchesSearch =
+        order.orderNumber.toLowerCase().includes(q) ||
+        order.items.some((item) => item.name.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+    }
     if (selectedStatus === 'all') return true;
     if (selectedStatus === 'active') return !['delivered', 'cancelled'].includes(order.status);
     if (selectedStatus === 'completed') return order.status === 'delivered';
@@ -493,6 +501,19 @@ function OrdersPageContent() {
             </div>
           </div>
 
+          {/* Search Bar */}
+          <div className="relative max-w-md mb-4">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 pointer-events-none" />
+            <input
+              type="text"
+              value={orderSearch}
+              onChange={(e) => setOrderSearch(e.target.value)}
+              placeholder="Search by order number or item..."
+              aria-label="Search orders"
+              className="w-full pl-11 pr-4 py-3 rounded-2xl border border-amber-200/80 bg-white text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition shadow-sm"
+            />
+          </div>
+
           {/* Filter Tabs */}
           <div className="flex gap-2 sm:gap-3 mb-8 overflow-x-auto no-scrollbar pb-2">
             {(['all', 'active', 'completed', 'cancelled'] as const).map((status) => {
@@ -533,11 +554,21 @@ function OrdersPageContent() {
               <Package className="w-12 h-12 text-stone-400 mx-auto mb-4" />
               <h3 className="text-xl font-extrabold text-[#451a03] mb-1">No orders found</h3>
               <p className="text-xs sm:text-sm text-stone-600 mb-6">
-                {selectedStatus === 'active' && "You don't have any active orders right now."}
-                {selectedStatus === 'completed' && "You haven't completed any orders yet."}
-                {selectedStatus === 'cancelled' && "You don't have any cancelled orders."}
-                {selectedStatus === 'all' && 'Start by exploring our handcrafted menu!'}
+                {orderSearch.trim() && 'No orders match your search.'}
+                {!orderSearch.trim() && selectedStatus === 'active' && "You don't have any active orders right now."}
+                {!orderSearch.trim() && selectedStatus === 'completed' && "You haven't completed any orders yet."}
+                {!orderSearch.trim() && selectedStatus === 'cancelled' && "You don't have any cancelled orders."}
+                {!orderSearch.trim() && selectedStatus === 'all' && 'Start by exploring our handcrafted menu!'}
               </p>
+              {orderSearch.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setOrderSearch('')}
+                  className="inline-block px-8 py-3 mb-4 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-full font-black text-xs sm:text-sm transition"
+                >
+                  Clear Search
+                </button>
+              )}
               <Link
                 href="/customer"
                 className="inline-block px-8 py-3 bg-[#B91C1C] hover:bg-[#991B1B] text-white rounded-full font-black text-xs sm:text-sm shadow-md transition hover:scale-105"
