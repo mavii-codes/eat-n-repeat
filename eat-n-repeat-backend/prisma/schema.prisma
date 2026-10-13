@@ -8,279 +8,286 @@ datasource db {
 }
 
 model User {
-  id                 String              @id @map("id") @db.VarChar(64)
-  name               String              @map("name") @db.VarChar(120)
-  username           String              @unique @map("username") @db.VarChar(80)
-  email              String              @unique @map("email") @db.VarChar(255)
-  passwordHash       String              @map("password_hash") @db.VarChar(255)
-  role               String              @default("staff") @map("role") @db.VarChar(50)
-  status             String              @default("active") @map("status") @db.VarChar(20)
-  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamp(0)
-  archived           Boolean             @default(false) @map("archived")
+  id           String              @id @db.VarChar(64) @map("id")
+  name         String              @db.VarChar(120) @map("name")
+  username     String              @unique @db.VarChar(80) @map("username")
+  email        String              @unique @db.VarChar(255) @map("email")
+  passwordHash String              @db.VarChar(255) @map("password_hash")
+  role         String              @default("staff") @db.VarChar(50) @map("role")
+  status       String              @default("active") @db.VarChar(20) @map("status")
+  archived     Boolean             @default(false) @map("archived")
+  createdAt    DateTime            @default(now()) @db.Timestamp(0) @map("created_at")
+
   staffNotifications StaffNotification[]
 
   @@map("users")
 }
 
 model Customer {
-  id                      String                   @id @map("id") @db.VarChar(64)
-  name                    String                   @map("name") @db.VarChar(120)
-  email                   String                   @unique @map("email") @db.VarChar(255)
-  phone                   String?                  @map("phone") @db.VarChar(20)
-  passwordHash            String                   @map("password_hash") @db.VarChar(255)
-  status                  String                   @default("pending_verification") @map("status") @db.VarChar(30)
-  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamp(0)
-  avatarUrl               String?                  @map("avatar_url") @db.VarChar(255)
-  notificationPreferences String?                  @map("notification_preferences") @db.LongText
-  syncStatus              String                   @default("pending") @map("sync_status") @db.VarChar(10)
-  customerAddresses       CustomerAddress[]
-  customerFavorites       CustomerFavorite[]
-  customerNotifications   CustomerNotification[]
-  emailVerificationTokens EmailVerificationToken[]
+  id                      String                    @id @db.VarChar(64) @map("id")
+  name                    String                    @db.VarChar(120) @map("name")
+  email                   String                    @unique @db.VarChar(255) @map("email")
+  phone                   String?                   @db.VarChar(20) @map("phone")
+  passwordHash            String                    @db.VarChar(255) @map("password_hash")
+  status                  String                    @default("pending_verification") @db.VarChar(30) @map("status")
+  avatarUrl               String?                   @db.VarChar(255) @map("avatar_url")
+  notificationPreferences Json?                     @db.Json @map("notification_preferences")
+  syncStatus              String                    @default("pending") @db.VarChar(10) @map("sync_status")
+  createdAt               DateTime                  @default(now()) @db.Timestamp(0) @map("created_at")
+
   orders                  Order[]
+  customerNotifications   CustomerNotification[]
+  customerFavorites       CustomerFavorite[]
+  customerAddresses       CustomerAddress[]
+  emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
 
   @@map("customers")
 }
 
 model Order {
-  id                    String    @id @map("id") @db.VarChar(64)
-  orderNumber           String    @map("order_number") @db.VarChar(50)
-  customerName          String    @map("customer_name") @db.VarChar(120)
-  phone                 String?   @map("phone") @db.VarChar(20)
-  address               String?   @map("address") @db.Text
-  serviceAreaId         String?   @map("service_area_id") @db.VarChar(64)
-  type                  String    @default("delivery") @map("type") @db.VarChar(20)
-  items                 String    @map("items") @db.Text
-  subtotal              Decimal   @map("subtotal") @db.Decimal(10, 2)
-  deliveryFee           Decimal   @default(0.00) @map("delivery_fee") @db.Decimal(10, 2)
-  total                 Decimal   @map("total") @db.Decimal(10, 2)
-  status                String    @default("pending") @map("status") @db.VarChar(50)
-  notes                 String?   @map("notes") @db.Text
-  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamp(0)
-  deliveredAt           DateTime? @map("delivered_at") @db.Timestamp(0)
-  archived              Boolean   @default(false) @map("archived")
-  deliveryPerson        String?   @map("delivery_person") @db.VarChar(50)
-  assignedRole          String?   @map("assigned_role") @db.VarChar(50)
-  assignedAt            DateTime? @map("assigned_at") @db.Timestamp(0)
-  estimatedDeliveryTime String?   @default("15–25 min") @map("estimated_delivery_time") @db.VarChar(50)
-  cancelledBy           String?   @map("cancelled_by") @db.VarChar(50)
-  cancelledAt           DateTime? @map("cancelled_at") @db.Timestamp(0)
-  pendingAt             DateTime? @map("pending_at") @db.Timestamp(0)
-  confirmedAt           DateTime? @map("confirmed_at") @db.Timestamp(0)
-  preparingAt           DateTime? @map("preparing_at") @db.Timestamp(0)
-  readyForDeliveryAt    DateTime? @map("ready_for_delivery_at") @db.Timestamp(0)
-  outForDeliveryAt      DateTime? @map("out_for_delivery_at") @db.Timestamp(0)
-  syncStatus            String    @default("pending") @map("sync_status") @db.VarChar(10)
-  customerId            String?   @map("customer_id") @db.VarChar(64)
-  orderMode             String    @default("online") @map("order_mode") @db.VarChar(10)
+  id                    String    @id @db.VarChar(64) @map("id")
+  orderNumber           String    @db.VarChar(50) @map("order_number")
+  customerId            String?   @db.VarChar(64) @map("customer_id")
   customer              Customer? @relation(fields: [customerId], references: [id])
-  payments              Payment[]
+  customerName          String    @db.VarChar(120) @map("customer_name")
+  phone                 String?   @db.VarChar(20) @map("phone")
+  address               String?   @db.Text @map("address")
+  serviceAreaId         String?   @db.VarChar(64) @map("service_area_id")
+  type                  String    @default("delivery") @db.VarChar(20) @map("type")
+  items                 String    @db.Text @map("items")
+  subtotal              Decimal   @db.Decimal(10, 2) @map("subtotal")
+  deliveryFee           Decimal   @default(0) @db.Decimal(10, 2) @map("delivery_fee")
+  total                 Decimal   @db.Decimal(10, 2) @map("total")
+  status                String    @default("pending") @db.VarChar(50) @map("status")
+  deliveryPerson        String?   @db.VarChar(50) @map("delivery_person")
+  assignedRole          String?   @db.VarChar(50) @map("assigned_role")
+  assignedAt            DateTime? @db.Timestamp(0) @map("assigned_at")
+  estimatedDeliveryTime String?   @default("15–25 min") @db.VarChar(50) @map("estimated_delivery_time")
+  notes                 String?   @db.Text @map("notes")
+  createdAt             DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  deliveredAt           DateTime? @db.Timestamp(0) @map("delivered_at")
+  archived              Boolean   @default(false) @map("archived")
+  cancelledBy           String?   @db.VarChar(50) @map("cancelled_by")
+  cancelledAt           DateTime? @db.Timestamp(0) @map("cancelled_at")
+  pendingAt             DateTime? @db.Timestamp(0) @map("pending_at")
+  confirmedAt           DateTime? @db.Timestamp(0) @map("confirmed_at")
+  preparingAt           DateTime? @db.Timestamp(0) @map("preparing_at")
+  readyForDeliveryAt    DateTime? @db.Timestamp(0) @map("ready_for_delivery_at")
+  outForDeliveryAt      DateTime? @db.Timestamp(0) @map("out_for_delivery_at")
+  orderMode             String    @default("online") @db.VarChar(10) @map("order_mode")
+  syncStatus            String    @default("pending") @db.VarChar(10) @map("sync_status")
 
-  @@index([customerId], map: "orders_customer_id_fkey")
+  payments Payment[]
+
   @@map("orders")
+  @@index([customerId], map: "orders_customer_id_fkey")
 }
 
 model Payment {
-  id              String    @id @map("id") @db.VarChar(64)
-  orderId         String    @map("order_id") @db.VarChar(64)
-  paymentMethod   String    @map("payment_method") @db.VarChar(50)
-  xenditInvoiceId String?   @map("xendit_invoice_id") @db.VarChar(100)
-  xenditReference String?   @map("xendit_reference") @db.VarChar(100)
-  amount          Decimal   @map("amount") @db.Decimal(10, 2)
-  status          String    @default("PENDING") @map("status") @db.VarChar(50)
-  paidAt          DateTime? @map("paid_at") @db.Timestamp(0)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(0)
-  syncStatus      String    @default("pending") @map("sync_status") @db.VarChar(10)
+  id              String    @id @db.VarChar(64) @map("id")
+  orderId         String    @db.VarChar(64) @map("order_id")
   order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentMethod   String    @db.VarChar(50) @map("payment_method")
+  xenditInvoiceId String?   @db.VarChar(100) @map("xendit_invoice_id")
+  xenditReference String?   @db.VarChar(100) @map("xendit_reference")
+  amount          Decimal   @db.Decimal(10, 2) @map("amount")
+  status          String    @default("PENDING") @db.VarChar(50) @map("status")
+  paidAt          DateTime? @db.Timestamp(0) @map("paid_at")
+  syncStatus      String    @default("pending") @db.VarChar(10) @map("sync_status")
+  createdAt       DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
 
-  @@index([orderId], map: "payments_order_id_fkey")
   @@map("payments")
+  @@index([orderId], map: "payments_order_id_fkey")
 }
 
 model CustomerNotification {
-  id          String   @id @map("id") @db.VarChar(64)
-  customerId  String   @map("customer_id") @db.VarChar(64)
-  type        String   @map("type") @db.VarChar(20)
-  title       String   @map("title") @db.VarChar(255)
-  description String   @map("description") @db.Text
-  isRead      Boolean  @default(false) @map("is_read")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  id          String   @id @db.VarChar(64) @map("id")
+  customerId  String   @db.VarChar(64) @map("customer_id")
   customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type        String   @db.VarChar(20) @map("type")
+  title       String   @db.VarChar(255) @map("title")
+  description String   @db.Text @map("description")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
-  @@index([customerId], map: "customer_notifications_customer_id_fkey")
   @@map("customer_notifications")
+  @@index([customerId], map: "customer_notifications_customer_id_fkey")
 }
 
 model CustomerFavorite {
-  customerId String   @map("customer_id") @db.VarChar(64)
-  menuItemId String   @map("menu_item_id") @db.VarChar(64)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  customerId String   @db.VarChar(64) @map("customer_id")
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  menuItemId String   @db.VarChar(64) @map("menu_item_id")
+  createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
   @@id([customerId, menuItemId])
   @@map("customer_favorites")
 }
 
 model CustomerAddress {
-  id            String   @id @map("id") @db.VarChar(64)
-  customerId    String   @map("customer_id") @db.VarChar(64)
-  addressName   String   @map("address_name") @db.VarChar(100)
-  fullAddress   String   @map("full_address") @db.VarChar(255)
-  barangay      String   @map("barangay") @db.VarChar(100)
-  municipality  String   @map("municipality") @db.VarChar(100)
-  landmarks     String?  @map("landmarks") @db.VarChar(255)
-  deliveryNotes String?  @map("delivery_notes") @db.VarChar(255)
-  isDefault     Boolean  @default(false) @map("is_default")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  id            String   @id @db.VarChar(64) @map("id")
+  customerId    String   @db.VarChar(64) @map("customer_id")
   customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  addressName   String   @db.VarChar(100) @map("address_name")
+  fullAddress   String   @db.VarChar(255) @map("full_address")
+  barangay      String   @db.VarChar(100) @map("barangay")
+  municipality  String   @db.VarChar(100) @map("municipality")
+  landmarks     String?  @db.VarChar(255) @map("landmarks")
+  deliveryNotes String?  @db.VarChar(255) @map("delivery_notes")
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
-  @@index([customerId], map: "customer_addresses_customer_id_fkey")
   @@map("customer_addresses")
+  @@index([customerId], map: "customer_addresses_customer_id_fkey")
 }
 
 model StaffNotification {
-  id             String   @id @map("id") @db.VarChar(64)
-  userId         String   @map("user_id") @db.VarChar(64)
-  type           String   @map("type") @db.VarChar(50)
-  title          String   @map("title") @db.VarChar(255)
-  message        String   @map("message") @db.Text
-  relatedOrderId String?  @map("related_order_id") @db.VarChar(64)
-  isRead         Boolean  @default(false) @map("is_read")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamp(0)
-  syncStatus     String   @default("pending") @map("sync_status") @db.VarChar(10)
+  id             String   @id @db.VarChar(64) @map("id")
+  userId         String   @db.VarChar(64) @map("user_id")
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String   @db.VarChar(50) @map("type")
+  title          String   @db.VarChar(255) @map("title")
+  message        String   @db.Text @map("message")
+  relatedOrderId String?  @db.VarChar(64) @map("related_order_id")
+  isRead         Boolean  @default(false) @map("is_read")
+  syncStatus     String   @default("pending") @db.VarChar(10) @map("sync_status")
+  createdAt      DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
-  @@index([userId], map: "staff_notifications_user_id_fkey")
   @@map("staff_notifications")
+  @@index([userId], map: "staff_notifications_user_id_fkey")
 }
 
 model StockCategory {
-  id         String      @id @map("id") @db.VarChar(64)
-  name       String      @unique @map("name") @db.VarChar(120)
+  id         String      @id @db.VarChar(64) @map("id")
+  name       String      @unique @db.VarChar(120) @map("name")
   stockItems StockItem[]
 
   @@map("stock_categories")
 }
 
 model StockItem {
-  id                String        @id @map("id") @db.VarChar(64)
-  name              String        @map("name") @db.VarChar(160)
-  categoryId        String        @map("category_id") @db.VarChar(64)
-  quantity          Decimal       @default(0.00) @map("quantity") @db.Decimal(10, 2)
-  unit              String        @map("unit") @db.VarChar(30)
-  lowStockThreshold Decimal       @default(5.00) @map("low_stock_threshold") @db.Decimal(10, 2)
-  category          StockCategory @relation(fields: [categoryId], references: [id])
+  id                String        @id @db.VarChar(64) @map("id")
+  name              String        @db.VarChar(160) @map("name")
+  categoryId        String        @db.VarChar(64) @map("category_id")
+  category          StockCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  quantity          Decimal       @default(0) @db.Decimal(10, 2) @map("quantity")
+  unit              String        @db.VarChar(30) @map("unit")
+  lowStockThreshold Decimal       @default(5) @db.Decimal(10, 2) @map("low_stock_threshold")
 
-  @@index([categoryId], map: "stock_items_category_id_fkey")
   @@map("stock_items")
+  @@index([categoryId], map: "stock_items_category_id_fkey")
 }
 
 model StockRequest {
-  id              String   @id @map("id") @db.VarChar(64)
-  staffId         String   @map("staff_id") @db.VarChar(64)
-  staffName       String   @map("staff_name") @db.VarChar(120)
-  ingredientId    String   @map("ingredient_id") @db.VarChar(64)
-  ingredientName  String   @map("ingredient_name") @db.VarChar(160)
-  currentQuantity Decimal  @map("current_quantity") @db.Decimal(10, 2)
-  unit            String   @map("unit") @db.VarChar(30)
-  threshold       Decimal  @map("threshold") @db.Decimal(10, 2)
-  status          String   @default("Pending") @map("status") @db.VarChar(20)
-  message         String?  @map("message") @db.Text
-  adminNote       String?  @map("admin_note") @db.Text
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  id              String   @id @db.VarChar(64) @map("id")
+  staffId         String   @db.VarChar(64) @map("staff_id")
+  staffName       String   @db.VarChar(120) @map("staff_name")
+  ingredientId    String   @db.VarChar(64) @map("ingredient_id")
+  ingredientName  String   @db.VarChar(160) @map("ingredient_name")
+  currentQuantity Decimal  @db.Decimal(10, 2) @map("current_quantity")
+  unit            String   @db.VarChar(30) @map("unit")
+  threshold       Decimal  @db.Decimal(10, 2) @map("threshold")
+  status          String   @default("Pending") @db.VarChar(20) @map("status")
+  message         String?  @db.Text @map("message")
+  adminNote       String?  @db.Text @map("admin_note")
+  createdAt       DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
   @@map("stock_requests")
 }
 
 model OfflineStockTransaction {
-  id               String   @id @map("id") @db.VarChar(64)
-  stockItemId      String   @map("stock_item_id") @db.VarChar(255)
-  quantityDeducted Decimal  @map("quantity_deducted") @db.Decimal(10, 2)
-  orderId          String   @map("order_id") @db.VarChar(64)
-  staffId          String   @map("staff_id") @db.VarChar(64)
-  transactionDate  DateTime @default(now()) @map("transaction_date") @db.Timestamp(0)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  id               String   @id @db.VarChar(64) @map("id")
+  stockItemId      String   @db.VarChar(255) @map("stock_item_id")
+  quantityDeducted Decimal  @db.Decimal(10, 2) @map("quantity_deducted")
+  orderId          String   @db.VarChar(64) @map("order_id")
+  staffId          String   @db.VarChar(64) @map("staff_id")
+  transactionDate  DateTime @db.Timestamp(0) @map("transaction_date")
+  createdAt        DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
   @@map("offline_stock_transactions")
 }
 
 model EmailVerificationToken {
-  id         String   @id @map("id") @db.VarChar(64)
-  customerId String   @map("customer_id") @db.VarChar(64)
-  tokenHash  String   @map("token_hash") @db.VarChar(255)
-  expiresAt  DateTime @default(now()) @map("expires_at") @db.Timestamp(0)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(0)
-  attempts   Int      @default(0) @map("attempts")
+  id         String   @id @db.VarChar(64) @map("id")
+  customerId String   @db.VarChar(64) @map("customer_id")
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tokenHash  String   @db.VarChar(255) @map("token_hash")
+  expiresAt  DateTime @db.Timestamp(0) @map("expires_at")
+  // Wrong-code attempts against the latest row. New codes start at 0
+  // (old rows are deleted on resend), so no extra table is needed.
+  attempts   Int      @default(0) @map("attempts")
+  createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
-  @@index([customerId], map: "email_verification_tokens_customer_id_fkey")
   @@map("email_verification_tokens")
+  @@index([customerId], map: "email_verification_tokens_customer_id_fkey")
 }
 
 model PasswordResetToken {
-  id         String   @id @map("id") @db.VarChar(64)
-  customerId String   @map("customer_id") @db.VarChar(64)
-  tokenHash  String   @map("token_hash") @db.VarChar(255)
-  expiresAt  DateTime @default(now()) @map("expires_at") @db.Timestamp(0)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(0)
-  attempts   Int      @default(0) @map("attempts")
+  id         String   @id @db.VarChar(64) @map("id")
+  customerId String   @db.VarChar(64) @map("customer_id")
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tokenHash  String   @db.VarChar(255) @map("token_hash")
+  expiresAt  DateTime @db.Timestamp(0) @map("expires_at")
+  // Wrong-code attempts against the latest row (see EmailVerificationToken).
+  attempts   Int      @default(0) @map("attempts")
+  createdAt  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
-  @@index([customerId], map: "password_reset_tokens_customer_id_fkey")
   @@map("password_reset_tokens")
+  @@index([customerId], map: "password_reset_tokens_customer_id_fkey")
 }
 
 model Addon {
-  id        String   @id @map("id") @db.VarChar(64)
-  name      String   @map("name") @db.VarChar(120)
-  price     Decimal  @map("price") @db.Decimal(10, 2)
+  id        String   @id @db.VarChar(64) @map("id")
+  name      String   @db.VarChar(120) @map("name")
+  price     Decimal  @db.Decimal(10, 2) @map("price")
   available Boolean  @default(true) @map("available")
+  // Optional photo (data URL or remote URL, same convention as menu
+  // items). Null = customer cards render the shared fallback art.
   image     String?  @db.MediumText @map("image")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  createdAt DateTime @default(now()) @db.Timestamp(0) @map("created_at")
 
   @@map("addons")
 }
 
 model CashShift {
-  id               String            @id @map("id") @db.VarChar(64)
-  staffId          String            @map("staff_id") @db.VarChar(64)
-  staffName        String            @map("staff_name") @db.VarChar(120)
-  startTime        DateTime          @default(now()) @map("start_time") @db.Timestamp(0)
-  endTime          DateTime?         @map("end_time") @db.Timestamp(0)
-  startingFloat    Decimal           @map("starting_float") @db.Decimal(10, 2)
-  expectedCash     Decimal           @map("expected_cash") @db.Decimal(10, 2)
-  actualCash       Decimal?          @map("actual_cash") @db.Decimal(10, 2)
-  difference       Decimal?          @map("difference") @db.Decimal(10, 2)
-  status           String            @default("open") @map("status") @db.VarChar(20)
+  id              String            @id @db.VarChar(64) @map("id")
+  staffId         String            @db.VarChar(64) @map("staff_id")
+  staffName       String            @db.VarChar(120) @map("staff_name")
+  startTime       DateTime          @db.Timestamp(0) @map("start_time")
+  endTime         DateTime?         @db.Timestamp(0) @map("end_time")
+  startingFloat   Decimal           @db.Decimal(10, 2) @map("starting_float")
+  expectedCash    Decimal           @db.Decimal(10, 2) @map("expected_cash")
+  actualCash      Decimal?          @db.Decimal(10, 2) @map("actual_cash")
+  difference      Decimal?          @db.Decimal(10, 2) @map("difference")
+  status          String            @default("open") @db.VarChar(20) @map("status")
   cashTransactions CashTransaction[]
 
   @@map("cash_shifts")
 }
 
 model CashTransaction {
-  id        String    @id @map("id") @db.VarChar(64)
-  shiftId   String    @map("shift_id") @db.VarChar(64)
-  orderId   String?   @map("order_id") @db.VarChar(64)
-  type      String    @default("sale") @map("type") @db.VarChar(30)
-  amount    Decimal   @map("amount") @db.Decimal(10, 2)
-  timestamp DateTime  @default(now()) @map("timestamp") @db.Timestamp(0)
-  adminId   String?   @map("admin_id") @db.VarChar(64)
-  adminName String?   @map("admin_name") @db.VarChar(120)
-  reason    String?   @map("reason") @db.VarChar(255)
+  id        String    @id @db.VarChar(64) @map("id")
+  shiftId   String    @db.VarChar(64) @map("shift_id")
   shift     CashShift @relation(fields: [shiftId], references: [id])
+  orderId   String?   @db.VarChar(64) @map("order_id")
+  type      String    @default("sale") @db.VarChar(30) @map("type")
+  amount    Decimal   @db.Decimal(10, 2) @map("amount")
+  adminId   String?   @db.VarChar(64) @map("admin_id")
+  adminName String?   @db.VarChar(120) @map("admin_name")
+  reason    String?   @db.VarChar(255) @map("reason")
+  timestamp DateTime  @db.Timestamp(0) @map("timestamp")
 
-  @@index([shiftId], map: "cash_transactions_shift_id_fkey")
-  @@index([shiftId], map: "cash_tx_shift_fk")
   @@map("cash_transactions")
+  @@index([shiftId], map: "cash_transactions_shift_id_fkey")
 }
 
 model CafeStatus {
-  id              Int       @id @default(1)
-  onlineOrdering  String    @default("AVAILABLE") @map("online_ordering") @db.VarChar(30)
-  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamp(0)
-  forceOverride   String?   @map("force_override") @db.VarChar(30)
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                Int       @id @default(1)
+  onlineOrdering    String    @default("AVAILABLE") @db.VarChar(30) @map("online_ordering")
+  lastHeartbeatAt   DateTime? @db.Timestamp(0) @map("last_heartbeat_at")
+  forceOverride     String?   @db.VarChar(30) @map("force_override")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@map("cafe_status")
 }
@@ -290,20 +297,20 @@ model CafeStatus {
 /// `prisma db push` on both local bootstrap and Render builds.
 model MenuSyncState {
   id           Int       @id @default(1)
-  lastPulledAt DateTime? @map("last_pulled_at") @db.Timestamp(0)
-  lastResult   String?   @map("last_result") @db.VarChar(255)
+  lastPulledAt DateTime? @db.Timestamp(0) @map("last_pulled_at")
+  lastResult   String?   @db.VarChar(255) @map("last_result")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@map("menu_sync_state")
 }
 
 model MenuCategory {
-  id          String     @id @map("id") @db.VarChar(64)
-  name        String     @map("name") @db.VarChar(120)
-  description String?    @map("description") @db.VarChar(255)
+  id          String     @id @db.VarChar(64) @map("id")
+  name        String     @db.VarChar(120) @map("name")
+  description String?    @db.VarChar(255) @map("description")
   archived    Boolean    @default(false) @map("archived")
-  archivedAt  DateTime?  @map("archived_at") @db.Timestamp(0)
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamp(0)
+  archivedAt  DateTime?  @db.Timestamp(0) @map("archived_at")
+  createdAt   DateTime   @default(now()) @db.Timestamp(0) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
   items       MenuItem[]
 
@@ -311,20 +318,43 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id          String       @id @map("id") @db.VarChar(64)
-  name        String       @map("name") @db.VarChar(160)
-  description String?      @map("description") @db.Text
-  price       Decimal      @map("price") @db.Decimal(10, 2)
-  categoryId  String       @map("category_id") @db.VarChar(64)
+  id          String       @id @db.VarChar(64) @map("id")
+  name        String       @db.VarChar(160) @map("name")
+  description String?      @db.Text @map("description")
+  price       Decimal      @db.Decimal(10, 2) @map("price")
+  categoryId  String       @db.VarChar(64) @map("category_id")
+  category    MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   available   Boolean      @default(true) @map("available")
-  image       String?      @map("image") @db.MediumText
+  image       String?      @db.MediumText @map("image")
+  // Optional size options [{name, price}] as JSON. Absent/empty = single
+  // base-price item. Render runs `prisma db push` on deploy, so this
+  // nullable column migrates itself on existing databases.
+  sizes       Json?        @map("sizes")
   archived    Boolean      @default(false) @map("archived")
-  archivedAt  DateTime?    @map("archived_at") @db.Timestamp(0)
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamp(0)
+  archivedAt  DateTime?    @db.Timestamp(0) @map("archived_at")
+  createdAt   DateTime     @default(now()) @db.Timestamp(0) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
-  sizes       String?      @map("sizes") @db.LongText
-  category    MenuCategory @relation(fields: [categoryId], references: [id])
 
-  @@index([categoryId], map: "menu_items_category_id_fkey")
   @@map("menu_items")
+  @@index([categoryId], map: "menu_items_category_id_fkey")
+}
+
+/// Order-scoped chat messages (customer <-> staff/rider). orderId is a
+/// plain scalar on purpose: NO database-level foreign key. Render's MySQL
+/// has a history of ER_CANT_CREATE_TABLE on FK creation (see 91646d2), and
+/// all queries filter by orderId directly, so a real FK buys nothing here.
+/// Orphan rows (order deleted) are harmless: they are keyed by orderId and
+/// never surfaced once the order is gone.
+model OrderChatMessage {
+  id          String   @id @db.VarChar(64) @map("id")
+  orderId     String   @db.VarChar(64) @map("order_id")
+  senderId    String   @db.VarChar(64) @map("sender_id")
+  senderRole  String   @db.VarChar(20) @map("sender_role") // "customer" | "staff"
+  message     String   @db.Text @map("message")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("order_chat_messages")
+  @@index([orderId], map: "order_chat_messages_order_id_fkey")
+  @@index([senderId], map: "order_chat_messages_sender_id_fkey")
 }
