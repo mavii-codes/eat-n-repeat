@@ -10,70 +10,6 @@ import { CartDrawer, type CartItem, type CustomerMenuItem } from '@/components/c
 import { useAdminData } from '@/context/AdminDataContext';
 import { Package, Bike, CheckCircle2, XCircle, RefreshCw, Search } from 'lucide-react';
 
-// Realistic sample orders for Cordova branch customer portal
-const fallbackOrders: OrderCardProps[] = [
-  {
-    id: 'ord-101',
-    orderNumber: '20240716001',
-    date: 'Today • 10:30 AM',
-    status: 'pending',
-    subtotal: 334.00,
-    deliveryFee: 45.00,
-    discount: 0,
-    total: 379.00,
-    paymentMethod: 'Cash on Delivery',
-    customerName: 'Maria Santos',
-    customerPhone: '0917 123 4567',
-    customerAddress: 'Suba-Basbas, Cordova, Cebu',
-    items: [
-      { name: 'Signature Chicken Inasal Rice Bowl', quantity: 1, price: 189.00 },
-      { name: 'House Special Latte', quantity: 1, price: 145.00 },
-    ],
-    estimatedTime: '~30-40 mins',
-    deliveryType: 'delivery',
-  },
-  {
-    id: 'ord-102',
-    orderNumber: '20240716002',
-    date: 'Today • 9:15 AM',
-    status: 'preparing',
-    subtotal: 274.00,
-    deliveryFee: 45.00,
-    discount: 0,
-    total: 319.00,
-    paymentMethod: 'GCash e-Wallet',
-    customerName: 'Juan Dela Cruz',
-    customerPhone: '0922 987 6543',
-    customerAddress: 'Poblacion, Cordova, Cebu',
-    items: [
-      { name: 'Uji Matcha Milktea', quantity: 1, price: 165.00 },
-      { name: 'Garlic Parmesan Truffle Fries', quantity: 1, price: 109.00 },
-    ],
-    estimatedTime: '~15-20 mins',
-    deliveryType: 'delivery',
-  },
-  {
-    id: 'ord-103',
-    orderNumber: '20240715002',
-    date: 'Yesterday • 2:45 PM',
-    status: 'delivered',
-    subtotal: 423.00,
-    deliveryFee: 0,
-    discount: 30.00,
-    total: 393.00,
-    paymentMethod: 'Cash on Delivery',
-    customerName: 'Maria Santos',
-    customerPhone: '0917 123 4567',
-    customerAddress: 'Suba-Basbas, Cordova, Cebu',
-    items: [
-      { name: 'Spam & Egg Comfort Bowl', quantity: 1, price: 165.00 },
-      { name: 'Brown Sugar Boba Milk', quantity: 1, price: 149.00 },
-      { name: 'Garlic Parmesan Truffle Fries', quantity: 1, price: 109.00 },
-    ],
-    deliveryType: 'delivery',
-  },
-];
-
 type OrderFilterStatus = 'all' | 'active' | 'completed' | 'cancelled';
 
 function OrdersPageContent() {
@@ -166,6 +102,8 @@ function OrdersPageContent() {
 
   // Cancellation state — must be before early return to keep hook order stable
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  // Manual refresh trigger for the offline retry button below.
+  const [retryTick, setRetryTick] = useState(0);
 
   // Fetch real customer orders from the backend
   useEffect(() => {
@@ -261,7 +199,7 @@ function OrdersPageContent() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [status, session]);
+  }, [status, session, retryTick]);
 
   if (status === 'loading' || status === 'unauthenticated' || isLoadingOrders) {
     return (
@@ -271,11 +209,10 @@ function OrdersPageContent() {
     );
   }
 
-  // Successful-but-empty API responses render the real empty state below.
-  // Demo fallback rows appear ONLY when the API failed (offline/error), so a
-  // successful empty history can never show another customer's demo data.
-  const allOrdersList =
-    liveOrders.length > 0 ? liveOrders : ordersFetchFailed ? fallbackOrders : [];
+  // Orders come ONLY from the backend. When the API is unreachable the
+  // page shows an honest offline notice (never demo/fallback rows that
+  // could be mistaken for the customer's real history).
+  const allOrdersList = liveOrders;
 
   const filteredOrders = allOrdersList.filter((order) => {
     const q = orderSearch.trim().toLowerCase();
@@ -549,6 +486,34 @@ function OrdersPageContent() {
               );
             })}
           </div>
+
+          {/* Offline notice — the list below only ever shows real
+              backend orders; when the API is unreachable we say so instead
+              of rendering placeholder rows. */}
+          {ordersFetchFailed && (
+            <div className="rounded-2xl p-5 mb-6 border shadow-sm bg-amber-50 border-amber-200 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="flex items-center gap-3 flex-1">
+                <RefreshCw className="w-6 h-6 text-amber-600 shrink-0" />
+                <div>
+                  <h3 className="text-sm font-black">You&apos;re offline</h3>
+                  <p className="text-xs font-medium opacity-80 mt-0.5">
+                    Couldn&apos;t reach the server, so your orders can&apos;t be shown right now. New orders you place are saved on this device and sync automatically.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLoadingOrders(true);
+                  setOrdersFetchFailed(false);
+                  setRetryTick((t) => t + 1);
+                }}
+                className="px-5 py-2.5 rounded-xl text-xs font-black bg-amber-600 text-white hover:bg-amber-700 shadow-sm transition shrink-0"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
           {/* Orders List */}
           {filteredOrders.length > 0 ? (

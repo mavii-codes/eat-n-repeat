@@ -2,13 +2,19 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { getApiUrl } from "@/lib/config";
-import { 
-  getPendingOfflineOrders, 
-  getPendingStockTransactions, 
-  markOrdersSynced, 
+import {
+  getPendingOfflineOrders,
+  getPendingStockTransactions,
+  getPendingOfflinePayments,
+  getPendingOfflineStatusChanges,
+  markOrdersSynced,
   clearSyncedOrders,
   markStockTransactionsSynced,
-  clearSyncedStockTransactions
+  clearSyncedStockTransactions,
+  markPaymentsSynced,
+  clearSyncedOfflinePayments,
+  markStatusChangesSynced,
+  clearSyncedOfflineStatusChanges
 } from "@/lib/offlineSync";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -45,8 +51,15 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
       syncInProgress.current = true;
       const offlineOrders = await getPendingOfflineOrders();
       const offlineStockTxs = await getPendingStockTransactions();
+      const offlinePayments = await getPendingOfflinePayments();
+      const offlineStatusChanges = await getPendingOfflineStatusChanges();
 
-      if (offlineOrders.length === 0 && offlineStockTxs.length === 0) {
+      if (
+        offlineOrders.length === 0 &&
+        offlineStockTxs.length === 0 &&
+        offlinePayments.length === 0 &&
+        offlineStatusChanges.length === 0
+      ) {
         return;
       }
 
@@ -79,6 +92,8 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
         {
           offline_orders: offlineOrders,
           offline_stock_transactions: offlineStockTxs,
+          offline_payments: offlinePayments,
+          offline_status_changes: offlineStatusChanges,
         },
         { headers: { Authorization: `Bearer ${bearer}` } }
       );
@@ -91,6 +106,14 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
         if (offlineStockTxs.length > 0) {
           await markStockTransactionsSynced(offlineStockTxs.map((t: { id: string }) => t.id));
           await clearSyncedStockTransactions();
+        }
+        if (offlinePayments.length > 0) {
+          await markPaymentsSynced(offlinePayments.map((p: { orderId: string }) => p.orderId));
+          await clearSyncedOfflinePayments();
+        }
+        if (offlineStatusChanges.length > 0) {
+          await markStatusChangesSynced(offlineStatusChanges.map((s: { orderId: string }) => s.orderId));
+          await clearSyncedOfflineStatusChanges();
         }
         toast.success("Offline data synced successfully!", { id: "sync-status" });
       }

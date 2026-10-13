@@ -385,8 +385,7 @@ export function POSCashierTab() {
         // NOTE: no journalOrder here — the server just accepted this order.
         // Journaling a successful POS sale would queue it for offline replay
         // and insert a second (customer-less) row with the same order number.
-        // (This tab has no offline-sale journal path; network failures surface
-        // via the toast in the catch below and journal nothing.)
+        // Network-failure cash sales ARE journaled in the catch below.
 
         // Show receipt toast
         toast.success(
@@ -418,8 +417,63 @@ export function POSCashierTab() {
       } else {
         toast.error(data.message || "Failed to process order");
       }
-    } catch (e) {
-      toast.error("Network error processing order");
+    } catch (e: any) {
+      // Offline cash sales are captured locally and replayed by the sync
+      // drain (INSERT IGNORE + order-number guard => no duplicates).
+      // GCash is never journaled: an online payment that failed cannot be
+      // assumed collected. Non-network errors keep the old behavior.
+      const msg = typeof e?.message === 'string' ? e.message : '';
+      const offlineBrowser =
+        typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && !navigator.onLine;
+      const isNetworkFailure =
+        offlineBrowser ||
+        e instanceof TypeError ||
+        msg.includes('Failed to fetch') ||
+        msg.includes('NetworkError') ||
+        msg.includes('Load failed');
+      if (isNetworkFailure && paymentMethod === 'cash') {
+        try {
+          const { journalOrder } = await import('@/lib/offlineSync');
+          const offlineId = `POS-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
+          const itemsSummary = cart
+            .map((ci) => `${ci.item.name} (${ci.qty}x)`)
+            .join(", ");
+          journalOrder({
+            id: offlineId,
+            time: new Date().toISOString(),
+            items: itemsSummary,
+            total,
+            status: 'completed',
+            paid: true,
+            notes: `${orderType.toUpperCase()} - ${customerName || "Walk-in"}`,
+            address: null,
+            customerNotes: null,
+          });
+          addStoreOrder({
+            orderId: offlineId,
+            time: new Date().toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            orderedAt: new Date().toISOString(),
+            items: itemsSummary,
+            total,
+            status: "completed",
+            paid: true,
+            notes: `${orderType.toUpperCase()} - ${customerName || "Walk-in"}`,
+            orderType,
+          });
+        } catch {
+          // Journaling must never break the sale.
+        }
+        toast.success("Saved offline — will sync when reconnected.", { duration: 4000 });
+        clearCart();
+        setCashTendered("");
+        setGcashConfirmed(false);
+        setCustomerName("");
+      } else {
+        toast.error("Network error processing order");
+      }
     } finally {
       setIsProcessing(false);
     }

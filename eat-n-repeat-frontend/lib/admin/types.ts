@@ -29,6 +29,10 @@ export type RecentOrder = {
   paid?: boolean;
   paymentMethod?: string;
   paymentStatus?: PaymentVerificationStatus;
+  // Cash collected while offline: paid locally, queued for the server drain.
+  // Server rows never carry this flag, so the next successful repull clears
+  // it automatically once the backend confirms the payment.
+  paymentSyncPending?: boolean;
   // Optional contact fields (present on server-fetched rows; read
   // optionally by the order details modal).
   phone?: string;

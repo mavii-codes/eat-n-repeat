@@ -18,6 +18,8 @@ export async function pushSync(data: {
 export async function offlineSync(data: {
   offline_orders?: any[];
   offline_stock_transactions?: any[];
+  offline_payments?: any[];
+  offline_status_changes?: any[];
 }) {
   return offlineSyncService.execute(data);
 }

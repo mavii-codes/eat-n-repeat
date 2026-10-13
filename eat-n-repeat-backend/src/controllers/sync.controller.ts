@@ -32,8 +32,8 @@ export class SyncController {  async getStatus(_req: Request, res: Response) {
 
   async offline(req: Request, res: Response) {
     try {
-      const { offline_orders, offline_stock_transactions } = req.body;
-      await service.offlineSync({ offline_orders, offline_stock_transactions });
+      const { offline_orders, offline_stock_transactions, offline_payments, offline_status_changes } = req.body;
+      await service.offlineSync({ offline_orders, offline_stock_transactions, offline_payments, offline_status_changes });
       return res.json({ success: true, message: "Offline Sync successful" });
     } catch (err) {
       console.error("Offline Sync Error:", err);

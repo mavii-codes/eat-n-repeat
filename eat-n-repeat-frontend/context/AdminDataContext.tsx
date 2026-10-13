@@ -1531,12 +1531,16 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const isClientRowId = (id: string) => /^(ord|do)-/i.test(id);
 
   const patchBackendOrderStatus = useCallback(
-    async (id: string, status: string, fallbackIdentifier?: string): Promise<boolean> => {
+    async (
+      id: string,
+      status: string,
+      fallbackIdentifier?: string,
+    ): Promise<{ ok: boolean; networkError: boolean }> => {
       console.info(
         `[order-status] PATCH attempt id="${id}" (${isClientRowId(id) ? "client" : "server"} id) status="${status}".`,
       );
       const first = await patchOneOrderStatus(id, status);
-      if (first.ok) return true;
+      if (first.ok) return { ok: true, networkError: false };
       console.warn(
         `[order-status] PATCH id="${id}" (${isClientRowId(id) ? "client" : "server"} id)` +
           ` failed (http=${first.httpStatus ?? "network"}) — ${first.notFound ? "row unknown to server" : "server/network error"}.`,
@@ -1549,9 +1553,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             `[order-status] Retry also failed (http=${second.httpStatus ?? "network"}).`,
           );
         }
-        return second.ok;
+        return { ok: second.ok, networkError: second.httpStatus === null };
       }
-      return false;
+      return { ok: false, networkError: first.httpStatus === null };
     },
     [patchOneOrderStatus],
   );
@@ -1579,11 +1583,27 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       // Database is the source of truth — persist, and revert the optimistic
       // change if the API update fails so staff and customer can never
       // disagree. Failures surface on the existing staff-sync-failed channel.
-      patchBackendOrderStatus(id, status, row?.orderNumber).then((ok) => {
+      // Offline/network failures instead QUEUE the change for the sync drain
+      // (priority rules applied server-side) and keep the optimistic value.
+      patchBackendOrderStatus(id, status, row?.orderNumber).then(async ({ ok, networkError }) => {
         if (ok) {
           // Collapse the optimistic→poll window: re-pull immediately so the
           // confirmed row (and its server timestamps) replaces the guess.
           refreshBackendOrders();
+          return;
+        }
+        const offline =
+          networkError || (typeof navigator !== "undefined" && !navigator.onLine);
+        if (offline && prevStatus !== undefined) {
+          try {
+            const { journalStatusChange } = await import("@/lib/offlineSync");
+            journalStatusChange({ orderId: id, fallbackIdentifier: row?.orderNumber ?? null, status });
+          } catch {
+            // Journaling must never break the UI.
+          }
+          console.info(
+            `[order-status] offline — queued "${status}" for ${id}; replays on reconnect under server priority rules.`,
+          );
           return;
         }
         if (prevStatus === undefined) return;
@@ -1675,11 +1695,27 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     // Database is the source of truth — persist, and revert the optimistic
     // change if the API update fails so staff and customer can never
     // disagree. Failures surface on the existing staff-sync-failed channel.
-    patchBackendOrderStatus(id, status, row?.orderId).then((ok) => {
+    // Offline/network failures instead QUEUE the change for the sync drain
+    // (priority rules applied server-side) and keep the optimistic value.
+    patchBackendOrderStatus(id, status, row?.orderId).then(async ({ ok, networkError }) => {
       if (ok) {
         // Collapse the optimistic→poll window: re-pull immediately so the
         // confirmed row (and its server timestamps) replaces the guess.
         refreshBackendOrders();
+        return;
+      }
+      const offline =
+        networkError || (typeof navigator !== "undefined" && !navigator.onLine);
+      if (offline && prevStatus !== undefined) {
+        try {
+          const { journalStatusChange } = await import("@/lib/offlineSync");
+          journalStatusChange({ orderId: id, fallbackIdentifier: row?.orderId ?? null, status });
+        } catch {
+          // Journaling must never break the UI.
+        }
+        console.info(
+          `[order-status] offline — queued "${status}" for ${id}; replays on reconnect under server priority rules.`,
+        );
         return;
       }
       if (prevStatus === undefined) return;
@@ -1696,13 +1732,25 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   }, [patchBackendOrderStatus, refreshBackendOrders]);
 
   const confirmStoreOrderPayment = useCallback(async (id: string, cashReceived?: number) => {
-    const markPaidLocally = () => {
+    const markPaidLocally = (syncPending = false) => {
       setData((prev) => ({
         ...prev,
         storeOrders: prev.storeOrders.map((order) =>
-          order.id === id ? { ...order, paid: true, paymentStatus: 'paid' as const } : order
+          order.id === id ? { ...order, paid: true, paymentStatus: 'paid' as const, paymentSyncPending: syncPending || undefined } : order
         ),
       }));
+    };
+    // Cash collected without a server-confirmed write must still reach the
+    // database: queue it for the offline drain (deduped by order id, skipped
+    // server-side when the payment is already PAID).
+    const queueOfflinePayment = async () => {
+      try {
+        const { journalPayment } = await import('@/lib/offlineSync');
+        journalPayment({ orderId: id, method: 'Cash', cashReceived: cashReceived ?? null });
+      } catch {
+        // Journaling must never break the sale.
+      }
+      markPaidLocally(true);
     };
     try {
       const { getApiUrl } = await import('@/lib/config');
@@ -1720,14 +1768,15 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       if (data.success) {
         markPaidLocally();
       } else {
-        // Backend rejected (or CORSblocked in this deploy) — keep POS usable offline.
-        markPaidLocally();
+        // Backend rejected (or CORS-blocked in this deploy) — keep POS usable
+        // and queue the collection so a later drain persists it.
+        await queueOfflinePayment();
       }
       return data;
     } catch (e) {
       console.error(e);
-      // Offline: record payment locally so it syncs later.
-      markPaidLocally();
+      // Offline: record payment locally AND queue it so the drain syncs it.
+      await queueOfflinePayment();
       return { success: false, message: "Network error" };
     }
   }, []);

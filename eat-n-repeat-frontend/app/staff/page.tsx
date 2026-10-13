@@ -1247,6 +1247,9 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                   ) : (
                                     <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
                                   )}
+                                  {(order as any).paymentSyncPending && (
+                                    <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200" title="Cash collected offline — will sync when reconnected">Sync pending</span>
+                                  )}
                                   {canMarkCashPaid(order) && (
                                     <button
                                       type="button"
@@ -1349,6 +1352,11 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                   <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Pending</span>
                                 )}
                               </div>
+                              {(order as any).paymentSyncPending && (
+                                <div className="flex justify-end">
+                                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200" title="Cash collected offline — will sync when reconnected">Sync pending</span>
+                                </div>
+                              )}
                               {canMarkCashPaid(order) && (
                                 <button
                                   type="button"
