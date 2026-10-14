@@ -8,6 +8,22 @@ export class PaymentsRepository {
     });
   }
 
+  /** Staff detection for POS-initiated checkouts (customer rows live elsewhere). */
+  async findStaffUserById(userId: string) {
+    return prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, role: true },
+    });
+  }
+
+  /** Idempotency lookup: a staff client retry reuses its own order number. */
+  async findOrderByNumber(orderNumber: string) {
+    return prisma.order.findFirst({
+      where: { orderNumber },
+      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+  }
+
   async createOrder(data: {
     id: string;
     orderNumber: string;

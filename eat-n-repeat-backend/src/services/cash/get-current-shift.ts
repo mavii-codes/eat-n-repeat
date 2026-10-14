@@ -5,7 +5,9 @@ export class GetCurrentShiftService {
   async execute(userId: string) {
     const shift = await cashRepository.findOpenShiftByStaffId(userId);
     if (!shift) return null;
-    return mapShift(shift);
+
+    const sales = await cashRepository.sumShiftSales(shift.id);
+    return mapShift({ ...shift, ...sales });
   }
 }
 

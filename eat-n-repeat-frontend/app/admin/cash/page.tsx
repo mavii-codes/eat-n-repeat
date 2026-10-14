@@ -11,6 +11,7 @@ export default function CashManagementPage() {
   const [shifts, setShifts] = useState<CashShift[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchShifts();
@@ -34,14 +35,61 @@ export default function CashManagementPage() {
     }
   };
 
+  const auditShift = async (shiftId: string, action: 'verify' | 'flag') => {
+    let reason = "";
+    if (action === 'flag') {
+      const input = window.prompt("Flag reason (required, e.g. shortage unexplained):");
+      if (input == null) return;
+      reason = input.trim();
+      if (!reason) {
+        toast.error("A flag reason is required.");
+        return;
+      }
+    } else if (!window.confirm("Sign off this shift as verified?")) {
+      return;
+    }
+    setActingId(shiftId);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = localStorage.getItem('eat-n-repeat-admin-token') || localStorage.getItem('eat-n-repeat-staff-token');
+      const res = await fetch(`${getApiUrl()}/api/cash/shifts/${shiftId}/${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: action === 'flag' ? JSON.stringify({ reason }) : undefined,
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        toast.success(action === 'flag' ? "Shift flagged." : "Shift verified.");
+        await fetchShifts();
+      } else {
+        toast.error(data?.message || `Failed to ${action} shift.`);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Network error.");
+    } finally {
+      setActingId(null);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch(status) {
       case 'open': return <span className="px-2 py-1 bg-amber-50 text-amber-700 text-[10px] font-bold uppercase rounded border border-amber-200">Open Shift</span>;
-      case 'matched': return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Matched</span>;
-      case 'short': return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200">Short</span>;
+      case 'matched': return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Reconciled</span>;
+      case 'short': return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200">Shortage</span>;
       case 'over': return <span className="px-2 py-1 bg-blue-50 text-blue-700 text-[10px] font-bold uppercase rounded border border-blue-200">Over</span>;
       default: return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{status}</span>;
     }
+  };
+
+  const getVerificationBadge = (s: CashShift) => {
+    const v = (s.verification_status || 'unverified').toLowerCase();
+    if (v === 'verified') return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200" title={s.verified_at ? `Signed off ${new Date(s.verified_at).toLocaleString('en-PH')}` : undefined}>Verified{s.verified_by_name ? ` · ${s.verified_by_name}` : ''}</span>;
+    if (v === 'flagged') return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200" title={s.flag_reason || undefined}>Flagged{s.flag_reason ? `: ${s.flag_reason}` : ''}</span>;
+    return <span className="px-2 py-1 bg-stone-100 text-stone-500 text-[10px] font-bold uppercase rounded border border-stone-200">Unverified</span>;
   };
 
   return (
@@ -79,6 +127,7 @@ export default function CashManagementPage() {
                   <th className="px-4 py-3">Actual</th>
                   <th className="px-4 py-3">Difference</th>
                   <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-3 text-center">Audit Sign-off</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -104,8 +153,29 @@ export default function CashManagementPage() {
                       ) : "-"}
                     </td>
                     <td className="px-4 py-3 text-center">{getStatusBadge(s.status)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button onClick={() => setSelectedShiftId(s.id)} className="p-1.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 text-[#800000] shadow-sm">
+                    <td className="px-4 py-3 text-center">{getVerificationBadge(s)}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {s.status !== 'open' && (s.verification_status || 'unverified').toLowerCase() !== 'verified' && (
+                        <>
+                          <button
+                            onClick={() => auditShift(s.id, 'verify')}
+                            disabled={actingId === s.id}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
+                            title="Sign off this shift as verified"
+                          >
+                            {actingId === s.id ? '…' : 'Verify'}
+                          </button>
+                          <button
+                            onClick={() => auditShift(s.id, 'flag')}
+                            disabled={actingId === s.id}
+                            className="px-2.5 py-1.5 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
+                            title="Flag this shift for discrepancy"
+                          >
+                            Flag
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => setSelectedShiftId(s.id)} className="p-1.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 text-[#800000] shadow-sm" title="View details">
                         <Eye className="w-4 h-4" />
                       </button>
                     </td>
@@ -229,6 +299,23 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
               <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
                 <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Status</span>
                 <p className="font-bold text-lg capitalize text-stone-800">{shift.status}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Audit Sign-off</span>
+                <p className="font-bold text-sm text-stone-800 mt-1">
+                  {(shift.verification_status || 'unverified').toLowerCase() === 'verified'
+                    ? `Verified${shift.verified_by_name ? ` by ${shift.verified_by_name}` : ''}${shift.verified_at ? ` · ${new Date(shift.verified_at).toLocaleString('en-PH')}` : ''}`
+                    : (shift.verification_status || 'unverified').toLowerCase() === 'flagged'
+                      ? `Flagged${shift.flag_reason ? `: ${shift.flag_reason}` : ''}`
+                      : 'Unverified'}
+                </p>
+              </div>
+              <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">End-of-Shift Notes</span>
+                <p className="font-medium text-sm text-stone-700 mt-1">{shift.notes?.trim() ? shift.notes : <span className="text-stone-400 italic">No notes.</span>}</p>
               </div>
             </div>
 

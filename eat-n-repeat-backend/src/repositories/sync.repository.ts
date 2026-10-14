@@ -110,6 +110,8 @@ export class SyncRepository {
     orderIdParam: string,
     method: string,
     paidAt: Date,
+    originStaffId?: string | null,
+    drainingUserId?: string | null,
   ): Promise<"applied" | "skipped"> {
     const order = await this.resolveDrainOrder(tx, orderIdParam);
     if (!order) {
@@ -136,7 +138,58 @@ export class SyncRepository {
       `;
     }
     console.info(`[offline-sync] order ${order.orderNumber} marked PAID (${safeMethod}).`);
+    // Drawer attribution for offline cash: prefer the originating
+    // cashier's still-open shift, else the draining operator's open shift.
+    // GCash never touches the drawer. Duplicate-guarded by order id.
+    if (safeMethod.trim().toLowerCase() === "cash") {
+      try {
+        await this.attributeReplayedCash(tx, order.id, order.orderNumber, Number(order.total) || 0, originStaffId ?? null, drainingUserId ?? null);
+      } catch (e: any) {
+        console.warn(`[offline-sync] drawer attribution for ${order.orderNumber} failed: ${e?.message ?? e}`);
+      }
+    }
     return "applied";
+  }
+
+  /**
+   * Attribute a replayed cash collection to an open shift. Preference:
+   * originating staff's open shift, then the draining operator's.
+   * Closed/absent shifts => payment stays recorded, no drawer row.
+   */
+  private async attributeReplayedCash(
+    tx: any,
+    orderDbId: string,
+    orderNumber: string,
+    amount: number,
+    originStaffId: string | null,
+    drainingUserId?: string | null,
+  ): Promise<void> {
+    const dup = await tx.$queryRaw<any[]>`
+      SELECT id FROM cash_transactions WHERE order_id = ${orderDbId} LIMIT 1
+    `;
+    if (dup.length > 0) return;
+    const candidates = [originStaffId, drainingUserId].filter(Boolean) as string[];
+    for (const staffId of candidates) {
+      const openShift = await tx.$queryRaw<any[]>`
+        SELECT id, staff_id FROM cash_shifts WHERE staff_id = ${staffId} AND status = 'open'
+        ORDER BY start_time DESC LIMIT 1
+      `;
+      if (openShift.length === 0) continue;
+      const staff = await tx.$queryRaw<any[]>`
+        SELECT name FROM users WHERE id = ${staffId} LIMIT 1
+      `;
+      const staffName = staff.length > 0 ? staff[0].name : "Staff";
+      await tx.$executeRaw`
+        INSERT INTO cash_transactions (id, shift_id, order_id, type, amount, admin_id, admin_name, reason, timestamp)
+        VALUES (${crypto.randomUUID()}, ${openShift[0].id}, ${orderDbId}, 'sale', ${amount}, ${staffId}, ${staffName}, ${`Offline replay ${orderNumber}`}, ${new Date()})
+      `;
+      await tx.$executeRaw`
+        UPDATE cash_shifts SET expected_cash = expected_cash + ${amount} WHERE id = ${openShift[0].id}
+      `;
+      console.info(`[offline-sync] order ${orderNumber} cash ₱${amount} attributed to shift ${openShift[0].id}.`);
+      return;
+    }
+    console.info(`[offline-sync] order ${orderNumber} has no open shift to attribute — payment recorded without drawer row.`);
   }
 
   async executeOfflineSync(
@@ -144,8 +197,56 @@ export class SyncRepository {
     offline_stock_transactions: any[],
     offline_payments: any[] = [],
     offline_status_changes: any[] = [],
+    offline_shifts: any[] = [],
+    drainingUserId?: string | null,
   ) {
     await prisma.$transaction(async (tx) => {
+      // Shift starts replay FIRST so later steps can attribute to them.
+      // Starts are idempotent (existing id skipped) and never duplicate an
+      // already-open shift for the same staff.
+      const shiftStarts = (offline_shifts || []).filter((o: any) => o?.kind === "start");
+      for (const op of shiftStarts) {
+        try {
+          const shiftId = String(op?.shiftId ?? "");
+          const staffId = String(op?.staffId ?? "");
+          const float = Number(op?.startingFloat);
+          if (!shiftId || !staffId || !(float >= 0)) {
+            console.warn("[offline-sync] shift start missing id/staff/float — dropped.");
+            continue;
+          }
+          const staff = await tx.$queryRaw<any[]>`
+            SELECT id, name FROM users WHERE id = ${staffId} LIMIT 1
+          `;
+          if (staff.length === 0) {
+            console.warn(`[offline-sync] shift start for unknown staff "${staffId}" — dropped.`);
+            continue;
+          }
+          const byId = await tx.$queryRaw<any[]>`
+            SELECT id, status FROM cash_shifts WHERE id = ${shiftId} LIMIT 1
+          `;
+          if (byId.length > 0) {
+            console.info(`[offline-sync] shift ${shiftId} already exists — start skipped.`);
+            continue;
+          }
+          const openShift = await tx.$queryRaw<any[]>`
+            SELECT id FROM cash_shifts WHERE staff_id = ${staffId} AND status = 'open'
+            ORDER BY start_time DESC LIMIT 1
+          `;
+          if (openShift.length > 0) {
+            console.warn(`[offline-sync] staff already has open shift ${openShift[0].id} — start ${shiftId} dropped.`);
+            continue;
+          }
+          const startTime = op?.at ? new Date(op.at) : new Date();
+          await tx.$executeRaw`
+            INSERT INTO cash_shifts (id, staff_id, staff_name, starting_float, expected_cash, status, start_time)
+            VALUES (${shiftId}, ${staffId}, ${staff[0].name}, ${float}, ${float}, 'open', ${Number.isNaN(startTime.getTime()) ? new Date() : startTime})
+          `;
+          console.info(`[offline-sync] shift ${shiftId} opened for ${staff[0].name}.`);
+        } catch (e: any) {
+          console.warn(`[offline-sync] shift start replay failed: ${e?.message ?? e}`);
+        }
+      }
+
       // Sync Offline Orders (INSERT IGNORE)
       if (offline_orders && offline_orders.length > 0) {
         for (const order of offline_orders) {
@@ -175,14 +276,21 @@ export class SyncRepository {
           // address/notes ARE real columns: replayed offline orders keep the
           // customer's delivery address and notes (null when the journal
           // predates those fields).
+          // Fulfillment type comes from the journal when present (POS
+          // offline sales); older entries without it keep the legacy
+          // dine-in default, so replay behavior is backward-compatible.
+          const replayType =
+            typeof order.type === "string" && order.type.trim() ? order.type.trim().slice(0, 20) : "dine-in";
           await tx.$executeRaw`
             INSERT IGNORE INTO orders (id, order_number, type, items, total, status, archived, created_at, address, notes)
-            VALUES (${order.id}, ${order.id}, 'dine-in', ${items}, ${order.total}, ${order.status}, 0, ${createdAt}, ${order.address ?? null}, ${order.customerNotes ?? null})
+            VALUES (${order.id}, ${order.id}, ${replayType}, ${items}, ${order.total}, ${order.status}, 0, ${createdAt}, ${order.address ?? null}, ${order.customerNotes ?? null})
           `;
 
           // Journaled cash sales replay as paid: mirror a PAID payment row
-          // for rows THIS drain inserted (never for pre-existing rows, and
-          // never when a payment already exists — no double-collect).
+          // whenever the replayed order carries paid=true and no payment
+          // exists yet — including a pre-existing row whose earlier replay
+          // missed its mirror. The payment-existence check (not row age) is
+          // what prevents double-collect.
           // NOTE: online checkout never deducts stock either, so replayed
           // rows not deducting keeps offline and online consistent.
           try {
@@ -247,6 +355,8 @@ export class SyncRepository {
               identifier,
               String(pay?.method ?? pay?.payment_method ?? "Cash"),
               Number.isNaN(paidAt.getTime()) ? new Date() : paidAt,
+              pay?.staffId ? String(pay.staffId) : null,
+              drainingUserId ?? null,
             );
           } catch (e: any) {
             console.warn(`[offline-sync] payment replay failed: ${e?.message ?? e}`);
@@ -287,6 +397,56 @@ export class SyncRepository {
           } catch (e: any) {
             console.warn(`[offline-sync] status replay failed: ${e?.message ?? e}`);
           }
+        }
+      }
+
+      // Shift closes replay LAST so expectedCash already includes every
+      // replayed sale above. Owner-only, open-only, computed server-side.
+      const shiftCloses = (offline_shifts || []).filter((o: any) => o?.kind === "close");
+      for (const op of shiftCloses) {
+        try {
+          const shiftId = String(op?.shiftId ?? "");
+          if (!shiftId) {
+            console.warn("[offline-sync] shift close without id — dropped.");
+            continue;
+          }
+          const rows = await tx.$queryRaw<any[]>`
+            SELECT id, staff_id, status, expected_cash FROM cash_shifts WHERE id = ${shiftId} LIMIT 1
+          `;
+          if (rows.length === 0) {
+            console.warn(`[offline-sync] shift close for unknown shift "${shiftId}" — dropped.`);
+            continue;
+          }
+          const shift = rows[0];
+          if (shift.status !== "open") {
+            console.info(`[offline-sync] shift ${shiftId} already ${shift.status} — close skipped.`);
+            continue;
+          }
+          if (op?.staffId && String(op.staffId) !== String(shift.staff_id)) {
+            console.warn(`[offline-sync] shift ${shiftId} close by non-owner — dropped.`);
+            continue;
+          }
+          const expectedCash = Number(shift.expected_cash) || 0;
+          const actualCash = Number(op?.actualCash);
+          if (!Number.isFinite(actualCash) || actualCash < 0) {
+            console.warn(`[offline-sync] shift ${shiftId} close with invalid cash — dropped.`);
+            continue;
+          }
+          const difference = actualCash - expectedCash;
+          const status = difference < -0.01 ? "short" : difference > 0.01 ? "over" : "matched";
+          const notes =
+            typeof op?.notes === "string" && op.notes.trim() ? op.notes.trim().slice(0, 2000) : null;
+          const endTime = op?.at ? new Date(op.at) : new Date();
+          await tx.$executeRaw`
+            UPDATE cash_shifts
+            SET end_time = ${Number.isNaN(endTime.getTime()) ? new Date() : endTime},
+              actual_cash = ${actualCash}, difference = ${difference}, status = ${status},
+              notes = ${notes}
+            WHERE id = ${shiftId}
+          `;
+          console.info(`[offline-sync] shift ${shiftId} closed (${status}, variance ${difference}).`);
+        } catch (e: any) {
+          console.warn(`[offline-sync] shift close replay failed: ${e?.message ?? e}`);
         }
       }
     });

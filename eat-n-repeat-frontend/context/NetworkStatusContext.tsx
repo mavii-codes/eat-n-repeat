@@ -7,6 +7,7 @@ import {
   getPendingStockTransactions,
   getPendingOfflinePayments,
   getPendingOfflineStatusChanges,
+  getPendingOfflineShiftOps,
   markOrdersSynced,
   clearSyncedOrders,
   markStockTransactionsSynced,
@@ -14,7 +15,9 @@ import {
   markPaymentsSynced,
   clearSyncedOfflinePayments,
   markStatusChangesSynced,
-  clearSyncedOfflineStatusChanges
+  clearSyncedOfflineStatusChanges,
+  markShiftOpsSynced,
+  clearSyncedOfflineShiftOps
 } from "@/lib/offlineSync";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -53,12 +56,14 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
       const offlineStockTxs = await getPendingStockTransactions();
       const offlinePayments = await getPendingOfflinePayments();
       const offlineStatusChanges = await getPendingOfflineStatusChanges();
+      const offlineShiftOps = await getPendingOfflineShiftOps();
 
       if (
         offlineOrders.length === 0 &&
         offlineStockTxs.length === 0 &&
         offlinePayments.length === 0 &&
-        offlineStatusChanges.length === 0
+        offlineStatusChanges.length === 0 &&
+        offlineShiftOps.length === 0
       ) {
         return;
       }
@@ -94,6 +99,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
           offline_stock_transactions: offlineStockTxs,
           offline_payments: offlinePayments,
           offline_status_changes: offlineStatusChanges,
+          offline_shifts: offlineShiftOps,
         },
         { headers: { Authorization: `Bearer ${bearer}` } }
       );
@@ -115,7 +121,16 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
           await markStatusChangesSynced(offlineStatusChanges.map((s: { orderId: string }) => s.orderId));
           await clearSyncedOfflineStatusChanges();
         }
+        if (offlineShiftOps.length > 0) {
+          await markShiftOpsSynced(offlineShiftOps.map((s: { shiftId: string }) => s.shiftId));
+          await clearSyncedOfflineShiftOps();
+        }
         toast.success("Offline data synced successfully!", { id: "sync-status" });
+        // Let locally-optimistic surfaces (e.g. offline POS shift state)
+        // reconcile against the freshly synced server state.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("eat-n-repeat:offline-synced"));
+        }
       }
     } catch (err) {
       console.error("Auto-sync failed:", err);

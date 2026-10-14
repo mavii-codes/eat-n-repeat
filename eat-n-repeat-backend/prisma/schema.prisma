@@ -261,6 +261,15 @@ model CashShift {
   actualCash      Decimal?          @db.Decimal(10, 2) @map("actual_cash")
   difference      Decimal?          @db.Decimal(10, 2) @map("difference")
   status          String            @default("open") @db.VarChar(20) @map("status")
+  // End-of-shift reconciliation notes entered by the cashier.
+  notes           String?           @db.Text @map("notes")
+  // Admin audit: who verified/signed off, when, and the outcome.
+  // 'unverified' (default) | 'verified' | 'flagged'. Staff can never
+  // verify their own shift (enforced in the service, not just the UI).
+  verificationStatus String       @default("unverified") @db.VarChar(20) @map("verification_status")
+  verifiedBy      String?           @db.VarChar(64) @map("verified_by")
+  verifiedAt      DateTime?         @db.Timestamp(0) @map("verified_at")
+  flagReason      String?           @db.VarChar(255) @map("flag_reason")
   cashTransactions CashTransaction[]
 
   @@map("cash_shifts")

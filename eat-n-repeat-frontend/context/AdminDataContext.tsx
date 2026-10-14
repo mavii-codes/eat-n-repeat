@@ -1787,7 +1787,10 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       const token = localStorage.getItem('eat-n-repeat-staff-token');
       if (!token) return;
       const res = await fetch(`${getApiUrl()}/api/cash/shift/current`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        // Bound the 10s poll: a stalled backend must not pile up hanging
+        // polls behind it.
+        signal: AbortSignal.timeout(8000),
       });
       const data = await res.json();
       if (data.success) {

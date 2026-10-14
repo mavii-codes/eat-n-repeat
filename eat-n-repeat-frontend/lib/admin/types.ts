@@ -117,6 +117,14 @@ export type CashShift = {
   actual_cash?: number | string;
   difference?: number | string;
   status: 'open' | 'matched' | 'short' | 'over';
+  notes?: string | null;
+  verification_status?: 'unverified' | 'verified' | 'flagged' | string;
+  verified_by?: string | null;
+  verified_by_name?: string | null;
+  verified_at?: string | null;
+  flag_reason?: string | null;
+  cash_sales?: number | null;
+  gcash_sales?: number | null;
 };
 
 export type CashTransaction = {

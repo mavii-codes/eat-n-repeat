@@ -54,19 +54,30 @@ export function StartShiftModal({ open, onStart }: { open: boolean, onStart: (fl
   );
 }
 
-export function EndShiftModal({ open, shift, onEnd, onClose }: { open: boolean, shift: any, onEnd: (cash: number) => Promise<void>, onClose: () => void }) {
-  const [actual, setActual] = useState<string>(shift?.expected_cash || "0");
+export function EndShiftModal({ open, shift, onEnd, onClose }: { open: boolean, shift: any, onEnd: (cash: number, notes?: string) => Promise<void>, onClose: () => void }) {
+  const [actual, setActual] = useState<string>(shift?.expected_cash != null ? String(shift.expected_cash) : "0");
+  const [notes, setNotes] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
   if (!open || !shift) return null;
 
+  const openingFloat = parseFloat(shift.starting_float || 0);
   const expected = parseFloat(shift.expected_cash || 0);
-  const diff = parseFloat(actual) - expected;
+  // Cash sales from the server split when available; otherwise derived so
+  // the X-read always balances: expected = float + cash sales.
+  const cashSales = shift.cash_sales != null
+    ? parseFloat(shift.cash_sales)
+    : expected - openingFloat;
+  const gcashSales = shift.gcash_sales != null ? parseFloat(shift.gcash_sales) : 0;
+  const actualNum = parseFloat(actual) || 0;
+  const diff = actualNum - expected;
+  const varianceLabel = diff === 0 ? "Cash Reconciled" : diff < 0 ? "Cash Shortage" : "Cash Over";
+  const varianceValue = diff === 0 ? "₱0.00" : diff < 0 ? `-₱${Math.abs(diff).toFixed(2)}` : `+₱${diff.toFixed(2)}`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await onEnd(parseFloat(actual));
+    await onEnd(parseFloat(actual) || 0, notes.trim() || undefined);
     setLoading(false);
   };
 
@@ -77,30 +88,36 @@ export function EndShiftModal({ open, shift, onEnd, onClose }: { open: boolean, 
           <X className="w-5 h-5" />
         </button>
         
-        <h2 className="text-xl font-bold text-stone-900 mb-5">Cash Reconciliation</h2>
-        
+        <h2 className="text-xl font-bold text-stone-900 mb-1">Cash Reconciliation</h2>
+        <p className="text-[11px] font-bold text-stone-400 uppercase tracking-widest mb-5">Live X-Read Summary</p>
+
         <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 mb-5 text-sm space-y-2">
           <div className="flex justify-between">
-            <span className="text-stone-500">Starting Float</span>
-            <span className="font-bold">₱{parseFloat(shift.starting_float).toFixed(2)}</span>
+            <span className="text-stone-500">Opening Cash Float</span>
+            <span className="font-bold">₱{openingFloat.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-stone-500">Cash Sales (approx)</span>
-            <span className="font-bold">₱{(expected - parseFloat(shift.starting_float)).toFixed(2)}</span>
+            <span className="text-stone-500">Cash Sales (+)</span>
+            <span className="font-bold text-emerald-700">+₱{cashSales.toFixed(2)}</span>
           </div>
+          <div className="flex justify-between">
+            <span className="text-stone-500">GCash Sales</span>
+            <span className="font-bold text-stone-600">₱{gcashSales.toFixed(2)}</span>
+          </div>
+          <p className="text-[10px] text-stone-400">GCash is recorded separately — never counted in the drawer.</p>
           <div className="border-t border-stone-200 my-2 pt-2 flex justify-between">
-            <span className="text-stone-700 font-bold uppercase text-[10px]">Expected Cash</span>
+            <span className="text-stone-700 font-bold uppercase text-[10px]">Expected Cash in Drawer</span>
             <span className="font-bold text-[#800000] text-lg">₱{expected.toFixed(2)}</span>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-stone-700 mb-1">Actual Cash Counted (₱)</label>
-            <input 
-              type="number" 
+            <label className="block text-xs font-bold text-stone-700 mb-1">Counted Physical Cash in Drawer (₱)</label>
+            <input
+              type="number"
               required min="0" step="0.01"
-              value={actual} 
+              value={actual}
               onChange={(e) => setActual(e.target.value)}
               className="w-full text-2xl font-bold p-3 border border-stone-200 rounded-xl focus:ring-2 focus:ring-[#800000] focus:border-[#800000]"
             />
@@ -108,15 +125,25 @@ export function EndShiftModal({ open, shift, onEnd, onClose }: { open: boolean, 
 
           {actual !== "" && (
             <div className={`p-3 rounded-lg border flex items-center justify-between ${diff === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : diff < 0 ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
-              <span className="font-bold text-xs uppercase">Difference</span>
-              <span className="font-bold text-lg">
-                {diff === 0 ? "₱0 (MATCHED)" : diff < 0 ? `-\u20B1${Math.abs(diff).toFixed(2)} (SHORT)` : `+\u20B1${diff.toFixed(2)} (OVER)`}
-              </span>
+              <span className="font-bold text-xs uppercase">{varianceLabel}</span>
+              <span className="font-bold text-lg">{varianceValue}</span>
             </div>
           )}
-          
-          <button 
-            type="submit" 
+
+          <div>
+            <label className="block text-xs font-bold text-stone-700 mb-1">End-of-Shift Notes (optional)</label>
+            <textarea
+              rows={2}
+              maxLength={2000}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. Minor shortage, drawer recounted twice."
+              className="w-full text-xs p-3 rounded-xl border border-stone-200 focus:ring-2 focus:ring-[#800000] focus:border-[#800000] outline-none resize-none"
+            />
+          </div>
+
+          <button
+            type="submit"
             disabled={loading}
             className="w-full py-3.5 bg-stone-900 text-white font-bold rounded-xl hover:bg-black transition-colors"
           >

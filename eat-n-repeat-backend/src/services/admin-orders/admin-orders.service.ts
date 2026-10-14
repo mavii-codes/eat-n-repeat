@@ -147,22 +147,29 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
   // Update order status
   await adminOrdersRepository.updateOrder(order.id, { status: "confirmed" });
 
-  // Handle cash shift if payment method is cash
+  // Handle cash shift if payment method is cash. The drawer total lives
+  // in expectedCash (there is no totalSales column — writing one threw and
+  // turned every paid confirmation into a 500 AFTER the payment was saved).
+  // Skip when this order already has a shift transaction (e.g. a POS sale
+  // recorded at checkout time): one collection => exactly one drawer row.
   if (paymentMethod === "cash" && userId) {
     const openShift = await adminOrdersRepository.findOpenCashShift(userId);
     if (openShift) {
-      await adminOrdersRepository.createCashTransaction({
-        id: uuidv4(),
-        shiftId: openShift.id,
-        orderId: order.id,
-        type: "sale",
-        amount: totalAmount,
-        timestamp: new Date(),
-      });
+      const existingTx = await adminOrdersRepository.findCashTransactionByOrderId(order.id);
+      if (!existingTx) {
+        await adminOrdersRepository.createCashTransaction({
+          id: uuidv4(),
+          shiftId: openShift.id,
+          orderId: order.id,
+          type: "sale",
+          amount: totalAmount,
+          timestamp: new Date(),
+        });
 
-      await adminOrdersRepository.updateCashShift(openShift.id, {
-        totalSales: { increment: totalAmount },
-      });
+        await adminOrdersRepository.updateCashShift(openShift.id, {
+          expectedCash: { increment: totalAmount },
+        });
+      }
     }
   }
 

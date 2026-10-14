@@ -118,12 +118,25 @@ export const offlineStatusChangeSchema = z
   })
   .passthrough();
 
+export const offlineShiftOpSchema = z
+  .object({
+    shiftId: z.string().min(1),
+    kind: z.enum(["start", "close"]),
+    staffId: z.string().optional(),
+    startingFloat: z.coerce.number().min(0).nullable().optional(),
+    actualCash: z.coerce.number().min(0).nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+    at: z.coerce.date().nullable().optional(),
+  })
+  .passthrough();
+
 export const offlineSyncSchema = z
   .object({
     offline_orders: z.array(offlineOrderSchema).optional().default([]),
     offline_stock_transactions: z.array(offlineStockTransactionSchema).optional().default([]),
     offline_payments: z.array(offlinePaymentSchema).optional().default([]),
     offline_status_changes: z.array(offlineStatusChangeSchema).optional().default([]),
+    offline_shifts: z.array(offlineShiftOpSchema).optional().default([]),
   })
   .passthrough();
 

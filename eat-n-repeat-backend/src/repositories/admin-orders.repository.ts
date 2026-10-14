@@ -59,6 +59,12 @@ export class AdminOrdersRepository {
     });
   }
 
+  async findCashTransactionByOrderId(orderId: string) {
+    return prisma.cashTransaction.findFirst({
+      where: { orderId },
+    });
+  }
+
   async updatePayment(paymentId: string, data: Record<string, unknown>) {
     return prisma.payment.update({
       where: { id: paymentId },

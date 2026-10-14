@@ -12,9 +12,10 @@ export class GetShiftDetailsService {
     }
 
     const transactions = await cashRepository.findTransactionsByShiftId(shiftId);
+    const sales = await cashRepository.sumShiftSales(shiftId);
 
     return {
-      shift: mapShift(shift),
+      shift: mapShift({ ...shift, ...sales }),
       transactions: transactions.map(mapTransaction),
     };
   }

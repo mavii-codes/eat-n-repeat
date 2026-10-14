@@ -9,6 +9,13 @@ export function mapShift(row: {
   actualCash: any;
   difference: any;
   status: string;
+  notes?: string | null;
+  verificationStatus?: string | null;
+  verifiedBy?: string | null;
+  verifiedAt?: Date | null;
+  flagReason?: string | null;
+  cash_sales?: number;
+  gcash_sales?: number;
 }) {
   return {
     id: row.id,
@@ -21,6 +28,14 @@ export function mapShift(row: {
     actual_cash: row.actualCash != null ? Number(row.actualCash) : null,
     difference: row.difference != null ? Number(row.difference) : null,
     status: row.status,
+    notes: row.notes ?? null,
+    verification_status: row.verificationStatus ?? "unverified",
+    verified_by: row.verifiedBy ?? null,
+    verified_at: row.verifiedAt ?? null,
+    flag_reason: row.flagReason ?? null,
+    // Computed sales split (cash vs GCash) when the caller attaches them.
+    cash_sales: row.cash_sales ?? null,
+    gcash_sales: row.gcash_sales ?? null,
   };
 }
 

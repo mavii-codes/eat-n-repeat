@@ -6,6 +6,7 @@ export { EndShiftService, endShiftService } from "./end-shift";
 export { GetAllShiftsService, getAllShiftsService } from "./get-all-shifts";
 export { GetShiftDetailsService, getShiftDetailsService } from "./get-shift-details";
 export { AddFloatService, addFloatService } from "./add-float";
+export { VerifyShiftService, FlagShiftService, verifyShiftService, flagShiftService } from "./verify-shift";
 
 // Re-export helpers
 export { mapShift, mapTransaction } from "./helpers";
@@ -18,6 +19,7 @@ import { endShiftService } from "./end-shift";
 import { getAllShiftsService } from "./get-all-shifts";
 import { getShiftDetailsService } from "./get-shift-details";
 import { addFloatService } from "./add-float";
+import { verifyShiftService, flagShiftService } from "./verify-shift";
 
 export async function isAdminUser(userId: string): Promise<boolean> {
   return cashIsAdminUserService.execute(userId);
@@ -31,8 +33,16 @@ export async function startShift(userId: string, startingFloat: number) {
   return startShiftService.execute(userId, startingFloat);
 }
 
-export async function endShift(userId: string, shiftId: string, actualCash: number) {
-  return endShiftService.execute(userId, shiftId, actualCash);
+export async function endShift(userId: string, shiftId: string, actualCash: number, notes?: string) {
+  return endShiftService.execute(userId, shiftId, actualCash, notes);
+}
+
+export async function verifyShift(shiftId: string, adminId: string) {
+  return verifyShiftService.execute(shiftId, adminId);
+}
+
+export async function flagShift(shiftId: string, adminId: string, reason: string) {
+  return flagShiftService.execute(shiftId, adminId, reason);
 }
 
 export async function getAllShifts() {

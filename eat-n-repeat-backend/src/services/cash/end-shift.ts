@@ -2,7 +2,7 @@ import { cashRepository } from "@/repositories/cash.repository";
 import { mapShift } from "./helpers";
 
 export class EndShiftService {
-  async execute(userId: string, shiftId: string, actualCash: number) {
+  async execute(userId: string, shiftId: string, actualCash: number, notes?: string) {
     const shift = await cashRepository.findOpenShiftByIdAndStaff(shiftId, userId);
 
     if (!shift) {
@@ -11,6 +11,9 @@ export class EndShiftService {
       throw err;
     }
 
+    // Expected cash and variance are ALWAYS recomputed here from the
+    // persisted shift row — the client never supplies them, so a tampered
+    // request body cannot fake a balanced drawer.
     const expectedCash = Number(shift.expectedCash);
     const difference = actualCash - expectedCash;
 
@@ -23,6 +26,7 @@ export class EndShiftService {
       actualCash,
       difference,
       status,
+      notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 2000) : null,
     });
 
     return mapShift(updated);

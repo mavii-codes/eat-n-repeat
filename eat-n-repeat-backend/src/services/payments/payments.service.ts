@@ -1,8 +1,35 @@
 import { paymentsRepository } from "@/repositories/payments.repository";
+import { cashRepository } from "@/repositories/cash.repository";
 import { xenditClient } from "@/lib/xendit";
 import { env } from "@/config/env";
 import { v4 as uuidv4 } from "uuid";
 import { cafeAvailabilityService } from "@/services/cafe-availability";
+
+const XENDIT_INVOICE_TIMEOUT_MS = 20000;
+
+/** Xendit SDK calls carry no timeout of their own: race them so a stalled
+ *  provider turns into a catchable 500 instead of a hung HTTP request
+ *  (Express 4 never answers those, and clients spin forever). */
+async function createInvoiceWithTimeout(payload: {
+  externalId: string;
+  amount: number;
+  paymentMethods: string[];
+  description: string;
+  successRedirectUrl: string;
+  failureRedirectUrl: string;
+}): Promise<any> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      xenditClient.Invoice.createInvoice({ data: payload }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Payment invoice timed out. Please try again.")), XENDIT_INVOICE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export class ServiceError extends Error {
   status: number;
@@ -152,8 +179,76 @@ export async function checkout(
   }
 
   const total = subtotal + (deliveryFee || 0);
+
+  // ── Staff detection (POS-initiated checkout) ──
+  // req.auth.userId arrives as customerId; a hit in the staff users table
+  // means this checkout was rung by staff (POS), not placed by a customer.
+  let staffOperator: { id: string; name: string; role: string } | null = null;
+  if (customerId) {
+    try {
+      staffOperator = await paymentsRepository.findStaffUserById(customerId);
+    } catch {
+      staffOperator = null;
+    }
+  }
+
+  // ── Idempotent order numbers for staff retries ──
+  // POS generates its own number (POS-...) and resends it after a timeout;
+  // honoring it (staff callers ONLY — customer ORD-xxxx numbers are
+  // low-entropy and must never collide across accounts) turns a retry into
+  // a safe return-existing instead of a duplicate order / duplicate charge.
+  const rawClientNumber =
+    typeof (orderDetails as any)?.orderNumber === "string"
+      ? (orderDetails as any).orderNumber.trim()
+      : "";
+  const staffOrderNumber =
+    staffOperator && /^[\w-]{4,50}$/.test(rawClientNumber) ? rawClientNumber : null;
+  if (staffOrderNumber) {
+    const existing = await paymentsRepository.findOrderByNumber(staffOrderNumber);
+    if (existing) {
+      const latestPayment: any = (existing as any).payments?.[0] ?? null;
+      return {
+        orderId: existing.id,
+        orderNumber: existing.orderNumber,
+        total: Number((existing as any).total),
+        // GCash retry: hand back the live invoice instead of minting another.
+        ...(latestPayment?.xenditReference ? { invoiceUrl: latestPayment.xenditReference } : {}),
+      };
+    }
+  }
+
   const orderId = uuidv4();
-  const orderNumber = generateOrderNumber();
+  const orderNumber = staffOrderNumber ?? generateOrderNumber();
+
+  // ── Drawer association for staff-rung sales ──
+  // Cash collected at the drawer joins the operator's open shift as a
+  // 'sale' tx (expectedCash += amount). Staff-confirmed GCash joins as a
+  // 'gcash_sale' tx: shown on the X-read, NEVER counted in the drawer.
+  // Rider-collected COD and customer-placed orders never touch shifts.
+  // Failures here must never fail the sale itself (order already saved).
+  const recordShiftSale = async (kind: "sale" | "gcash_sale") => {
+    if (!staffOperator || isOnlineCOD) return;
+    try {
+      const openShift = await cashRepository.findOpenShiftByStaffId(staffOperator.id);
+      if (!openShift) return;
+      await cashRepository.createTransaction({
+        id: uuidv4(),
+        shiftId: openShift.id,
+        type: kind,
+        amount: total,
+        adminId: staffOperator.id,
+        adminName: staffOperator.name,
+        reason: `POS ${kind === "sale" ? "cash" : "GCash"} sale ${orderNumber}`,
+        timestamp: new Date(),
+        orderId,
+      });
+      if (kind === "sale") {
+        await cashRepository.updateShift(openShift.id, { expectedCash: { increment: total } });
+      }
+    } catch (e) {
+      console.error("[checkout] shift attribution failed (order already saved):", e);
+    }
+  };
 
   // Create order
   const order = await paymentsRepository.createOrder({
@@ -179,6 +274,7 @@ export async function checkout(
 
   // For local mode cash orders, skip payment record — handled by Staff POS at cashier
   if (orderMode === "local") {
+    if (normalizedMethod === "cash") await recordShiftSale("sale");
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -226,15 +322,13 @@ export async function checkout(
   if (xenditChannel) {
     try {
       const returnUrls = buildReturnUrls(orderNumber);
-      const invoice = await xenditClient.Invoice.createInvoice({
-        data: {
-          externalId: orderNumber,
-          amount: total,
-          paymentMethods: [xenditChannel],
-          description: `Order #${orderNumber}`,
-          successRedirectUrl: returnUrls.successRedirectUrl,
-          failureRedirectUrl: returnUrls.failureRedirectUrl,
-        },
+      const invoice = await createInvoiceWithTimeout({
+        externalId: orderNumber,
+        amount: total,
+        paymentMethods: [xenditChannel],
+        description: `Order #${orderNumber}`,
+        successRedirectUrl: returnUrls.successRedirectUrl,
+        failureRedirectUrl: returnUrls.failureRedirectUrl,
       });
 
       // Attach the created invoice to the EXISTING payment row (same id).
@@ -244,6 +338,10 @@ export async function checkout(
         xenditInvoiceId: invoice.id,
         xenditReference: invoice.invoiceUrl,
       });
+
+      // Staff-confirmed GCash only: invoice exists, collection confirmed at
+      // the counter. Displayed on the X-read, never in the cash drawer.
+      if (staffOperator && normalizedMethod === "gcash") await recordShiftSale("gcash_sale");
 
       return {
         orderId: order.id,
@@ -260,6 +358,7 @@ export async function checkout(
   }
 
   // For cash payments, return immediately
+  if (normalizedMethod === "cash") await recordShiftSale("sale");
   return {
     orderId: order.id,
     orderNumber: order.orderNumber,
@@ -306,15 +405,13 @@ export async function retryPayment(orderId: string) {
       : payment.paymentMethod;
   try {
     const returnUrls = buildReturnUrls(order.orderNumber);
-    const invoice = await xenditClient.Invoice.createInvoice({
-      data: {
-        externalId: order.orderNumber,
-        amount: Number(order.total),
-        paymentMethods: [retryChannel],
-        description: `Retry payment for Order #${order.orderNumber}`,
-        successRedirectUrl: returnUrls.successRedirectUrl,
-        failureRedirectUrl: returnUrls.failureRedirectUrl,
-      },
+    const invoice = await createInvoiceWithTimeout({
+      externalId: order.orderNumber,
+      amount: Number(order.total),
+      paymentMethods: [retryChannel],
+      description: `Retry payment for Order #${order.orderNumber}`,
+      successRedirectUrl: returnUrls.successRedirectUrl,
+      failureRedirectUrl: returnUrls.failureRedirectUrl,
     });
 
     await paymentsRepository.createPayment({

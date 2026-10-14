@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
-import { startShiftSchema, endShiftSchema, addFloatSchema } from "@/schema/cash/cash.schema";
+import { startShiftSchema, endShiftSchema, addFloatSchema, flagShiftSchema } from "@/schema/cash/cash.schema";
 import * as service from "@/services/cash";
 
 export class CashController {
@@ -54,10 +54,10 @@ export class CashController {
         return res.status(400).json({ success: false, message: "Invalid actual cash amount" });
       }
 
-      const { shiftId, actualCash } = parsed.data;
+      const { shiftId, actualCash, notes } = parsed.data;
 
       try {
-        const shift = await service.endShift(userId, shiftId, actualCash);
+        const shift = await service.endShift(userId, shiftId, actualCash, notes);
         res.json({ success: true, shift });
       } catch (err: any) {
         if (err.statusCode) {
@@ -112,6 +112,53 @@ export class CashController {
     } catch (error) {
       console.error("Error fetching shift details:", error);
       res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+
+  async verifyShift(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.auth?.userId;
+      if (!userId) return res.status(401).json({ success: false, message: "Authentication required." });
+
+      const id = req.params.id as string;
+      try {
+        const shift = await service.verifyShift(id, userId);
+        return res.json({ success: true, shift });
+      } catch (err: any) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+    } catch (error) {
+      console.error("Error verifying shift:", error);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+
+  async flagShift(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.auth?.userId;
+      if (!userId) return res.status(401).json({ success: false, message: "Authentication required." });
+
+      const parsed = flagShiftSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: parsed.error.issues[0].message });
+      }
+
+      const id = req.params.id as string;
+      try {
+        const shift = await service.flagShift(id, userId, parsed.data.reason);
+        return res.json({ success: true, shift });
+      } catch (err: any) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+    } catch (error) {
+      console.error("Error flagging shift:", error);
+      return res.status(500).json({ success: false, message: "Server error" });
     }
   }
 

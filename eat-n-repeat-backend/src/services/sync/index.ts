@@ -15,11 +15,15 @@ export async function pushSync(data: {
   return pushSyncService.execute(data);
 }
 
-export async function offlineSync(data: {
-  offline_orders?: any[];
-  offline_stock_transactions?: any[];
-  offline_payments?: any[];
-  offline_status_changes?: any[];
-}) {
-  return offlineSyncService.execute(data);
+export async function offlineSync(
+  data: {
+    offline_orders?: any[];
+    offline_stock_transactions?: any[];
+    offline_payments?: any[];
+    offline_status_changes?: any[];
+    offline_shifts?: any[];
+  },
+  drainingUserId?: string | null,
+) {
+  return offlineSyncService.execute(data, drainingUserId ?? null);
 }
