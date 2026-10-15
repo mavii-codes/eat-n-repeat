@@ -23,10 +23,10 @@ function ResetPasswordForm() {
   if (!token) {
     return (
       <div className="text-center p-6 space-y-4">
-        <h2 className="text-xl font-bold text-rose-800">Invalid Link</h2>
+        <h2 className="text-xl font-bold text-rose-800">Invalid Request</h2>
         <p className="text-sm text-stone-600">The password reset link is missing or invalid.</p>
         <Link href="/customer/forgot-password" className="inline-block py-2 px-4 bg-rose-900 text-white rounded-xl text-sm font-bold">
-          Request New Link
+          Request New Code
         </Link>
       </div>
     );

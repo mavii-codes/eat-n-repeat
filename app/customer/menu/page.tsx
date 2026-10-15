@@ -34,7 +34,7 @@ export default function MenuPage() {
   // DB-backed add-ons (public list, available only). Attached to every item
   // as `customizations.addons` — the details modal renders them from there.
   // Unset while offline: items simply show no add-ons (existing behavior).
-  const [dbAddons, setDbAddons] = useState<{ id: string; name: string; price: number }[]>([]);
+  const [dbAddons, setDbAddons] = useState<{ id: string; name: string; price: number; image?: string | null }[]>([]);
   const { data: session, status: sessionStatus } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -51,7 +51,7 @@ export default function MenuPage() {
           setDbAddons(
             list
               .filter((a: any) => a && a.available !== false && a.name && Number(a.price) >= 0)
-              .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 }))
+              .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0, image: typeof a.image === 'string' && a.image ? a.image : null }))
           );
         }
       } catch {
@@ -466,6 +466,21 @@ export default function MenuPage() {
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
+        onAddRecommendedAddon={(addon) => {
+          // Create a pseudo menu item from the addon
+          const addonMenuItem: CustomerMenuItem = {
+            id: `addon-${addon.id}`,
+            name: addon.name,
+            description: '',
+            price: addon.price,
+            image: addon.image || '',
+            category: 'Add-ons',
+            rating: 5,
+            reviews: 0,
+            available: true,
+          };
+          handleAddToCart(addonMenuItem);
+        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />

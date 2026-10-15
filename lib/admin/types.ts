@@ -29,6 +29,10 @@ export type RecentOrder = {
   paid?: boolean;
   paymentMethod?: string;
   paymentStatus?: PaymentVerificationStatus;
+  // Cash collected while offline: paid locally, queued for the server drain.
+  // Server rows never carry this flag, so the next successful repull clears
+  // it automatically once the backend confirms the payment.
+  paymentSyncPending?: boolean;
   // Optional contact fields (present on server-fetched rows; read
   // optionally by the order details modal).
   phone?: string;
@@ -96,6 +100,7 @@ export type Addon = {
   name: string;
   price: number;
   available: boolean;
+  image?: string | null;
   createdAt: string;
 };
 
@@ -112,6 +117,14 @@ export type CashShift = {
   actual_cash?: number | string;
   difference?: number | string;
   status: 'open' | 'matched' | 'short' | 'over';
+  notes?: string | null;
+  verification_status?: 'unverified' | 'verified' | 'flagged' | string;
+  verified_by?: string | null;
+  verified_by_name?: string | null;
+  verified_at?: string | null;
+  flag_reason?: string | null;
+  cash_sales?: number | null;
+  gcash_sales?: number | null;
 };
 
 export type CashTransaction = {
@@ -214,6 +227,7 @@ export type DeliveryStatus =
   | "preparing"
   | "out_for_delivery"
   | "delivered"
+  | "completed"
   | "cancelled";
 
 export type DeliveryOrder = {

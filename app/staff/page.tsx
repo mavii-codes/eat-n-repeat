@@ -27,6 +27,7 @@ import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus, RecentOrder, DeliveryOrder } from "@/lib/admin/types";
 import { formatPhDateTime, formatOrderDateTime, orderEpoch } from "@/lib/admin/delivery-utils";
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos" | "qr";
 
@@ -251,6 +252,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     updateStockItem,
     deleteStockItem,
     refreshBackendOrders,
+    refreshBackendStock,
     fetchOrderHistoryPage,
   } = useAdminData();
   const router = useRouter();
@@ -268,6 +270,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
   const [orderTypeFilter, setOrderTypeFilter] = useState("all");
   const [orderHistorySearch, setOrderHistorySearch] = useState("");
+  const [deliverySearch, setDeliverySearch] = useState("");
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
 
@@ -306,20 +309,28 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Pull shared orders from the backend (all types) on mount and every 20s
-  // so orders placed on another device appear here without manual refresh.
-  // Silent on auth/network failure (offline mode keeps the local cache).
+  // Pull shared orders from the backend (all types) and stock inventory on mount
+  // and every 10s so orders placed on another device and stock changes made by Admin
+  // appear here without manual refresh. Silent on auth/network failure (offline mode).
   useEffect(() => {
     let mounted = true;
-    refreshBackendOrders();
-    const interval = setInterval(() => {
-      if (mounted) refreshBackendOrders();
-    }, 20000);
+    const refresh = () => {
+      if (mounted && document.visibilityState === "visible") {
+        refreshBackendOrders();
+        refreshBackendStock();
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
     return () => {
       mounted = false;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
     };
-  }, [refreshBackendOrders]);
+  }, [refreshBackendOrders, refreshBackendStock]);
 
   // Surface failed order-status writes (the context reverts the optimistic
   // change and fires this event). Scoped to order-status details only so
@@ -368,9 +379,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     setMarkingPaidId(order.id);
     try {
       const { getApiUrl } = await import("@/lib/config");
-      const token =
-        localStorage.getItem("eat-n-repeat-admin-token") ||
-        localStorage.getItem("eat-n-repeat-staff-token");
+      const token = getStaffOrAdminToken();
       const response = await fetch(
         `${getApiUrl()}/api/admin-orders/${encodeURIComponent(order.id)}/payment`,
         {
@@ -458,10 +467,10 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
 
   const [chatOpen, setChatOpen] = useState(false);
-  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
+  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderId: string; orderNumber: string } | null>(null);
 
-  const handleOpenChat = (customerName: string, orderNumber: string) => {
-    setActiveChatOrder({ customerName, orderNumber });
+  const handleOpenChat = (customerName: string, orderId: string, orderNumber: string) => {
+    setActiveChatOrder({ customerName, orderId, orderNumber });
     setChatOpen(true);
   };
   const [currentTime, setCurrentTime] = useState("");
@@ -615,11 +624,14 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     const activeDel = deliveryOrders.filter(o => !o.archived);
 
     const storePaidSales = activeStore.filter(o => o.status === "completed" || o.paid).reduce((sum, o) => sum + o.total, 0);
-    const delDeliveredSales = activeDel.filter(o => o.status === "delivered").reduce((sum, o) => sum + o.total, 0);
+    // Fulfilled delivery revenue covers both terminal delivery states.
+    // ("completed" delivery rows now survive backend mapping instead of
+    // collapsing to "pending"; without this they would leave sales entirely.)
+    const delDeliveredSales = activeDel.filter(o => o.status === "delivered" || o.status === "completed").reduce((sum, o) => sum + o.total, 0);
     const totalSales = storePaidSales + delDeliveredSales;
 
     const totalOrders = activeStore.length + activeDel.length;
-    const completedOrders = activeStore.filter(o => o.status === "completed").length + activeDel.filter(o => o.status === "delivered").length;
+    const completedOrders = activeStore.filter(o => o.status === "completed").length + activeDel.filter(o => o.status === "delivered" || o.status === "completed").length;
     const pendingOrders = activeStore.filter(o => o.status === "pending").length + activeDel.filter(o => ["pending", "confirmed", "preparing", "out_for_delivery"].includes(o.status)).length;
 
     return {
@@ -1243,6 +1255,9 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                   ) : (
                                     <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
                                   )}
+                                  {(order as any).paymentSyncPending && (
+                                    <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200" title="Cash collected offline — will sync when reconnected">Sync pending</span>
+                                  )}
                                   {canMarkCashPaid(order) && (
                                     <button
                                       type="button"
@@ -1345,6 +1360,11 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                   <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Pending</span>
                                 )}
                               </div>
+                              {(order as any).paymentSyncPending && (
+                                <div className="flex justify-end">
+                                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200" title="Cash collected offline — will sync when reconnected">Sync pending</span>
+                                </div>
+                              )}
                               {canMarkCashPaid(order) && (
                                 <button
                                   type="button"
@@ -1584,7 +1604,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                             <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-accent" /> Delivery Address</p>
                             <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.address}</p>
                             <button
-                              onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.orderId); }}
+                              onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.id, selectedOrderDetails.orderId); }}
                               className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 bg-accent/5 text-accent font-bold text-sm rounded-lg border border-accent/10 hover:bg-accent/10 hover:shadow-sm transition-all"
                             >
                               <MessageCircle className="h-4 w-4" /> Chat with Customer
@@ -2028,7 +2048,18 @@ function OrderTableScroll({ className, children }: { className?: string; childre
               <p className="text-sm text-muted">View delivery addresses, item manifests, and update progress status.</p>
             </div>
 
-            <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
+              <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
+              <div className="relative px-2 pb-3">
+                <Search className="absolute left-5 top-1/2 -translate-y-[calc(50%+6px)] h-4 w-4 text-muted pointer-events-none" />
+                <input
+                  type="text"
+                  value={deliverySearch}
+                  onChange={(e) => setDeliverySearch(e.target.value)}
+                  placeholder="Search ID, customer, or address..."
+                  aria-label="Search delivery queue"
+                  className="w-full sm:max-w-xs pl-10 pr-4 py-2.5 rounded-xl border border-stone-200 bg-white text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#800000]/20 focus:border-[#800000]/40 transition shadow-sm"
+                />
+              </div>
               <div className="overflow-x-auto p-2">
                 <table className="w-full text-left text-sm min-w-[640px]">
                   <thead>
@@ -2048,7 +2079,18 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                         <td colSpan={7} className="text-center py-8 text-muted">No delivery orders listed.</td>
                       </tr>
                     ) : (
-                      [...deliveryOrders.filter(o => !o.archived)]
+                      [...deliveryOrders.filter(o => {
+                        if (o.archived) return false;
+                        const q = deliverySearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          o.orderNumber.toLowerCase().includes(q) ||
+                          o.customerName.toLowerCase().includes(q) ||
+                          (o.phone ?? "").toLowerCase().includes(q) ||
+                          o.address.toLowerCase().includes(q) ||
+                          o.items.toLowerCase().includes(q)
+                        );
+                      })]
                         .sort((a, b) => orderEpoch(b) - orderEpoch(a))
                         .map((order) => (
                         <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
@@ -2059,7 +2101,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                             <p className="text-muted mt-0.5">{order.address}</p>
                             <button
                               type="button"
-                              onClick={() => handleOpenChat(order.customerName, order.orderNumber)}
+                              onClick={() => handleOpenChat(order.customerName, order.id, order.orderNumber)}
                               className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent hover:underline cursor-pointer focus:outline-none"
                             >
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3 w-3">
@@ -2073,7 +2115,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                           <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatPhDateTime(order.orderedAt) || "—"}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                              order.status === "delivered"
+                              order.status === "delivered" || order.status === "completed"
                                 ? "bg-green-50 text-green-800 border-green-200"
                                 : order.status === "cancelled"
                                 ? "bg-gray-50 text-gray-700 border-gray-200"
@@ -2093,6 +2135,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                               <option value="preparing">Preparing</option>
                               <option value="out_for_delivery">Out for Delivery</option>
                               <option value="delivered">Delivered</option>
+                              <option value="completed">Completed</option>
                               <option value="cancelled">Cancelled</option>
                             </AdminSelect>
                           </td>
@@ -2370,7 +2413,8 @@ function OrderTableScroll({ className, children }: { className?: string; childre
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           customerName={activeChatOrder.customerName}
-          orderId={activeChatOrder.orderNumber}
+          orderId={activeChatOrder.orderId}
+          orderNumber={activeChatOrder.orderNumber}
         />
       )}
     </div>

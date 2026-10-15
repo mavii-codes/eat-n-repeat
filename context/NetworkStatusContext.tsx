@@ -2,13 +2,23 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { getApiUrl } from "@/lib/config";
-import { 
-  getPendingOfflineOrders, 
-  getPendingStockTransactions, 
-  markOrdersSynced, 
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
+import {
+  getPendingOfflineOrders,
+  getPendingStockTransactions,
+  getPendingOfflinePayments,
+  getPendingOfflineStatusChanges,
+  getPendingOfflineShiftOps,
+  markOrdersSynced,
   clearSyncedOrders,
   markStockTransactionsSynced,
-  clearSyncedStockTransactions
+  clearSyncedStockTransactions,
+  markPaymentsSynced,
+  clearSyncedOfflinePayments,
+  markStatusChangesSynced,
+  clearSyncedOfflineStatusChanges,
+  markShiftOpsSynced,
+  clearSyncedOfflineShiftOps
 } from "@/lib/offlineSync";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -45,17 +55,25 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
       syncInProgress.current = true;
       const offlineOrders = await getPendingOfflineOrders();
       const offlineStockTxs = await getPendingStockTransactions();
+      const offlinePayments = await getPendingOfflinePayments();
+      const offlineStatusChanges = await getPendingOfflineStatusChanges();
+      const offlineShiftOps = await getPendingOfflineShiftOps();
 
-      if (offlineOrders.length === 0 && offlineStockTxs.length === 0) {
+      if (
+        offlineOrders.length === 0 &&
+        offlineStockTxs.length === 0 &&
+        offlinePayments.length === 0 &&
+        offlineStatusChanges.length === 0 &&
+        offlineShiftOps.length === 0
+      ) {
         return;
       }
 
-      // /api/sync/offline requires a backend JWT. Prefer the staff token;
+      // /api/sync/offline requires a backend JWT. Prefer the staff/admin token;
       // otherwise use the signed-in customer's token from our own NextAuth
       // session endpoint (same-origin, cookie-authenticated). Absent both,
       // keep the queue for later instead of failing loudly.
-      let bearer: string | null =
-        localStorage.getItem("eat-n-repeat-staff-token");
+      let bearer: string | null = getStaffOrAdminToken();
       if (!bearer) {
         try {
           const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
@@ -79,6 +97,9 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
         {
           offline_orders: offlineOrders,
           offline_stock_transactions: offlineStockTxs,
+          offline_payments: offlinePayments,
+          offline_status_changes: offlineStatusChanges,
+          offline_shifts: offlineShiftOps,
         },
         { headers: { Authorization: `Bearer ${bearer}` } }
       );
@@ -92,7 +113,24 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
           await markStockTransactionsSynced(offlineStockTxs.map((t: { id: string }) => t.id));
           await clearSyncedStockTransactions();
         }
+        if (offlinePayments.length > 0) {
+          await markPaymentsSynced(offlinePayments.map((p: { orderId: string }) => p.orderId));
+          await clearSyncedOfflinePayments();
+        }
+        if (offlineStatusChanges.length > 0) {
+          await markStatusChangesSynced(offlineStatusChanges.map((s: { orderId: string }) => s.orderId));
+          await clearSyncedOfflineStatusChanges();
+        }
+        if (offlineShiftOps.length > 0) {
+          await markShiftOpsSynced(offlineShiftOps.map((s: { shiftId: string }) => s.shiftId));
+          await clearSyncedOfflineShiftOps();
+        }
         toast.success("Offline data synced successfully!", { id: "sync-status" });
+        // Let locally-optimistic surfaces (e.g. offline POS shift state)
+        // reconcile against the freshly synced server state.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("eat-n-repeat:offline-synced"));
+        }
       }
     } catch (err) {
       console.error("Auto-sync failed:", err);

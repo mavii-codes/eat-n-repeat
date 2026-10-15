@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   AdminButton,
@@ -36,6 +37,18 @@ export default function MenuItemsPage() {
 
   const menuItems = getActiveMenuItems();
   const menuCategories = getActiveMenuCategories();
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return menuItems;
+    return menuItems.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        (item.description ?? "").toLowerCase().includes(q) ||
+        getMenuCategoryName(item.categoryId).toLowerCase().includes(q)
+    );
+  }, [menuItems, searchQuery, getMenuCategoryName]);
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<MenuItem | null>(null);
@@ -156,6 +169,17 @@ export default function MenuItemsPage() {
         subtitle={`${menuItems.length} item${menuItems.length === 1 ? "" : "s"} in menu`}
         action={<AdminButton onClick={openCreate}>+ Add Menu Item</AdminButton>}
       >
+        <div className="relative px-2 pb-3">
+          <Search className="absolute left-5 top-1/2 -translate-y-[calc(50%+6px)] w-4 h-4 text-stone-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search menu items..."
+            aria-label="Search menu items"
+            className="w-full sm:max-w-xs pl-10 pr-4 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm text-stone-800 placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#800000]/20 focus:border-[#800000]/40 transition"
+          />
+        </div>
         <div className="overflow-x-auto px-2 pb-2">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
@@ -168,7 +192,14 @@ export default function MenuItemsPage() {
               </tr>
             </thead>
             <tbody>
-              {menuItems.map((item) => (
+              {filteredItems.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted">
+                    No menu items match your search.
+                  </td>
+                </tr>
+              ) : (
+              filteredItems.map((item) => (
                 <tr key={item.id} className="border-b border-accent/5 last:border-0">
                   <td className="px-4 py-3">
                     <p className="font-medium text-[#800000]">{item.name}</p>
@@ -204,7 +235,8 @@ export default function MenuItemsPage() {
                     />
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>

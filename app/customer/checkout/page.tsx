@@ -208,7 +208,7 @@ export default function CheckoutPage() {
             ✓
           </div>
           <h2 className="text-2xl font-black text-stone-900">
-            {isLocalMode ? 'Payment Required' : 'Order Placed Successfully!'}
+            {isLocalMode ? 'Payment Required' : paymentMethod === 'cod' ? 'Order Placed — Pay Rider on Delivery' : 'Order Placed Successfully!'}
           </h2>
           <p className="text-sm text-stone-600">
             {isLocalMode ? (
@@ -216,6 +216,12 @@ export default function CheckoutPage() {
                 Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
                 <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received. <br /><br />
                 <strong className="text-stone-900 text-base">Please proceed to the cashier to complete your payment.</strong>
+              </>
+            ) : paymentMethod === 'cod' ? (
+              <>
+                Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
+                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.<br /><br />
+                <strong className="text-stone-900 text-base">Payment: Cash on Delivery</strong> — Pay the rider when your order arrives.
               </>
             ) : (
               <>

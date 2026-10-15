@@ -1,47 +1,186 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { Eye, Clock, ShieldCheck, PhilippinePeso, History } from "lucide-react";
-import { X } from "lucide-react";
+import { Eye, Clock, ShieldCheck, PhilippinePeso, History, Flag, CheckCircle2, X, Loader2 } from "lucide-react";
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 import type { CashShift, CashTransaction } from "@/lib/admin/types";
 
 export default function CashManagementPage() {
   const [shifts, setShifts] = useState<CashShift[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isStale, setIsStale] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchShifts();
-  }, []);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [flaggingId, setFlaggingId] = useState<string | null>(null);
+  const [flagReason, setFlagReason] = useState("");
+  const [showVerifyModal, setShowVerifyModal] = useState<string | null>(null);
+  const [showFlagModal, setShowFlagModal] = useState<string | null>(null);
 
-  const fetchShifts = async () => {
+  const fetchShifts = useCallback(async () => {
     try {
       const { getApiUrl } = await import('@/lib/config');
-      const token = localStorage.getItem('eat-n-repeat-admin-token') || localStorage.getItem('eat-n-repeat-staff-token');
+      const token = getStaffOrAdminToken();
+      if (!token) {
+        setIsStale(true);
+        setFetchError("Authentication required. Please log in as Admin.");
+        setLoading(false);
+        return;
+      }
       const res = await fetch(`${getApiUrl()}/api/cash/shifts`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.status === 401 || res.status === 403) {
+        setIsStale(true);
+        setFetchError("Session unauthorized or expired. Please re-login.");
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
         setShifts(data.shifts);
+        setIsStale(false);
+        setFetchError(null);
+      } else {
+        setIsStale(true);
+        setFetchError(data?.message || "Failed to load shifts");
+      }
+    } catch (e) {
+      console.warn("Failed to fetch shifts:", e);
+      setIsStale(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      if (mounted && document.visibilityState === "visible") {
+        fetchShifts();
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [fetchShifts]);
+
+  const confirmVerify = async (shiftId: string) => {
+    setVerifyingId(shiftId);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = getStaffOrAdminToken();
+      if (!token) {
+        toast.error("Authentication required.");
+        return;
+      }
+      const res = await fetch(`${getApiUrl()}/api/cash/shifts/${shiftId}/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        toast.success("Shift verified.");
+        setShowVerifyModal(null);
+        await fetchShifts();
+      } else {
+        toast.error(data?.message || "Failed to verify shift.");
       }
     } catch (e) {
       console.error(e);
+      toast.error("Network error.");
     } finally {
-      setLoading(false);
+      setVerifyingId(null);
+    }
+  };
+
+  const confirmFlag = async (shiftId: string) => {
+    const trimmed = flagReason.trim();
+    if (!trimmed) {
+      toast.error("A flag reason is required.");
+      return;
+    }
+    
+    setFlaggingId(shiftId);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = getStaffOrAdminToken();
+      if (!token) {
+        toast.error("Authentication required.");
+        return;
+      }
+      const res = await fetch(`${getApiUrl()}/api/cash/shifts/${shiftId}/flag`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reason: trimmed }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        toast.success("Shift flagged.");
+        setShowFlagModal(null);
+        setFlagReason("");
+        await fetchShifts();
+      } else {
+        toast.error(data?.message || "Failed to flag shift.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Network error.");
+    } finally {
+      setFlaggingId(null);
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch(status) {
       case 'open': return <span className="px-2 py-1 bg-amber-50 text-amber-700 text-[10px] font-bold uppercase rounded border border-amber-200">Open Shift</span>;
-      case 'matched': return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Matched</span>;
-      case 'short': return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200">Short</span>;
+      case 'closed': return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Closed</span>;
+      case 'matched': return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Reconciled</span>;
+      case 'short': return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200">Shortage</span>;
       case 'over': return <span className="px-2 py-1 bg-blue-50 text-blue-700 text-[10px] font-bold uppercase rounded border border-blue-200">Over</span>;
       default: return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{status}</span>;
     }
+  };
+
+  const getCashStatusBadge = (s: CashShift) => {
+    if (s.difference == null) {
+      return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{s.status}</span>;
+    }
+    const diff = typeof s.difference === 'number' ? s.difference : parseFloat(s.difference as string);
+    if (isNaN(diff)) {
+      return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{s.status}</span>;
+    }
+    if (diff === 0) return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Reconciled</span>;
+    if (diff < 0) return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200">Shortage</span>;
+    if (diff > 0) return <span className="px-2 py-1 bg-blue-50 text-blue-700 text-[10px] font-bold uppercase rounded border border-blue-200">Over</span>;
+    return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{s.status}</span>;
+  };
+
+  const getVerificationBadge = (s: CashShift) => {
+    const v = (s.verification_status || "unverified").toLowerCase();
+    if (v === "verified") {
+      return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Verified</span>;
+    }
+    if (v === "flagged") {
+      return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200">Flagged</span>;
+    }
+    return <span className="px-2 py-1 bg-stone-100 text-stone-500 text-[10px] font-bold uppercase rounded border border-stone-200">Unverified</span>;
   };
 
   return (
@@ -57,11 +196,32 @@ export default function CashManagementPage() {
           <div className="flex items-center gap-2">
             <History className="w-5 h-5 text-[#800000]" />
             <h2 className="font-bold text-stone-800">Shift History</h2>
+            {isStale ? (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                Offline / Cached
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Live Data
+              </span>
+            )}
           </div>
           <button onClick={fetchShifts} className="text-xs font-bold text-stone-500 hover:text-stone-800">
             Refresh
           </button>
         </div>
+
+        {fetchError && (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs flex items-center justify-between">
+            <span>{fetchError}</span>
+            <button
+              onClick={fetchShifts}
+              className="font-bold underline hover:text-amber-900 ml-2"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div className="p-10 text-center text-stone-400 font-bold text-sm">Loading shifts...</div>
@@ -70,15 +230,17 @@ export default function CashManagementPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
+<thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
                 <tr>
                   <th className="px-4 py-3">Staff</th>
                   <th className="px-4 py-3">Shift Time</th>
                   <th className="px-4 py-3">Float</th>
                   <th className="px-4 py-3">Expected</th>
-                  <th className="px-4 py-3">Actual</th>
-                  <th className="px-4 py-3">Difference</th>
-                  <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-3">Counted Cash</th>
+                  <th className="px-4 py-3">Variance</th>
+                  <th className="px-4 py-3 text-center">Shift Status</th>
+                  <th className="px-4 py-3 text-center">Cash Status</th>
+                  <th className="px-4 py-3 text-center">Audit Sign-off</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -103,9 +265,34 @@ export default function CashManagementPage() {
                         </span>
                       ) : "-"}
                     </td>
-                    <td className="px-4 py-3 text-center">{getStatusBadge(s.status)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button onClick={() => setSelectedShiftId(s.id)} className="p-1.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 text-[#800000] shadow-sm">
+                    <td className="px-4 py-3">{getStatusBadge(s.status)}</td>
+                  <td className="px-4 py-3">{getCashStatusBadge(s)}</td>
+                  <td className="px-4 py-3 text-center">{getVerificationBadge(s)}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {s.status !== 'open' && (s.verification_status || 'unverified').toLowerCase() !== 'verified' && (
+                        <>
+                          <button
+                            onClick={() => setShowVerifyModal(s.id)}
+                            disabled={verifyingId === s.id || flaggingId === s.id}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
+                            title="Sign off this shift as verified"
+                          >
+                            Verify
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowFlagModal(s.id);
+                              setFlagReason("");
+                            }}
+                            disabled={verifyingId === s.id || flaggingId === s.id}
+                            className="px-2.5 py-1.5 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
+                            title="Flag this shift for discrepancy"
+                          >
+                            Flag
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => setSelectedShiftId(s.id)} className="p-1.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 text-[#800000] shadow-sm" title="View details">
                         <Eye className="w-4 h-4" />
                       </button>
                     </td>
@@ -116,6 +303,77 @@ export default function CashManagementPage() {
           </div>
         )}
       </div>
+
+      {/* Verify Shift In-App Modal */}
+      {showVerifyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6">
+            <h3 className="text-lg font-bold text-stone-900 mb-2">Verify Shift</h3>
+            <p className="text-sm text-stone-600 mb-6">
+              Are you sure you want to verify this shift?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowVerifyModal(null)}
+                disabled={verifyingId !== null}
+                className="px-4 py-2 text-sm font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmVerify(showVerifyModal)}
+                disabled={verifyingId !== null}
+                className="px-4 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {verifyingId ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {verifyingId ? "Verifying..." : "Verify Shift"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flag Shift In-App Modal */}
+      {showFlagModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6">
+            <h3 className="text-lg font-bold text-stone-900 mb-4">Flag Shift</h3>
+            <div className="mb-6">
+              <label className="block text-xs font-bold text-stone-700 mb-2">Reason:</label>
+              <textarea
+                rows={3}
+                required
+                value={flagReason}
+                onChange={(e) => setFlagReason(e.target.value)}
+                placeholder="Reason for flagging this shift..."
+                className="w-full text-sm border border-stone-200 rounded-xl p-3 focus:ring-2 focus:ring-[#800000] focus:border-[#800000] outline-none resize-none"
+                disabled={flaggingId !== null}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowFlagModal(null); setFlagReason(""); }}
+                disabled={flaggingId !== null}
+                className="px-4 py-2 text-sm font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmFlag(showFlagModal)}
+                disabled={flaggingId !== null || !flagReason.trim()}
+                className="px-4 py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {flaggingId ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {flaggingId ? "Flag Shift" : "Flag Shift"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {selectedShiftId && (
         <ShiftDetailsModal shiftId={selectedShiftId} onClose={() => setSelectedShiftId(null)} />
@@ -140,7 +398,8 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
   const fetchDetails = async () => {
     try {
       const { getApiUrl } = await import('@/lib/config');
-      const token = localStorage.getItem('eat-n-repeat-admin-token') || localStorage.getItem('eat-n-repeat-staff-token');
+      const token = getStaffOrAdminToken();
+      if (!token) return;
       const res = await fetch(`${getApiUrl()}/api/cash/shifts/${shiftId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -161,7 +420,11 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
     setSubmitLoading(true);
     try {
       const { getApiUrl } = await import('@/lib/config');
-      const token = localStorage.getItem('eat-n-repeat-admin-token') || localStorage.getItem('eat-n-repeat-staff-token');
+      const token = getStaffOrAdminToken();
+      if (!token) {
+        toast.error("Authentication required.");
+        return;
+      }
       const res = await fetch(`${getApiUrl()}/api/cash/shifts/${shiftId}/add-float`, {
         method: 'POST',
         headers: { 
@@ -227,8 +490,37 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
                 <p className="font-bold text-lg text-stone-800">{shift.staff_name}</p>
               </div>
               <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
-                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Status</span>
-                <p className="font-bold text-lg capitalize text-stone-800">{shift.status}</p>
+                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Shift Status</span>
+                <p className="font-bold text-lg capitalize text-stone-800">{shift.status === 'open' ? 'Open' : 'Closed'}</p>
+              </div>
+              <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Cash Status</span>
+                <p className="font-bold text-lg capitalize text-stone-800">
+                  {shift.difference == null
+                    ? '—'
+                    : Number(shift.difference) === 0
+                      ? 'Reconciled'
+                      : Number(shift.difference) < 0
+                        ? 'Short'
+                        : 'Over'}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Audit Sign-off</span>
+                <p className="font-bold text-sm text-stone-800 mt-1">
+                  {(shift.verification_status || 'unverified').toLowerCase() === 'verified'
+                    ? `Verified${shift.verified_by_name ? ` by ${shift.verified_by_name}` : ''}${shift.verified_at ? ` · ${new Date(shift.verified_at).toLocaleString('en-PH')}` : ''}`
+                    : (shift.verification_status || 'unverified').toLowerCase() === 'flagged'
+                      ? `Flagged${shift.flag_reason ? `: ${shift.flag_reason}` : ''}`
+                      : 'Unverified'}
+                </p>
+              </div>
+              <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">End-of-Shift Notes</span>
+                <p className="font-medium text-sm text-stone-700 mt-1">{shift.notes?.trim() ? shift.notes : <span className="text-stone-400 italic">No notes.</span>}</p>
               </div>
             </div>
 
@@ -282,7 +574,7 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
                   <p className="font-bold text-[#800000]">₱{parseFloat(shift.expected_cash as string).toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Actual Count</p>
+                  <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Counted Cash</p>
                   <p className="font-bold text-stone-900">{shift.actual_cash != null ? `₱${parseFloat(shift.actual_cash as string).toFixed(2)}` : "Pending"}</p>
                 </div>
                 <div>

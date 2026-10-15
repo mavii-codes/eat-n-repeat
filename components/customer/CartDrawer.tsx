@@ -5,13 +5,16 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package } from 'lucide-react';
+import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package, Users, Sparkles } from 'lucide-react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
 import { useCustomerPortalMode } from '@/lib/config';
 import { resolveMenuImage } from '@/lib/menu-image';
 import { journalOrder, removeOfflineOrder } from '@/lib/offlineSync';
+import { getApiUrl } from '@/lib/config';
 import type { CustomerMenuItem } from '@/components/customer/MenuCard';
+
+export type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
 export type CartItem = {
   menuItem: CustomerMenuItem;
@@ -19,6 +22,26 @@ export type CartItem = {
   notes?: string;
   selectedSize?: { name: string; price: number };
   selectedAddons?: { id: string; name: string; price: number }[];
+};
+
+// For recommended add-ons shown in the cart
+export type RecommendedAddon = {
+  id: string;
+  name: string;
+  price: number;
+  image?: string | null;
+};
+
+type CartDrawerProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  cartItems: CartItem[];
+  onUpdateQuantity: (id: string, delta: number) => void;
+  onRemoveItem: (id: string) => void;
+  onClearCart: () => void;
+  onAddRecommendedAddon: (addon: RecommendedAddon) => void;
+  fulfillmentType: 'delivery' | 'pickup' | 'dine-in';
+  setFulfillmentType: (type: 'delivery' | 'pickup' | 'dine-in') => void;
 };
 
 // Size may arrive top-level (legacy callers) or nested on menuItem (details
@@ -47,17 +70,6 @@ export function resolveCartAddons(ci: CartItem): { id: string; name: string; pri
     .map((a) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 }));
 }
 
-type CartDrawerProps = {
-  isOpen: boolean;
-  onClose: () => void;
-  cartItems: CartItem[];
-  onUpdateQuantity: (id: string, delta: number) => void;
-  onRemoveItem: (id: string) => void;
-  onClearCart: () => void;
-  fulfillmentType: 'delivery' | 'pickup' | 'dine-in';
-  setFulfillmentType: (type: 'delivery' | 'pickup' | 'dine-in') => void;
-};
-
 export function CartDrawer({
   isOpen,
   onClose,
@@ -65,9 +77,10 @@ export function CartDrawer({
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
+  onAddRecommendedAddon,
   fulfillmentType,
   setFulfillmentType,
-}: CartDrawerProps) {
+}: CartDrawerProps): React.ReactElement | null {
   const { addDeliveryOrder, addStoreOrder, deliverySettings, serviceAreas } = useAdminData();
   const router = useRouter();
   const { data: session } = useSession();
@@ -78,6 +91,33 @@ export function CartDrawer({
   // Portal variant: 'local' preserves counter/offline behavior (LAN,
   // Electron); 'online' on loopback only when the dev override flag is set.
   const isLocalMode = useCustomerPortalMode() === 'local';
+
+  // People Also Ordered / Recommended Add-ons
+  const [recommendedAddons, setRecommendedAddons] = useState<{ id: string; name: string; price: number; image?: string | null }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/addons`);
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const list = data?.addons ?? data ?? [];
+        if (!cancelled && Array.isArray(list)) {
+          setRecommendedAddons(
+            list
+              .filter((a: any) => a && a.available !== false && a.name && Number(a.price) >= 0)
+              .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0, image: typeof a.image === 'string' && a.image ? a.image : null }))
+          );
+        }
+      } catch {
+        // Backend unreachable — items render without add-ons (offline mode).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (isLocalMode && fulfillmentType !== 'dine-in') {
@@ -117,7 +157,11 @@ export function CartDrawer({
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string } | null>(null);
+  // amountDue is captured at checkout time (the persisted order total) so the
+  // "Order Reserved" screen keeps showing the real total after the cart is
+  // cleared. Never derive it from live cartItems here — they are empty by
+  // the time this screen renders, which previously displayed ₱0.00.
+  const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string; amountDue: number } | null>(null);
 
   // Calculations
   useEffect(() => {
@@ -185,6 +229,11 @@ export function CartDrawer({
     } else {
       setPromoError('Invalid code. Try "EATREPEAT" for 15% off!');
     }
+  };
+
+  // Add recommended addon to cart as a standalone item
+  const handleAddRecommendedAddon = (addon: RecommendedAddon) => {
+    onAddRecommendedAddon(addon);
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
@@ -333,11 +382,17 @@ export function CartDrawer({
       }
 
       setIsSubmitting(false);
+      // Prefer the persisted backend total when provided; fall back to the
+      // checkout total that was just sent (identical except when the server
+      // re-prices add-ons from the DB). Never use the live `total` variable
+      // after onClearCart() — it collapses to 0 once the cart is empty.
+      const persistedTotal = Number(data?.total);
       setCompletedOrder({
         id: data.orderId || orderNumber,
         orderNumber: data.orderNumber || orderNumber,
         type: fulfillmentType,
-        paymentMethod: backendPaymentMethod
+        paymentMethod: backendPaymentMethod,
+        amountDue: Number.isFinite(persistedTotal) ? persistedTotal : total,
       });
       onClearCart();
     } catch (error: any) {
@@ -487,11 +542,13 @@ export function CartDrawer({
                     </div>
                     <div className="flex justify-between border-b border-stone-200 py-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Amount Due</span>
-                      <span className="font-bold text-lg text-[#800000]">₱{total.toFixed(2)}</span>
+                      <span className="font-bold text-lg text-[#800000]">₱{completedOrder.amountDue.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between pt-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Payment Method</span>
-                      <span className="font-bold text-sm">Cash at Counter</span>
+                      <span className="font-bold text-sm">
+                        {completedOrder.type === 'delivery' ? 'Cash on Delivery' : 'Cash at Counter'}
+                      </span>
                     </div>
                     <div className="flex justify-between border-t border-stone-200 pt-2 mt-2">
                       <span className="text-xs text-stone-500 font-bold uppercase">Payment Status</span>
@@ -502,13 +559,19 @@ export function CartDrawer({
                   <div className="p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 shadow-sm text-left mx-auto max-w-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></div>
-                      <h4 className="font-black text-sm uppercase">Awaiting Cash Payment</h4>
+                      <h4 className="font-black text-sm uppercase">
+                        {completedOrder.type === 'delivery' ? 'Awaiting Rider Collection' : 'Awaiting Cash Payment'}
+                      </h4>
                     </div>
                     <p className="text-xs font-medium opacity-90 leading-relaxed mb-2">
-                      Please proceed to the cashier and present your Order ID. Your order will only be sent to the kitchen after the cashier confirms your cash payment.
+                      {completedOrder.type === 'delivery'
+                        ? 'Your rider will collect cash payment upon delivery. Your order will be prepared and dispatched for delivery.'
+                        : 'Please proceed to the cashier and present your Order ID. Your order will only be sent to the kitchen after the cashier confirms your cash payment.'}
                     </p>
                     <p className="text-[11px] font-bold text-rose-700 bg-white/50 p-2 rounded border border-rose-100">
-                      Your order is not yet being prepared. Payment must be confirmed by the cashier first.
+                      {completedOrder.type === 'delivery'
+                        ? 'Your order will be prepared for delivery. The rider will collect payment upon arrival.'
+                        : 'Your order is not yet being prepared. Payment must be confirmed by the cashier first.'}
                     </p>
                   </div>
                   
@@ -645,11 +708,63 @@ export function CartDrawer({
                         </button>
                       </div>
                     </div>
-                    );
+);
                   })}
                 </div>
 
-                {/* Promo Code Strip */}
+      {/* People Also Ordered — Recommended Add-ons */}
+      {cartItems.length > 0 && recommendedAddons.length > 0 && (
+        <div className="pt-4 border-t border-stone-200">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-stone-900">
+              <Users className="w-4 h-4 text-[#B91C1C]" />
+              People Also Ordered
+            </h3>
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Recommendations</span>
+          </div>
+          <div
+            className="flex gap-2.5 overflow-x-auto pb-1.5 -mx-0.5 px-0.5 snap-x"
+            role="group"
+            aria-label="Recommended add-ons"
+          >
+            {recommendedAddons
+              .filter((a) => a && a.name)
+              .map((addon) => (
+                <div
+                  key={addon.id ?? addon.name}
+                  className="snap-start shrink-0 w-[100px] rounded-2xl border bg-white p-2 flex flex-col items-center text-center transition shadow-2xs border-stone-200 hover:border-amber-300"
+                >
+                  <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-stone-100 shrink-0">
+                    <Image
+                      src={resolveMenuImage(addon.image)}
+                      alt={addon.name}
+                      fill
+                      sizes="56px"
+                      className="object-cover"
+                      unoptimized={typeof addon.image === 'string' && addon.image?.startsWith('data:')}
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] font-bold text-stone-800 leading-tight line-clamp-2 min-h-[26px]">
+                    {addon.name}
+                  </p>
+                  <p className="text-[10px] font-black text-[#B91C1C]">
+                    ₱{Number(addon.price).toFixed(2)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleAddRecommendedAddon(addon)}
+                    className="mt-1 w-6 h-6 rounded-full flex items-center justify-center text-white shadow-sm transition active:scale-95 bg-emerald-500 hover:bg-emerald-600"
+                    aria-label={`Add ${addon.name}`}
+                  >
+                    <span className="text-[10px] font-black">+</span>
+                  </button>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Promo Code Strip */}
                 <div className="pt-2 border-t border-stone-200">
                   <label className="text-xs font-bold text-stone-800 block mb-1">Promo Code</label>
                   <div className="flex gap-2">
@@ -875,7 +990,11 @@ export function CartDrawer({
                   <div className="flex justify-between">
                     <span>Delivery Fee</span>
                     <span className="font-semibold text-stone-900">
-                      {deliveryFee === 0 ? <span className="text-emerald-600 font-bold">FREE</span> : `₱${deliveryFee.toFixed(2)}`}
+                      {deliveryFee === 0 ? (
+                        <span className="text-emerald-600 font-bold">FREE</span>
+                      ) : (
+                        `₱${deliveryFee.toFixed(2)}`
+                      )}
                     </span>
                   </div>
                 )}

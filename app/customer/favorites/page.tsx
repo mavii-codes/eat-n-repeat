@@ -7,7 +7,7 @@ import { MenuCard, type CustomerMenuItem } from '@/components/customer/MenuCard'
 import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useReviews } from '@/context/ReviewsContext';
-import { Heart } from 'lucide-react';
+import { Heart, Search } from 'lucide-react';
 import Link from 'next/link';
 
 export default function FavoritesPage() {
@@ -21,6 +21,7 @@ export default function FavoritesPage() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
   const [isInitialized, setIsInitialized] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Initialize cart from localStorage on mount
   useEffect(() => {
@@ -81,6 +82,16 @@ export default function FavoritesPage() {
       };
     }).filter(Boolean) as CustomerMenuItem[];
   }, [favoriteIds, menuItems, menuCategories, getAverageRating]);
+
+  const filteredFavorites = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return favorites;
+    return favorites.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        (item.description ?? '').toLowerCase().includes(q)
+    );
+  }, [favorites, searchQuery]);
 
   const handleAddToCart = (item: CustomerMenuItem) => {
     setCartItems((prev) => {
@@ -164,17 +175,46 @@ export default function FavoritesPage() {
               You have <span className="font-extrabold text-[#B91C1C]">{favorites.length}</span> saved item{favorites.length !== 1 ? 's' : ''}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {favorites.map((item) => (
-                <MenuCard
-                  key={item.id}
-                  {...item}
-                  isFavorite={true}
-                  onAddToCart={handleAddToCart}
-                  onToggleFavorite={handleToggleFavorite}
-                />
-              ))}
+            <div className="relative max-w-md">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search your favorites..."
+                aria-label="Search favorites"
+                className="w-full pl-11 pr-4 py-3 rounded-2xl border border-amber-200/90 bg-white text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition shadow-sm"
+              />
             </div>
+
+            {filteredFavorites.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredFavorites.map((item) => (
+                  <MenuCard
+                    key={item.id}
+                    {...item}
+                    isFavorite={true}
+                    onAddToCart={handleAddToCart}
+                    onToggleFavorite={handleToggleFavorite}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16 px-4 bg-white rounded-3xl border border-amber-100 shadow-sm">
+                <Search className="w-12 h-12 text-stone-300 mx-auto mb-4" strokeWidth={1.5} />
+                <h2 className="text-xl font-black text-[#451a03] mb-2">No matches found</h2>
+                <p className="text-stone-500 text-sm font-medium mb-6">
+                  Try searching for a different item.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="inline-flex items-center justify-center px-8 py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-bold text-sm transition"
+                >
+                  Clear Search
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <div className="text-center py-20 px-4 bg-white rounded-3xl border border-amber-100 shadow-sm">
@@ -208,6 +248,20 @@ export default function FavoritesPage() {
         }}
         onRemoveItem={(id) => setCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== id))}
         onClearCart={() => setCartItems([])}
+        onAddRecommendedAddon={(addon) => {
+          const addonMenuItem: CustomerMenuItem = {
+            id: `addon-${addon.id}`,
+            name: addon.name,
+            description: '',
+            price: addon.price,
+            image: addon.image || '',
+            category: 'Add-ons',
+            rating: 5,
+            reviews: 0,
+            available: true,
+          };
+          handleAddToCart(addonMenuItem);
+        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />

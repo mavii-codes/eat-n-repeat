@@ -10,6 +10,7 @@ import { StartShiftModal, EndShiftModal } from "@/components/staff/CashModals";
 import toast from "react-hot-toast";
 import type { MenuItem } from "@/lib/admin/types";
 import { getApiUrl } from "@/lib/config";
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 import {
   Search,
   Plus,
@@ -94,6 +95,40 @@ export function POSCashierTab() {
   // ─── Shift State ───
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
   const [endShiftModalOpen, setEndShiftModalOpen] = useState(false);
+  // Offline shift override: while the device is offline, shift start/close
+  // journal ops and this optimistic value stands in for the server row.
+  // Cleared on successful drain (server becomes source of truth again).
+  const [offlineShiftOverride, setOfflineShiftOverride] = useState<null | { cleared: true } | Record<string, any>>(null);
+  const activeShift = offlineShiftOverride === null
+    ? activeCashShift
+    : (offlineShiftOverride as any).cleared === true
+      ? null
+      : (offlineShiftOverride as Record<string, any>);
+
+  useEffect(() => {
+    const onSynced = () => {
+      setOfflineShiftOverride(null);
+      fetchActiveCashShift();
+    };
+    window.addEventListener("eat-n-repeat:offline-synced", onSynced);
+    return () => window.removeEventListener("eat-n-repeat:offline-synced", onSynced);
+  }, [fetchActiveCashShift]);
+
+  // Authenticated staff identity for offline journals (AuthContext session
+  // first, staff JWT subject as fallback — never a manual entry).
+  const getStaffIdentity = useCallback((): { id: string; name: string } | null => {
+    if (user?.id) return { id: user.id, name: user?.name || "Staff" };
+    try {
+      const token = getStaffOrAdminToken();
+      if (token) {
+        const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+        if (typeof payload?.sub === "string") {
+          return { id: payload.sub, name: typeof payload?.name === "string" ? payload.name : "Staff" };
+        }
+      }
+    } catch { /* token unreadable */ }
+    return null;
+  }, [user]);
 
   // ─── Menu / Filter State ───
   const [searchTerm, setSearchTerm] = useState("");
@@ -164,9 +199,9 @@ export function POSCashierTab() {
   }, [cart, paymentMethod, tenderedNum, total, cashTendered, gcashConfirmed]);
 
   // ─── Shift sales tracking (from backend) ───
-  const shiftFloat = activeCashShift ? Number(activeCashShift.starting_float) : 0;
-  const shiftExpected = activeCashShift ? Number(activeCashShift.expected_cash) : 0;
-  const shiftCashSales = activeCashShift ? shiftExpected - shiftFloat : 0;
+  const shiftFloat = activeShift ? Number(activeShift.starting_float) : 0;
+  const shiftExpected = activeShift ? Number(activeShift.expected_cash) : 0;
+  const shiftCashSales = activeShift ? shiftExpected - shiftFloat : 0;
 
   // ─── Force GCash off when offline ───
   useEffect(() => {
@@ -240,36 +275,68 @@ export function POSCashierTab() {
      ────────────────────────────────────────────── */
 
   const handleStartShift = useCallback(
-    async (float: number) => {
+    async () => {
       try {
-        const token = localStorage.getItem("eat-n-repeat-staff-token");
+        const token = getStaffOrAdminToken();
         const res = await fetch(`${getApiUrl()}/api/cash/shift/start`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ startingFloat: float }),
+          signal: AbortSignal.timeout(10000),
         });
         const data = await res.json();
         if (data.success) {
-          toast.success(`Shift started with ₱${float.toFixed(2)} float`);
+          toast.success("Shift started with pre-configured float");
           setShiftModalOpen(false);
+          setOfflineShiftOverride(null);
           fetchActiveCashShift();
         } else {
           toast.error(data.message || "Failed to start shift");
         }
       } catch (e) {
-        toast.error("Network error starting shift");
+        // Offline: journal the start with a client-generated id and stand
+        // up an optimistic local shift so POS keeps working. The drain
+        // creates it server-side (idempotent) and later closes attribute.
+        try {
+          const identity = getStaffIdentity();
+          if (!identity) {
+            toast.error("Please sign in as staff to start a shift.");
+            return;
+          }
+          if (activeShift) {
+            toast.error("You already have an open shift.");
+            return;
+          }
+          const { journalShiftOp } = await import("@/lib/offlineSync");
+          const shiftId = `shift-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
+          journalShiftOp({ shiftId, kind: "start", staffId: identity.id, startingFloat: 0 });
+          setOfflineShiftOverride({
+            id: shiftId,
+            staff_id: identity.id,
+            staff_name: identity.name,
+            starting_float: 0, // Will be set from server config
+            expected_cash: 0,
+            cash_sales: 0,
+            gcash_sales: 0,
+            status: "open",
+            start_time: new Date().toISOString(),
+          });
+          setShiftModalOpen(false);
+          toast.success("Shift started offline — will sync when reconnected.");
+        } catch {
+          toast.error("Network error starting shift");
+        }
       }
     },
-    [fetchActiveCashShift]
+    [fetchActiveCashShift, activeShift, getStaffIdentity]
   );
 
   const handleEndShift = useCallback(
-    async (actualCash: number) => {
+    async (actualCash: number, notes?: string) => {
       try {
-        const token = localStorage.getItem("eat-n-repeat-staff-token");
+        const token = getStaffOrAdminToken();
         const res = await fetch(`${getApiUrl()}/api/cash/shift/end`, {
           method: "POST",
           headers: {
@@ -277,23 +344,47 @@ export function POSCashierTab() {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
-            shiftId: activeCashShift?.id,
+            shiftId: activeShift?.id,
             actualCash,
+            ...(notes?.trim() ? { notes: notes.trim() } : {}),
           }),
+          signal: AbortSignal.timeout(10000),
         });
         const data = await res.json();
         if (data.success) {
           toast.success("Shift ended successfully");
           setEndShiftModalOpen(false);
+          setOfflineShiftOverride(null);
           fetchActiveCashShift();
         } else {
           toast.error(data.message || "Failed to end shift");
         }
       } catch (e) {
-        toast.error("Network error ending shift");
+        // Offline: journal the close against the (possibly offline-created)
+        // shift id; the drain applies it last with server-side variance.
+        try {
+          if (!activeShift) {
+            toast.error("No active shift to close.");
+            return;
+          }
+          const identity = getStaffIdentity();
+          const { journalShiftOp } = await import("@/lib/offlineSync");
+          journalShiftOp({
+            shiftId: String(activeShift.id),
+            kind: "close",
+            staffId: identity?.id ?? "",
+            actualCash,
+            notes: notes?.trim() || null,
+          });
+          setOfflineShiftOverride({ cleared: true });
+          setEndShiftModalOpen(false);
+          toast.success("Shift closed offline — will sync when reconnected.");
+        } catch {
+          toast.error("Network error ending shift");
+        }
       }
     },
-    [activeCashShift, fetchActiveCashShift]
+    [activeShift, fetchActiveCashShift, getStaffIdentity]
   );
 
   /* ──────────────────────────────────────────────
@@ -315,9 +406,15 @@ export function POSCashierTab() {
     if (!isPaymentValid || isProcessing) return;
 
     setIsProcessing(true);
+    // Client-generated number, sent with the payload AND reused for any
+    // offline journal entry: the server honors staff-provided numbers and
+    // returns the existing order on retry, so a timeout can never mint a
+    // duplicate sale.
+    const posOrderNumber = `POS-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
     try {
-      const token = localStorage.getItem("eat-n-repeat-staff-token");
+      const token = getStaffOrAdminToken();
       const orderDetails = {
+        orderNumber: posOrderNumber,
         customerName: customerName.trim() || "Walk-in Customer",
         items: cart.map((ci) => ({
           menuItemId: ci.item.id,
@@ -341,15 +438,31 @@ export function POSCashierTab() {
         paymentPayload.cashReceived = tenderedNum;
       }
 
-      const res = await fetch(`${getApiUrl()}/api/payments/checkout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(paymentPayload),
-        // Fail fast instead of freezing on a dead route.
-        signal: AbortSignal.timeout(15000),
+      // Belt and suspenders with AbortSignal: an explicit race guarantees
+      // this await settles even if the network stack stalls the abort
+      // (e.g. throttled background tab), so the button can never stick.
+      const CHECKOUT_TIMEOUT_MS = 25000;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const res = await Promise.race([
+        fetch(`${getApiUrl()}/api/payments/checkout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(paymentPayload),
+          // Fail fast instead of freezing on a dead route.
+          signal: AbortSignal.timeout(15000),
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            const err: any = new Error("Checkout timed out. Please check the orders list before retrying.");
+            err.name = "TimeoutError";
+            reject(err);
+          }, CHECKOUT_TIMEOUT_MS);
+        }),
+      ]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
       });
 
       const data = await res.json();
@@ -385,8 +498,7 @@ export function POSCashierTab() {
         // NOTE: no journalOrder here — the server just accepted this order.
         // Journaling a successful POS sale would queue it for offline replay
         // and insert a second (customer-less) row with the same order number.
-        // (This tab has no offline-sale journal path; network failures surface
-        // via the toast in the catch below and journal nothing.)
+        // Network-failure cash sales ARE journaled in the catch below.
 
         // Show receipt toast
         toast.success(
@@ -418,8 +530,92 @@ export function POSCashierTab() {
       } else {
         toast.error(data.message || "Failed to process order");
       }
-    } catch (e) {
-      toast.error("Network error processing order");
+    } catch (e: any) {
+      // Offline cash sales are captured locally and replayed by the sync
+      // drain (INSERT IGNORE + order-number guard => no duplicates).
+      // GCash is never journaled: an online payment that failed cannot be
+      // assumed collected. Non-network errors keep the old behavior.
+      // TimeoutError counts as a network failure: the server may still have
+      // saved the order, but the journal reuses posOrderNumber so the drain
+      // guard (and the server's own duplicate-return) converge to one row.
+      const msg = typeof e?.message === 'string' ? e.message : '';
+      const offlineBrowser =
+        typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && !navigator.onLine;
+      const isNetworkFailure =
+        offlineBrowser ||
+        e instanceof TypeError ||
+        e?.name === 'TimeoutError' ||
+        msg.includes('Failed to fetch') ||
+        msg.includes('NetworkError') ||
+        msg.includes('Load failed') ||
+        msg.includes('timed out');
+      if (isNetworkFailure && paymentMethod === 'cash') {
+        try {
+          const { journalOrder, journalPayment } = await import('@/lib/offlineSync');
+          const offlineId = posOrderNumber;
+          const itemsSummary = cart
+            .map((ci) => `${ci.item.name} (${ci.qty}x)`)
+            .join(", ");
+          journalOrder({
+            id: offlineId,
+            time: new Date().toISOString(),
+            items: itemsSummary,
+            total,
+            status: 'completed',
+            paid: true,
+            notes: `${orderType.toUpperCase()} - ${customerName || "Walk-in"}`,
+            address: null,
+            customerNotes: null,
+            // Preserve fulfillment type so the replayed row keeps it
+            // (dine-in/pickup/delivery) instead of defaulting to dine-in.
+            type: orderType,
+          });
+          // Queue the collection too so the drain records the PAID payment
+          // and attributes the drawer (originating staff first).
+          try {
+            const staffToken = getStaffOrAdminToken();
+            let staffId: string | null = null;
+            if (user?.id) staffId = user.id;
+            else if (staffToken) {
+              try {
+                const payload = JSON.parse(atob(staffToken.split(".")[1] ?? ""));
+                if (typeof payload?.sub === "string") staffId = payload.sub;
+              } catch { /* token unreadable — drain falls back to operator */ }
+            }
+            journalPayment({ orderId: offlineId, method: 'Cash', cashReceived: tenderedNum, staffId });
+          } catch { /* payment queue is best-effort; the order journal stands */ }
+          addStoreOrder({
+            orderId: offlineId,
+            time: new Date().toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            orderedAt: new Date().toISOString(),
+            items: itemsSummary,
+            total,
+            status: "completed",
+            paid: true,
+            notes: `${orderType.toUpperCase()} - ${customerName || "Walk-in"}`,
+            orderType,
+          });
+          // Keep the offline X-read honest: this drawer cash is real, so
+          // the optimistic shift total grows with it until the drain lands.
+          setOfflineShiftOverride((prev) =>
+            prev && !(prev as any).cleared
+              ? { ...(prev as Record<string, any>), expected_cash: Number((prev as any).expected_cash || 0) + total }
+              : prev
+          );
+        } catch {
+          // Journaling must never break the sale.
+        }
+        toast.success("Saved offline — will sync when reconnected.", { duration: 4000 });
+        clearCart();
+        setCashTendered("");
+        setGcashConfirmed(false);
+        setCustomerName("");
+      } else {
+        toast.error("Network error processing order");
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -451,7 +647,7 @@ export function POSCashierTab() {
      No Shift Screen
      ────────────────────────────────────────────── */
 
-  if (!activeCashShift) {
+  if (!activeShift) {
     return (
       <>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
@@ -475,6 +671,7 @@ export function POSCashierTab() {
         <StartShiftModal
           open={shiftModalOpen}
           onStart={handleStartShift}
+          onClose={() => setShiftModalOpen(false)}
         />
       </>
     );
@@ -523,7 +720,7 @@ export function POSCashierTab() {
                 <div className="flex items-center gap-1.5">
                   <span className="text-stone-400 font-semibold">Staff:</span>
                   <span className="font-bold text-stone-800">
-                    {activeCashShift.staff_name || user?.name}
+                    {activeShift.staff_name || user?.name}
                   </span>
                 </div>
               </div>
@@ -1062,10 +1259,14 @@ export function POSCashierTab() {
       {/* ═══════════════════════════════════════════
           MODALS
          ═══════════════════════════════════════════ */}
-      <StartShiftModal open={shiftModalOpen} onStart={handleStartShift} />
+      <StartShiftModal
+        open={shiftModalOpen}
+        onStart={handleStartShift}
+        onClose={() => setShiftModalOpen(false)}
+      />
       <EndShiftModal
         open={endShiftModalOpen}
-        shift={activeCashShift}
+        shift={activeShift}
         onEnd={handleEndShift}
         onClose={() => setEndShiftModalOpen(false)}
       />

@@ -81,7 +81,6 @@ export default function StaffPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<StaffRole | "all">("all");
   const [availabilityFilter, setAvailabilityFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const [openAddEdit, setOpenAddEdit] = useState(false);
   const [openDetails, setOpenDetails] = useState(false);
@@ -104,11 +103,10 @@ export default function StaffPage() {
       
       const matchesRole = roleFilter === "all" || account.role === roleFilter;
       const matchesAvailability = availabilityFilter === "all" || account.availability === availabilityFilter;
-      const matchesStatus = statusFilter === "all" || account.status === statusFilter;
 
-      return matchesSearch && matchesRole && matchesAvailability && matchesStatus;
+      return matchesSearch && matchesRole && matchesAvailability;
     });
-  }, [allStaffAccounts, searchQuery, roleFilter, availabilityFilter, statusFilter]);
+  }, [allStaffAccounts, searchQuery, roleFilter, availabilityFilter]);
 
   // Summary Metrics
   const totalStaff = allStaffAccounts.length;
@@ -119,7 +117,6 @@ export default function StaffPage() {
     return {
       admin: allStaffAccounts.filter(s => s.role === "admin").length,
       staff: allStaffAccounts.filter(s => s.role === "staff").length,
-      delivery_rider: allStaffAccounts.filter(s => s.role === "delivery_rider").length,
     };
   }, [allStaffAccounts]);
 
@@ -174,11 +171,13 @@ export default function StaffPage() {
     const payload = { ...form };
 
     if (editing) {
-      if (editing.role === "admin" && payload.role !== "admin" && currentUserEmail !== editing.email) {
-         if (currentRole !== "admin") {
-           toast.error("You cannot change an Admin's role.");
-           return;
-         }
+      if (editing.role !== "admin" && payload.role === "admin") {
+        toast.error("Promoting accounts to admin is not allowed.");
+        return;
+      }
+      if (editing.role === "admin" && payload.role !== "admin") {
+        toast.error("You cannot change an Admin's role.");
+        return;
       }
 
       // Blank = keep existing password (never send a stored hash to the API).
@@ -189,6 +188,11 @@ export default function StaffPage() {
       toast.success("Staff account updated successfully.");
       refreshStaffAccounts();
       setOpenAddEdit(false);
+      return;
+    }
+
+    if (payload.role === "admin") {
+      toast.error("Creating admin accounts is not allowed.");
       return;
     }
 
@@ -358,7 +362,6 @@ export default function StaffPage() {
               <option value="all">All Roles</option>
               <option value="admin">Admin</option>
               <option value="staff">Staff</option>
-              <option value="delivery_rider">Delivery Rider</option>
             </select>
             <select 
               value={availabilityFilter} 
@@ -371,15 +374,6 @@ export default function StaffPage() {
               <option value="On Duty">On Duty</option>
               <option value="Off Duty">Off Duty</option>
               <option value="On Leave">On Leave</option>
-            </select>
-            <select 
-              value={statusFilter} 
-              onChange={e => setStatusFilter(e.target.value)}
-              className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm text-stone-600 focus:outline-none focus:border-[#800000] min-w-[110px]"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
             </select>
           </div>
         </div>
@@ -401,7 +395,6 @@ export default function StaffPage() {
                 <th className="px-4 py-3 font-medium">Username</th>
                 <th className="px-4 py-3 font-medium">Role</th>
                 <th className="px-4 py-3 font-medium">Availability</th>
-                <th className="px-4 py-3 font-medium">Account Status</th>
                 <th className="px-4 py-3 font-medium">Last Active</th>
                 <th className="rounded-tr-xl px-4 py-3 font-medium text-right">Actions</th>
               </tr>
@@ -427,11 +420,6 @@ export default function StaffPage() {
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider ring-1 ${getStatusColor(account.availability)}`}>
                       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70"></span>
                       {account.availability}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider ring-1 ${getStatusColor(account.status)}`}>
-                      {account.status}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-stone-500 font-medium">
@@ -474,7 +462,7 @@ export default function StaffPage() {
               ))}
               {filteredStaff.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-stone-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-stone-500">
                     No staff accounts match your filters.
                   </td>
                 </tr>
@@ -527,12 +515,6 @@ export default function StaffPage() {
                 <div>
                   <p className="text-[10px] text-stone-400 uppercase tracking-wider font-semibold mb-1">Role</p>
                   <p className="font-medium text-stone-700 text-xs">{roleLabels[account.role]}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-stone-400 uppercase tracking-wider font-semibold mb-1">Status</p>
-                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 ${getStatusColor(account.status)}`}>
-                    {account.status}
-                  </span>
                 </div>
                 <div className="col-span-2 pt-2 border-t border-stone-100 flex justify-between items-center">
                   <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ${getStatusColor(account.availability)}`}>
@@ -645,26 +627,14 @@ export default function StaffPage() {
                 onChange={(e) =>
                   setForm({ ...form, role: e.target.value as StaffRole })
                 }
+                disabled={editing?.role === "admin"}
               >
                 <option value="staff">Staff</option>
-                {/* Prevent normal staff from creating admins */}
-                {(currentRole === "admin" || editing?.role === "admin") && (
-                  <option value="admin">Admin / Owner</option>
+                {/* Admin accounts cannot be created or promoted via UI.
+                    Only preserve the option when viewing/editing an existing admin account. */}
+                {editing?.role === "admin" && (
+                  <option value="admin">Admin (Owner)</option>
                 )}
-              </AdminSelect>
-            </AdminField>
-            <AdminField label="Account Status">
-              <AdminSelect
-                value={form.status}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    status: e.target.value as "active" | "inactive",
-                  })
-                }
-              >
-                <option value="active">Active (Enabled)</option>
-                <option value="inactive">Inactive (Disabled)</option>
               </AdminSelect>
             </AdminField>
           </div>
@@ -707,10 +677,6 @@ export default function StaffPage() {
               <div>
                 <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider mb-1">Role</p>
                 <p className="text-sm font-medium text-stone-700">{roleLabels[viewing.role]}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider mb-1">Account Status</p>
-                <p className="text-sm font-medium text-stone-700 capitalize">{viewing.status}</p>
               </div>
             </div>
 

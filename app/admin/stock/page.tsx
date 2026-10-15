@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   AdminButton,
@@ -38,7 +38,29 @@ export default function StockManagementPage() {
     deleteStockCategory,
     getStockCategoryName,
     getStockItemsByCategory,
+    refreshBackendStock,
   } = useAdminData();
+
+  // Poll shared stock from backend on mount and every 10s so stock
+  // updates appear automatically across all tabs and devices.
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      if (mounted && document.visibilityState === "visible") {
+        refreshBackendStock();
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshBackendStock]);
 
   const [filterCategory, setFilterCategory] = useState("all");
   const [stockModalOpen, setStockModalOpen] = useState(false);
