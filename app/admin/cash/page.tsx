@@ -3,12 +3,31 @@
 import { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
-import { Eye, Clock, ShieldCheck, PhilippinePeso, History, Flag, CheckCircle2, X, Loader2 } from "lucide-react";
+import { Eye, Clock, ShieldCheck, PhilippinePeso, History, Flag, CheckCircle2, X, Loader2, Pencil } from "lucide-react";
 import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
+import { useAuth } from "@/context/AuthContext";
 import type { CashShift, CashTransaction } from "@/lib/admin/types";
 
+function getCashSales(s: CashShift) {
+  if (s.cash_sales != null) {
+    return Number(s.cash_sales);
+  }
+  const expected = Number(s.expected_cash || 0);
+  const starting = Number(s.starting_float || 0);
+  return Math.max(0, expected - starting);
+}
+
 export default function CashManagementPage() {
-  const [shifts, setShifts] = useState<CashShift[]>([]);
+  const { user } = useAuth();
+  const [shifts, setShifts] = useState<CashShift[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("eat-n-repeat-cached-cash-shifts");
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
   const [loading, setLoading] = useState(true);
   const [isStale, setIsStale] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -21,13 +40,24 @@ export default function CashManagementPage() {
   const [showVerifyModal, setShowVerifyModal] = useState<string | null>(null);
   const [showFlagModal, setShowFlagModal] = useState<string | null>(null);
 
+  // Edit Audit Sign-off state
+  const [editSignoffShift, setEditSignoffShift] = useState<CashShift | null>(null);
+  const [editSignoffStatus, setEditSignoffStatus] = useState<string>("unverified");
+  const [editSignoffReason, setEditSignoffReason] = useState("");
+  const [editSignoffSaving, setEditSignoffSaving] = useState(false);
+  const [showEditSignoffConfirm, setShowEditSignoffConfirm] = useState(false);
+
   const fetchShifts = useCallback(async () => {
     try {
       const { getApiUrl } = await import('@/lib/config');
       const token = getStaffOrAdminToken();
       if (!token) {
         setIsStale(true);
-        setFetchError("Authentication required. Please log in as Admin.");
+        setFetchError(
+          user?.role === "admin"
+            ? "Cloud session token is missing or expired. Sign in online to refresh live data."
+            : "Authentication required. Please log in as Admin."
+        );
         setLoading(false);
         return;
       }
@@ -42,6 +72,9 @@ export default function CashManagementPage() {
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success) {
         setShifts(data.shifts);
+        try {
+          localStorage.setItem("eat-n-repeat-cached-cash-shifts", JSON.stringify(data.shifts));
+        } catch {}
         setIsStale(false);
         setFetchError(null);
       } else {
@@ -54,7 +87,7 @@ export default function CashManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => {
     let mounted = true;
@@ -147,6 +180,58 @@ export default function CashManagementPage() {
     }
   };
 
+  const openEditSignoff = (s: CashShift) => {
+    const currentStatus = (s.verification_status || "unverified").toLowerCase();
+    setEditSignoffShift(s);
+    setEditSignoffStatus(currentStatus);
+    setEditSignoffReason(currentStatus === "flagged" ? (s.flag_reason || "") : "");
+    setEditSignoffSaving(false);
+    setShowEditSignoffConfirm(false);
+  };
+
+  const handleEditSignoffSave = async () => {
+    if (!editSignoffShift) return;
+    if (editSignoffStatus === "flagged" && !editSignoffReason.trim()) {
+      toast.error("A flag reason is required.");
+      return;
+    }
+    setEditSignoffSaving(true);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const token = getStaffOrAdminToken();
+      if (!token) {
+        toast.error("Authentication required.");
+        return;
+      }
+      const res = await fetch(`${getApiUrl()}/api/cash/shifts/${editSignoffShift.id}/audit-signoff`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          status: editSignoffStatus,
+          reason: editSignoffStatus === "flagged" ? editSignoffReason.trim() : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        toast.success("Audit sign-off updated.");
+        setEditSignoffShift(null);
+        setShowEditSignoffConfirm(false);
+        await fetchShifts();
+      } else {
+        toast.error(data?.message || "Failed to update audit sign-off.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Network error.");
+    } finally {
+      setEditSignoffSaving(false);
+    }
+  };
+
+
   const getStatusBadge = (status: string) => {
     switch(status) {
       case 'open': return <span className="px-2 py-1 bg-amber-50 text-amber-700 text-[10px] font-bold uppercase rounded border border-amber-200">Open Shift</span>;
@@ -156,20 +241,6 @@ export default function CashManagementPage() {
       case 'over': return <span className="px-2 py-1 bg-blue-50 text-blue-700 text-[10px] font-bold uppercase rounded border border-blue-200">Over</span>;
       default: return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{status}</span>;
     }
-  };
-
-  const getCashStatusBadge = (s: CashShift) => {
-    if (s.difference == null) {
-      return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{s.status}</span>;
-    }
-    const diff = typeof s.difference === 'number' ? s.difference : parseFloat(s.difference as string);
-    if (isNaN(diff)) {
-      return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{s.status}</span>;
-    }
-    if (diff === 0) return <span className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase rounded border border-emerald-200">Reconciled</span>;
-    if (diff < 0) return <span className="px-2 py-1 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase rounded border border-rose-200">Shortage</span>;
-    if (diff > 0) return <span className="px-2 py-1 bg-blue-50 text-blue-700 text-[10px] font-bold uppercase rounded border border-blue-200">Over</span>;
-    return <span className="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-bold uppercase rounded border border-stone-200">{s.status}</span>;
   };
 
   const getVerificationBadge = (s: CashShift) => {
@@ -234,12 +305,12 @@ export default function CashManagementPage() {
                 <tr>
                   <th className="px-4 py-3">Staff</th>
                   <th className="px-4 py-3">Shift Time</th>
-                  <th className="px-4 py-3">Float</th>
+                  <th className="px-4 py-3">Opening Float</th>
+                  <th className="px-4 py-3">Cash Sales</th>
                   <th className="px-4 py-3">Expected</th>
                   <th className="px-4 py-3">Counted Cash</th>
                   <th className="px-4 py-3">Variance</th>
                   <th className="px-4 py-3 text-center">Shift Status</th>
-                  <th className="px-4 py-3 text-center">Cash Status</th>
                   <th className="px-4 py-3 text-center">Audit Sign-off</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -256,6 +327,7 @@ export default function CashManagementPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 font-medium">₱{parseFloat(s.starting_float as string).toFixed(2)}</td>
+                    <td className="px-4 py-3 font-medium text-emerald-700">₱{getCashSales(s).toFixed(2)}</td>
                     <td className="px-4 py-3 font-medium">₱{parseFloat(s.expected_cash as string).toFixed(2)}</td>
                     <td className="px-4 py-3 font-bold text-stone-900">{s.actual_cash ? `₱${parseFloat(s.actual_cash as string).toFixed(2)}` : "-"}</td>
                     <td className="px-4 py-3 font-bold">
@@ -265,33 +337,49 @@ export default function CashManagementPage() {
                         </span>
                       ) : "-"}
                     </td>
-                    <td className="px-4 py-3">{getStatusBadge(s.status)}</td>
-                  <td className="px-4 py-3">{getCashStatusBadge(s)}</td>
-                  <td className="px-4 py-3 text-center">{getVerificationBadge(s)}</td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {s.status !== 'open' && (s.verification_status || 'unverified').toLowerCase() !== 'verified' && (
-                        <>
+                    <td className="px-4 py-3 text-center">{getStatusBadge(s.status)}</td>
+                    <td className="px-4 py-3 text-center">{getVerificationBadge(s)}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {(() => {
+                        const vStatus = (s.verification_status || 'unverified').toLowerCase();
+                        if (s.status === 'open') return null;
+                        if (vStatus === 'unverified') {
+                          return (
+                            <>
+                              <button
+                                onClick={() => setShowVerifyModal(s.id)}
+                                disabled={verifyingId === s.id || flaggingId === s.id}
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
+                                title="Sign off this shift as verified"
+                              >
+                                Verify
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setShowFlagModal(s.id);
+                                  setFlagReason("");
+                                }}
+                                disabled={verifyingId === s.id || flaggingId === s.id}
+                                className="px-2.5 py-1.5 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
+                                title="Flag this shift for discrepancy"
+                              >
+                                Flag
+                              </button>
+                            </>
+                          );
+                        }
+                        // verified or flagged — show Edit Sign-off
+                        return (
                           <button
-                            onClick={() => setShowVerifyModal(s.id)}
-                            disabled={verifyingId === s.id || flaggingId === s.id}
-                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
-                            title="Sign off this shift as verified"
+                            onClick={() => openEditSignoff(s)}
+                            className="px-2.5 py-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5 inline-flex items-center gap-1"
+                            title="Edit audit sign-off"
                           >
-                            Verify
+                            <Pencil className="w-3 h-3" />
+                            Edit Sign-off
                           </button>
-                          <button
-                            onClick={() => {
-                              setShowFlagModal(s.id);
-                              setFlagReason("");
-                            }}
-                            disabled={verifyingId === s.id || flaggingId === s.id}
-                            className="px-2.5 py-1.5 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
-                            title="Flag this shift for discrepancy"
-                          >
-                            Flag
-                          </button>
-                        </>
-                      )}
+                        );
+                      })()}
                       <button onClick={() => setSelectedShiftId(s.id)} className="p-1.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 text-[#800000] shadow-sm" title="View details">
                         <Eye className="w-4 h-4" />
                       </button>
@@ -369,6 +457,121 @@ export default function CashManagementPage() {
               >
                 {flaggingId ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {flaggingId ? "Flag Shift" : "Flag Shift"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Audit Sign-off Modal */}
+      {editSignoffShift && !showEditSignoffConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6">
+            <h3 className="text-lg font-bold text-stone-900 mb-4">Edit Audit Sign-off</h3>
+
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">Current Status</label>
+              <span className={`inline-block px-2.5 py-1 text-[11px] font-bold uppercase rounded border ${
+                (editSignoffShift.verification_status || 'unverified').toLowerCase() === 'verified'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : (editSignoffShift.verification_status || 'unverified').toLowerCase() === 'flagged'
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                    : 'bg-stone-100 text-stone-500 border-stone-200'
+              }`}>
+                {(editSignoffShift.verification_status || 'unverified').toUpperCase()}
+              </span>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-stone-700 mb-2">Change status to</label>
+              <select
+                value={editSignoffStatus}
+                onChange={(e) => {
+                  setEditSignoffStatus(e.target.value);
+                  if (e.target.value !== 'flagged') setEditSignoffReason('');
+                }}
+                className="w-full text-sm border border-stone-200 rounded-xl p-3 focus:ring-2 focus:ring-[#800000] focus:border-[#800000] outline-none bg-white"
+                disabled={editSignoffSaving}
+              >
+                <option value="unverified">UNVERIFIED</option>
+                <option value="verified">VERIFIED</option>
+                <option value="flagged">FLAGGED</option>
+              </select>
+            </div>
+
+            {editSignoffStatus === 'flagged' && (
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-stone-700 mb-2">Flag Reason</label>
+                <textarea
+                  rows={3}
+                  value={editSignoffReason}
+                  onChange={(e) => setEditSignoffReason(e.target.value)}
+                  placeholder="Reason for flagging this shift..."
+                  className="w-full text-sm border border-stone-200 rounded-xl p-3 focus:ring-2 focus:ring-[#800000] focus:border-[#800000] outline-none resize-none"
+                  disabled={editSignoffSaving}
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setEditSignoffShift(null)}
+                disabled={editSignoffSaving}
+                className="px-4 py-2 text-sm font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (editSignoffStatus === 'flagged' && !editSignoffReason.trim()) {
+                    toast.error("A flag reason is required.");
+                    return;
+                  }
+                  setShowEditSignoffConfirm(true);
+                }}
+                disabled={editSignoffSaving || (editSignoffStatus === 'flagged' && !editSignoffReason.trim())}
+                className="px-4 py-2 text-sm font-bold text-white bg-[#800000] hover:bg-red-900 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Edit Sign-off Modal */}
+      {editSignoffShift && showEditSignoffConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6">
+            <h3 className="text-lg font-bold text-stone-900 mb-2">Confirm Sign-off Change</h3>
+            <p className="text-sm text-stone-600 mb-6">
+              Are you sure you want to change the audit sign-off from{' '}
+              <span className="font-bold uppercase">{(editSignoffShift.verification_status || 'unverified')}</span>{' '}
+              to{' '}
+              <span className="font-bold uppercase">{editSignoffStatus}</span>?
+              {editSignoffStatus === 'flagged' && editSignoffReason.trim() && (
+                <><br /><span className="text-stone-500 mt-1 block">Reason: &ldquo;{editSignoffReason.trim()}&rdquo;</span></>
+              )}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowEditSignoffConfirm(false)}
+                disabled={editSignoffSaving}
+                className="px-4 py-2 text-sm font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={handleEditSignoffSave}
+                disabled={editSignoffSaving}
+                className="px-4 py-2 text-sm font-bold text-white bg-[#800000] hover:bg-red-900 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {editSignoffSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {editSignoffSaving ? 'Saving...' : 'Confirm'}
               </button>
             </div>
           </div>
@@ -463,7 +666,7 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
                 <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-bold uppercase rounded border border-amber-200">Open Shift</span>
               )}
             </h2>
-            <p className="text-xs text-stone-500 font-mono mt-0.5">{shiftId}</p>
+
           </div>
           <div className="flex items-center gap-3">
             {shift?.status === 'open' && !addingFloat && (
@@ -492,18 +695,6 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
               <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
                 <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Shift Status</span>
                 <p className="font-bold text-lg capitalize text-stone-800">{shift.status === 'open' ? 'Open' : 'Closed'}</p>
-              </div>
-              <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
-                <span className="text-[10px] font-black uppercase text-stone-400 tracking-wider">Cash Status</span>
-                <p className="font-bold text-lg capitalize text-stone-800">
-                  {shift.difference == null
-                    ? '—'
-                    : Number(shift.difference) === 0
-                      ? 'Reconciled'
-                      : Number(shift.difference) < 0
-                        ? 'Short'
-                        : 'Over'}
-                </p>
               </div>
             </div>
 
@@ -564,10 +755,14 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
               <div className="p-3 bg-stone-50 border-b border-stone-200 flex items-center gap-2 text-stone-600 font-bold text-sm">
                 <PhilippinePeso className="w-4 h-4" /> Reconciliation
               </div>
-              <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-center divide-x divide-stone-100">
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-5 gap-4 text-center divide-x divide-stone-100">
                 <div>
-                  <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Starting Float</p>
+                  <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Opening Float</p>
                   <p className="font-bold text-stone-700">₱{parseFloat(shift.starting_float as string).toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Cash Sales</p>
+                  <p className="font-bold text-emerald-700">₱{getCashSales(shift).toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Expected</p>
