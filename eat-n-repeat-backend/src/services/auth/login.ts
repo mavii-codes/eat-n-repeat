@@ -35,7 +35,7 @@ export class LoginService {
       throw err;
     }
 
-    const token = jwt.sign({}, env.jwtSecret, { subject: user.id, expiresIn: "8h" });
+    const token = jwt.sign({}, env.jwtSecret, { subject: user.id, expiresIn: "30d" });
     return { token, user: publicUser(user) };
   }
 }

@@ -14,7 +14,7 @@ function formatTime(isoString: string): string {
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
-  
+
   if (diffMins < 1) return "Just now";
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
@@ -47,10 +47,10 @@ function getNotificationTime(notification: any): string {
   return notification.createdAt ?? notification.created_at ?? "";
 }
 
-export function StaffNotificationPanel({ 
+export function StaffNotificationPanel({
   onNavigateToOrder,
   theme = "light"
-}: { 
+}: {
   onNavigateToOrder: (type: string, orderId: string) => void;
   theme?: "dark" | "light";
 }) {
@@ -160,8 +160,8 @@ export function StaffNotificationPanel({
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`relative p-2 rounded-xl transition-colors cursor-pointer ${
-          theme === "dark" 
-            ? "bg-white/10 text-white hover:bg-white/20" 
+          theme === "dark"
+            ? "bg-white/10 text-white hover:bg-white/20"
             : "bg-stone-100 text-stone-700 hover:bg-stone-200"
         }`}
         title="Staff Notifications"

@@ -209,16 +209,22 @@ export class SyncRepository {
         try {
           const shiftId = String(op?.shiftId ?? "");
           const staffId = String(op?.staffId ?? "");
-          const float = Number(op?.startingFloat);
-          if (!shiftId || !staffId || !(float >= 0)) {
-            console.warn("[offline-sync] shift start missing id/staff/float — dropped.");
+          if (!shiftId || !staffId) {
+            console.warn("[offline-sync] shift start missing id/staff — dropped.");
             continue;
           }
           const staff = await tx.$queryRaw<any[]>`
-            SELECT id, name FROM users WHERE id = ${staffId} LIMIT 1
+            SELECT id, name, default_opening_float FROM users WHERE id = ${staffId} LIMIT 1
           `;
           if (staff.length === 0) {
             console.warn(`[offline-sync] shift start for unknown staff "${staffId}" — dropped.`);
+            continue;
+          }
+          // Float always comes from the admin-configured staff profile —
+          // client-supplied values are ignored, same as the online path.
+          const float = Number(staff[0].default_opening_float);
+          if (!Number.isFinite(float) || float <= 0) {
+            console.warn(`[offline-sync] no opening float configured for staff "${staffId}" — start ${shiftId} dropped.`);
             continue;
           }
           const byId = await tx.$queryRaw<any[]>`

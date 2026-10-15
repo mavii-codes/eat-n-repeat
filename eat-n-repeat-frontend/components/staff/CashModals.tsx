@@ -3,8 +3,15 @@
 import { useState } from "react";
 import { X, Calculator, PhilippinePeso, AlertCircle, Clock } from "lucide-react";
 
-export function StartShiftModal({ open, onStart }: { open: boolean, onStart: (float: number) => Promise<void> }) {
-  const [float, setFloat] = useState<string>("1000");
+export function StartShiftModal({
+  open,
+  onStart,
+  onClose,
+}: {
+  open: boolean;
+  onStart: () => Promise<void>;
+  onClose?: () => void;
+}) {
   const [loading, setLoading] = useState(false);
 
   if (!open) return null;
@@ -12,42 +19,68 @@ export function StartShiftModal({ open, onStart }: { open: boolean, onStart: (fl
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await onStart(parseFloat(float));
+    await onStart();
     setLoading(false);
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white max-w-md w-full rounded-2xl p-6 shadow-2xl">
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && onClose) onClose();
+      }}
+    >
+      <div className="bg-white max-w-md w-full rounded-2xl p-6 shadow-2xl relative">
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 right-4 text-stone-400 hover:text-stone-700 p-1 rounded-lg"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
         <div className="flex items-center gap-3 mb-5">
           <div className="bg-amber-100 text-amber-700 p-2 rounded-xl">
             <Clock className="w-6 h-6" />
           </div>
           <div>
             <h2 className="text-xl font-bold text-stone-900">Start Cash Shift</h2>
-            <p className="text-xs text-stone-500">Please declare your starting drawer float</p>
+            <p className="text-xs text-stone-500">Starting float is pre-configured by admin</p>
           </div>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-stone-700 mb-1">Starting Cash Float (₱)</label>
-            <input 
-              type="number" 
-              required min="0" step="1"
-              value={float} 
-              onChange={(e) => setFloat(e.target.value)}
-              className="w-full text-2xl font-bold p-3 border border-stone-200 rounded-xl focus:ring-2 focus:ring-[#800000] focus:border-[#800000]"
-            />
+          <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center text-amber-700">
+                <Clock className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-amber-900">Opening float is pre-configured by admin</span>
+            </div>
+            <p className="text-xs text-stone-500">Contact admin to change the opening float amount.</p>
           </div>
-          
-          <button 
-            type="submit" 
-            disabled={loading}
-            className="w-full py-3.5 bg-[#800000] text-white font-bold rounded-xl hover:bg-[#600000] transition-colors"
-          >
-            {loading ? "Starting..." : "Start Shift"}
-          </button>
+
+          <div className="flex gap-2">
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={loading}
+                className="w-1/3 py-3.5 bg-stone-100 text-stone-700 font-bold rounded-xl hover:bg-stone-200 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-3.5 bg-[#800000] text-white font-bold rounded-xl hover:bg-[#600000] transition-colors disabled:opacity-50"
+            >
+              {loading ? "Starting..." : "Start Shift"}
+            </button>
+          </div>
         </form>
       </div>
     </div>

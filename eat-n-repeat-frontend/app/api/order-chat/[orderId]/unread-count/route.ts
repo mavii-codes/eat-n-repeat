@@ -7,7 +7,7 @@ async function proxyRequest(
   options: RequestInit = {}
 ) {
   const accessToken = request.headers.get("authorization");
-  
+
   const response = await fetch(`${getApiUrl()}${path}`, {
     ...options,
     headers: {

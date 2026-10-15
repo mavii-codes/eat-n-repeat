@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
-import { startShiftSchema, endShiftSchema, addFloatSchema, flagShiftSchema } from "@/schema/cash/cash.schema";
+import { endShiftSchema, addFloatSchema, flagShiftSchema } from "@/schema/cash/cash.schema";
 import * as service from "@/services/cash";
 
 export class CashController {
@@ -22,15 +22,10 @@ export class CashController {
       const userId = req.auth?.userId;
       if (!userId) return res.status(401).json({ success: false, message: "Authentication required." });
 
-      const parsed = startShiftSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ success: false, message: "Invalid starting float" });
-      }
-
-      const { startingFloat } = parsed.data;
-
+      // No request-body float is accepted: the service resolves the
+      // admin-configured default from the staff profile.
       try {
-        const shift = await service.startShift(userId, startingFloat);
+        const shift = await service.startShift(userId);
         res.json({ success: true, shift });
       } catch (err: any) {
         if (err.statusCode) {

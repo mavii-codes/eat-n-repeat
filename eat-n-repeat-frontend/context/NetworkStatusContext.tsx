@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { getApiUrl } from "@/lib/config";
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 import {
   getPendingOfflineOrders,
   getPendingStockTransactions,
@@ -68,12 +69,11 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
         return;
       }
 
-      // /api/sync/offline requires a backend JWT. Prefer the staff token;
+      // /api/sync/offline requires a backend JWT. Prefer the staff/admin token;
       // otherwise use the signed-in customer's token from our own NextAuth
       // session endpoint (same-origin, cookie-authenticated). Absent both,
       // keep the queue for later instead of failing loudly.
-      let bearer: string | null =
-        localStorage.getItem("eat-n-repeat-staff-token");
+      let bearer: string | null = getStaffOrAdminToken();
       if (!bearer) {
         try {
           const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });

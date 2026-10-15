@@ -34,6 +34,19 @@ export class CashRepository {
     });
   }
 
+  async findOpenShiftById(shiftId: string) {
+    return prisma.cashShift.findFirst({
+      where: { id: shiftId, status: "open" },
+    });
+  }
+
+  async findAnyOpenShift() {
+    return prisma.cashShift.findFirst({
+      where: { status: "open" },
+      orderBy: { startTime: "desc" },
+    });
+  }
+
   async createShift(data: {
     id: string;
     staffId: string;

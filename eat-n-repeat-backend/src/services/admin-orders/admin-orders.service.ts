@@ -179,14 +179,21 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
     change = body.cashTendered - totalAmount;
   }
 
-  // Notify customer
-  await adminOrdersRepository.createCustomerNotification({
-    id: uuidv4(),
-    customerId: order.customerId || "",
-    type: "payment",
-    title: `Payment Received - Order #${order.orderNumber}`,
-    description: `Your payment of ₱${totalAmount.toFixed(2)} has been received.`,
-  });
+  // Notify customer (walk-in/anonymous orders have no customerId; the FK
+  // rejects an empty id with P2003, so skip the notification for those).
+  if (order.customerId) {
+    try {
+      await adminOrdersRepository.createCustomerNotification({
+        id: uuidv4(),
+        customerId: order.customerId,
+        type: "payment",
+        title: `Payment Received - Order #${order.orderNumber}`,
+        description: `Your payment of ₱${totalAmount.toFixed(2)} has been received.`,
+      });
+    } catch (notifyError) {
+      console.error("Payment saved but customer notification failed:", notifyError);
+    }
+  }
 
   return { change };
 }

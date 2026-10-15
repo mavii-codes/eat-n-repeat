@@ -10,7 +10,7 @@ import {
   StatCard,
   TrendIcon,
 } from "@/components/admin/StatCard";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { dashboardStats } from "@/lib/admin/mock-data";
 import { useAdminData } from "@/context/AdminDataContext";
 import type { AdminNotification } from "@/lib/admin/types";
@@ -43,7 +43,27 @@ function timeAgo(dateString: string) {
 
 export default function AdminDashboardPage() {
   const stats = dashboardStats;
-  const { stockItems, deliveryOrders } = useAdminData();
+  const { stockItems, deliveryOrders, refreshBackendOrders, refreshBackendStock } = useAdminData();
+
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      if (mounted && document.visibilityState === "visible") {
+        refreshBackendOrders();
+        refreshBackendStock();
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshBackendOrders, refreshBackendStock]);
   const notifications = useMemo<AdminNotification[]>(() => {
     const lowStock = stockItems
       .filter((item) => item.quantity <= item.lowStockThreshold)

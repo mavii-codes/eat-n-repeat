@@ -5,6 +5,10 @@ export class StaffRepository {
     return prisma.user.findMany();
   }
 
+  async findUserById(id: string) {
+    return prisma.user.findUnique({ where: { id } });
+  }
+
   async findUserByEmail(email: string) {
     const users = await prisma.user.findMany();
     const lower = email.toLowerCase();

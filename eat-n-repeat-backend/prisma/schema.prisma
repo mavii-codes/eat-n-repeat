@@ -8,15 +8,17 @@ datasource db {
 }
 
 model User {
-  id           String              @id @db.VarChar(64) @map("id")
-  name         String              @db.VarChar(120) @map("name")
-  username     String              @unique @db.VarChar(80) @map("username")
-  email        String              @unique @db.VarChar(255) @map("email")
-  passwordHash String              @db.VarChar(255) @map("password_hash")
-  role         String              @default("staff") @db.VarChar(50) @map("role")
-  status       String              @default("active") @db.VarChar(20) @map("status")
-  archived     Boolean             @default(false) @map("archived")
-  createdAt    DateTime            @default(now()) @db.Timestamp(0) @map("created_at")
+  id                String              @id @db.VarChar(64) @map("id")
+  name              String              @db.VarChar(120) @map("name")
+  username          String              @unique @db.VarChar(80) @map("username")
+  email             String              @unique @db.VarChar(255) @map("email")
+  passwordHash      String              @db.VarChar(255) @map("password_hash")
+  role              String              @default("staff") @db.VarChar(50) @map("role")
+  status            String              @default("active") @db.VarChar(20) @map("status")
+  archived          Boolean             @default(false) @map("archived")
+  createdAt         DateTime            @default(now()) @db.Timestamp(0) @map("created_at")
+  // Default opening cash float for this staff member (set by admin)
+  defaultOpeningFloat Decimal?          @db.Decimal(10, 2) @map("default_opening_float")
 
   staffNotifications StaffNotification[]
 

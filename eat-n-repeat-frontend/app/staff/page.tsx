@@ -27,6 +27,7 @@ import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus, RecentOrder, DeliveryOrder } from "@/lib/admin/types";
 import { formatPhDateTime, formatOrderDateTime, orderEpoch } from "@/lib/admin/delivery-utils";
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 
 type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos" | "qr";
 
@@ -251,6 +252,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     updateStockItem,
     deleteStockItem,
     refreshBackendOrders,
+    refreshBackendStock,
     fetchOrderHistoryPage,
   } = useAdminData();
   const router = useRouter();
@@ -307,20 +309,28 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Pull shared orders from the backend (all types) on mount and every 20s
-  // so orders placed on another device appear here without manual refresh.
-  // Silent on auth/network failure (offline mode keeps the local cache).
+  // Pull shared orders from the backend (all types) and stock inventory on mount
+  // and every 10s so orders placed on another device and stock changes made by Admin
+  // appear here without manual refresh. Silent on auth/network failure (offline mode).
   useEffect(() => {
     let mounted = true;
-    refreshBackendOrders();
-    const interval = setInterval(() => {
-      if (mounted) refreshBackendOrders();
-    }, 20000);
+    const refresh = () => {
+      if (mounted && document.visibilityState === "visible") {
+        refreshBackendOrders();
+        refreshBackendStock();
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
     return () => {
       mounted = false;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
     };
-  }, [refreshBackendOrders]);
+  }, [refreshBackendOrders, refreshBackendStock]);
 
   // Surface failed order-status writes (the context reverts the optimistic
   // change and fires this event). Scoped to order-status details only so
@@ -369,9 +379,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     setMarkingPaidId(order.id);
     try {
       const { getApiUrl } = await import("@/lib/config");
-      const token =
-        localStorage.getItem("eat-n-repeat-admin-token") ||
-        localStorage.getItem("eat-n-repeat-staff-token");
+      const token = getStaffOrAdminToken();
       const response = await fetch(
         `${getApiUrl()}/api/admin-orders/${encodeURIComponent(order.id)}/payment`,
         {

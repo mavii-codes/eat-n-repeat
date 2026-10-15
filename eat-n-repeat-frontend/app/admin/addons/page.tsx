@@ -53,12 +53,10 @@ function compressAddonImage(file: File): Promise<string> {
 // customer next-auth session. Add-on writes therefore need the staff/admin
 // token — the customer session token this page used before is absent for
 // admin users ("Unauthorized") and forbidden for customers (403).
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
+
 function getStaffToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return (
-    localStorage.getItem("eat-n-repeat-admin-token") ||
-    localStorage.getItem("eat-n-repeat-staff-token")
-  );
+  return getStaffOrAdminToken();
 }
 
 

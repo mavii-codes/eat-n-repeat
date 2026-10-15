@@ -10,11 +10,16 @@ import { useRouter } from "next/navigation";
 import { useAdminData } from "@/context/AdminDataContext";
 import { verifyPassword, ensureHashed } from "@/lib/admin/password";
 import { getApiUrl } from "@/lib/config";
+import {
+  SESSION_KEY,
+  STAFF_TOKEN_KEY,
+  ADMIN_TOKEN_KEY,
+  isTokenValid,
+  syncAuthTokens,
+  clearAuthTokens,
+} from "@/lib/admin/auth-token";
 import type { StaffAccount, StaffAccountInput } from "@/lib/admin/types";
 
-const SESSION_KEY = "eat-n-repeat-auth-session";
-const STAFF_TOKEN_KEY = "eat-n-repeat-staff-token";
-const ADMIN_TOKEN_KEY = "eat-n-repeat-admin-token";
 const BACKEND_TIMEOUT_MS = 8000;
 
 type StoredSession = Omit<StaffAccount, "password"> & { token?: string };
@@ -74,6 +79,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const parsedUser = JSON.parse(storedSession) as StoredSession;
         if (parsedUser.token) {
+          if (!isTokenValid(parsedUser.token)) {
+            clearAuthTokens();
+            if (!cancelled) setLoading(false);
+            return;
+          }
           try {
             const res = await fetchWithTimeout(
               `${getApiUrl()}/api/auth/me`,
@@ -81,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               BACKEND_TIMEOUT_MS,
             );
             if (res.status === 401 || res.status === 403) {
-              localStorage.removeItem(SESSION_KEY);
+              clearAuthTokens();
               if (!cancelled) setLoading(false);
               return;
             }
@@ -97,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   role: backendUser.role,
                   status: backendUser.status ?? "active",
                 } as StaffAccount;
+                syncAuthTokens(parsedUser.token, backendUser.role);
                 if (!cancelled) {
                   setUser(sessionUser);
                   setLoading(false);
@@ -108,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // so a reachable-but-erroring backend does not log the user out.
           } catch {
             // Backend unreachable — trust the local record (offline mode).
+            syncAuthTokens(parsedUser.token, parsedUser.role);
           }
         }
         // Offline fallback: read the device's local admin-data cache directly
@@ -198,10 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } as StaffAccount;
           setUser(sessionUser);
           localStorage.setItem(SESSION_KEY, JSON.stringify(toStoredSession(sessionUser, data.token)));
-          localStorage.setItem(STAFF_TOKEN_KEY, data.token);
-          if (backendUser.role === "admin") {
-            localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
-          }
+          syncAuthTokens(data.token, backendUser.role);
           return true;
         }
       } else if (res.status === 401 || res.status === 403 || res.status === 429) {
@@ -272,9 +281,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(STAFF_TOKEN_KEY);
-    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    clearAuthTokens();
     router.push("/login");
   };
 

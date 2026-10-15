@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
@@ -23,7 +23,29 @@ export default function DeliveryPage() {
     getServiceAreaName,
     getActiveDeliveryOrders,
     getDeliveryHistory,
+    refreshBackendOrders,
   } = useAdminData();
+
+  // Poll shared orders from backend on mount and every 10s so delivery status
+  // updates made by Staff on other devices/tabs appear automatically.
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      if (mounted && document.visibilityState === "visible") {
+        refreshBackendOrders();
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 10000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshBackendOrders]);
 
   const [tab, setTab] = useState<Tab>("all");
   const [searchQuery, setSearchQuery] = useState("");

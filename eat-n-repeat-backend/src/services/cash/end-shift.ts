@@ -3,7 +3,12 @@ import { mapShift } from "./helpers";
 
 export class EndShiftService {
   async execute(userId: string, shiftId: string, actualCash: number, notes?: string) {
-    const shift = await cashRepository.findOpenShiftByIdAndStaff(shiftId, userId);
+    const userRole = await cashRepository.findUserRole(userId);
+    const isAdmin = userRole?.role === "admin";
+
+    const shift = isAdmin
+      ? await cashRepository.findOpenShiftById(shiftId)
+      : await cashRepository.findOpenShiftByIdAndStaff(shiftId, userId);
 
     if (!shift) {
       const err: any = new Error("Open shift not found or already closed.");

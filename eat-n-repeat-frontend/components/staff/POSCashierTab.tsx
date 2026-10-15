@@ -10,6 +10,7 @@ import { StartShiftModal, EndShiftModal } from "@/components/staff/CashModals";
 import toast from "react-hot-toast";
 import type { MenuItem } from "@/lib/admin/types";
 import { getApiUrl } from "@/lib/config";
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 import {
   Search,
   Plus,
@@ -118,7 +119,7 @@ export function POSCashierTab() {
   const getStaffIdentity = useCallback((): { id: string; name: string } | null => {
     if (user?.id) return { id: user.id, name: user?.name || "Staff" };
     try {
-      const token = localStorage.getItem("eat-n-repeat-staff-token");
+      const token = getStaffOrAdminToken();
       if (token) {
         const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
         if (typeof payload?.sub === "string") {
@@ -274,21 +275,20 @@ export function POSCashierTab() {
      ────────────────────────────────────────────── */
 
   const handleStartShift = useCallback(
-    async (float: number) => {
+    async () => {
       try {
-        const token = localStorage.getItem("eat-n-repeat-staff-token");
+        const token = getStaffOrAdminToken();
         const res = await fetch(`${getApiUrl()}/api/cash/shift/start`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ startingFloat: float }),
           signal: AbortSignal.timeout(10000),
         });
         const data = await res.json();
         if (data.success) {
-          toast.success(`Shift started with ₱${float.toFixed(2)} float`);
+          toast.success("Shift started with pre-configured float");
           setShiftModalOpen(false);
           setOfflineShiftOverride(null);
           fetchActiveCashShift();
@@ -311,20 +311,20 @@ export function POSCashierTab() {
           }
           const { journalShiftOp } = await import("@/lib/offlineSync");
           const shiftId = `shift-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
-          journalShiftOp({ shiftId, kind: "start", staffId: identity.id, startingFloat: float });
+          journalShiftOp({ shiftId, kind: "start", staffId: identity.id, startingFloat: 0 });
           setOfflineShiftOverride({
             id: shiftId,
             staff_id: identity.id,
             staff_name: identity.name,
-            starting_float: float,
-            expected_cash: float,
+            starting_float: 0, // Will be set from server config
+            expected_cash: 0,
             cash_sales: 0,
             gcash_sales: 0,
             status: "open",
             start_time: new Date().toISOString(),
           });
           setShiftModalOpen(false);
-          toast.success(`Shift started offline with ₱${float.toFixed(2)} float — will sync when reconnected.`);
+          toast.success("Shift started offline — will sync when reconnected.");
         } catch {
           toast.error("Network error starting shift");
         }
@@ -336,7 +336,7 @@ export function POSCashierTab() {
   const handleEndShift = useCallback(
     async (actualCash: number, notes?: string) => {
       try {
-        const token = localStorage.getItem("eat-n-repeat-staff-token");
+        const token = getStaffOrAdminToken();
         const res = await fetch(`${getApiUrl()}/api/cash/shift/end`, {
           method: "POST",
           headers: {
@@ -412,7 +412,7 @@ export function POSCashierTab() {
     // duplicate sale.
     const posOrderNumber = `POS-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
     try {
-      const token = localStorage.getItem("eat-n-repeat-staff-token");
+      const token = getStaffOrAdminToken();
       const orderDetails = {
         orderNumber: posOrderNumber,
         customerName: customerName.trim() || "Walk-in Customer",
@@ -573,7 +573,7 @@ export function POSCashierTab() {
           // Queue the collection too so the drain records the PAID payment
           // and attributes the drawer (originating staff first).
           try {
-            const staffToken = localStorage.getItem("eat-n-repeat-staff-token");
+            const staffToken = getStaffOrAdminToken();
             let staffId: string | null = null;
             if (user?.id) staffId = user.id;
             else if (staffToken) {
@@ -671,6 +671,7 @@ export function POSCashierTab() {
         <StartShiftModal
           open={shiftModalOpen}
           onStart={handleStartShift}
+          onClose={() => setShiftModalOpen(false)}
         />
       </>
     );
@@ -1258,7 +1259,11 @@ export function POSCashierTab() {
       {/* ═══════════════════════════════════════════
           MODALS
          ═══════════════════════════════════════════ */}
-      <StartShiftModal open={shiftModalOpen} onStart={handleStartShift} />
+      <StartShiftModal
+        open={shiftModalOpen}
+        onStart={handleStartShift}
+        onClose={() => setShiftModalOpen(false)}
+      />
       <EndShiftModal
         open={endShiftModalOpen}
         shift={activeShift}

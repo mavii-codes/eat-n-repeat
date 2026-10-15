@@ -26,6 +26,10 @@ export async function findUserByUsername(username: string) {
   return staffRepository.findUserByUsername(username);
 }
 
+export async function findUserByIdRaw(id: string) {
+  return staffRepository.findUserById(id);
+}
+
 export async function createUser(data: {
   name: string;
   username: string;

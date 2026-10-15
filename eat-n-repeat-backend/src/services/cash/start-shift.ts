@@ -3,7 +3,10 @@ import { cashRepository } from "@/repositories/cash.repository";
 import { mapShift } from "./helpers";
 
 export class StartShiftService {
-  async execute(userId: string, startingFloat: number) {
+  // Staff never supply the float: it always comes from the admin-configured
+  // defaultOpeningFloat on their staff profile. Client-sent values are
+  // ignored entirely so a tampered request cannot set its own float.
+  async execute(userId: string) {
     const existing = await cashRepository.findOpenShiftByStaffId(userId);
     if (existing) {
       const err: any = new Error("You already have an open shift.");
@@ -13,6 +16,14 @@ export class StartShiftService {
 
     const user = await cashRepository.findUserName(userId);
     const staffName = user?.name || "Staff";
+
+    const userWithFloat = await cashRepository.findUserById(userId);
+    const rawFloat = (userWithFloat as any)?.defaultOpeningFloat;
+    let startingFloat = rawFloat != null ? Number(rawFloat) : 0;
+
+    if (!Number.isFinite(startingFloat) || startingFloat <= 0) {
+      startingFloat = 1000;
+    }
 
     const shiftId = `shift-${crypto.randomUUID()}`;
 

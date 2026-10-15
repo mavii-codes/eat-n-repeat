@@ -34,12 +34,10 @@ function formatTime(isoString: string): string {
   return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
+
 function getStaffToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return (
-    localStorage.getItem("eat-n-repeat-admin-token") ||
-    localStorage.getItem("eat-n-repeat-staff-token")
-  );
+  return getStaffOrAdminToken();
 }
 
 export function AdminChatModal({ open, onClose, customerName, orderId, orderNumber }: AdminChatModalProps) {

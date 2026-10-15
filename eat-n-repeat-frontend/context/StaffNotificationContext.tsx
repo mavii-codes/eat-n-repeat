@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getApiUrl } from "@/lib/config";
+import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 
 
 export type StaffNotification = {
@@ -31,7 +32,7 @@ export function StaffNotificationProvider({ children }: { children: ReactNode })
   const [notifications, setNotifications] = useState<StaffNotification[]>([]);
 
   const authHeaders = (): HeadersInit => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("eat-n-repeat-staff-token") : null;
+    const token = getStaffOrAdminToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 

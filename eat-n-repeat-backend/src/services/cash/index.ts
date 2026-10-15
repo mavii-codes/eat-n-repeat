@@ -29,8 +29,8 @@ export async function getCurrentShift(userId: string) {
   return getCurrentShiftService.execute(userId);
 }
 
-export async function startShift(userId: string, startingFloat: number) {
-  return startShiftService.execute(userId, startingFloat);
+export async function startShift(userId: string) {
+  return startShiftService.execute(userId);
 }
 
 export async function endShift(userId: string, shiftId: string, actualCash: number, notes?: string) {

@@ -16,9 +16,10 @@ export class StockRepository {
   }
 
   async updateCategory(id: string, name: string) {
-    return prisma.stockCategory.update({
+    return prisma.stockCategory.upsert({
       where: { id },
-      data: { name },
+      update: { name },
+      create: { id, name },
     });
   }
 
@@ -59,9 +60,10 @@ export class StockRepository {
       lowStockThreshold: number;
     },
   ) {
-    return prisma.stockItem.update({
+    return prisma.stockItem.upsert({
       where: { id },
-      data,
+      update: data,
+      create: { id, ...data },
     });
   }
 

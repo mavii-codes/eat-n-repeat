@@ -216,16 +216,6 @@ export const initialAdminData: AdminDataState = {
   stockRequests: [],
   staffAccounts: [
     {
-      id: "sf-1",
-      name: "Marvin Barro",
-      username: "admin",
-      email: "owner@eatnrepeat.com",
-      password: "admin123",
-      role: "admin",
-      status: "active",
-      ...active,
-    },
-    {
       id: "sf-2",
       name: "Maria Santos",
       username: "maria",

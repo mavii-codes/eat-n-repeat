@@ -33,6 +33,14 @@ export class StaffController {
 
       const { password, ...userData } = parsed.data;
 
+      // ── Admin creation is permanently disabled. The system supports
+      //    exactly one admin account; new ones must never be created. ──
+      if (userData.role === "admin") {
+        return res.status(403).json({
+          message: "Creating admin accounts is not allowed.",
+        });
+      }
+
       if (!password) {
         return res.status(400).json({ message: "Password is required for new accounts" });
       }
@@ -82,6 +90,17 @@ export class StaffController {
       }
 
       const { password, ...userData } = parsed.data;
+
+      // ── Block promotion to admin. An existing admin can keep their role,
+      //    but a non-admin account must never be elevated to admin. ──
+      if (userData.role === "admin") {
+        const existing = await service.findUserByIdRaw(req.params.id);
+        if (!existing || existing.role !== "admin") {
+          return res.status(403).json({
+            message: "Promoting accounts to admin is not allowed.",
+          });
+        }
+      }
 
       await service.updateUser(req.params.id, {
         ...userData,
