@@ -6,7 +6,7 @@ export { EndShiftService, endShiftService } from "./end-shift";
 export { GetAllShiftsService, getAllShiftsService } from "./get-all-shifts";
 export { GetShiftDetailsService, getShiftDetailsService } from "./get-shift-details";
 export { AddFloatService, addFloatService } from "./add-float";
-export { VerifyShiftService, FlagShiftService, verifyShiftService, flagShiftService } from "./verify-shift";
+export { VerifyShiftService, FlagShiftService, EditAuditSignoffService, verifyShiftService, flagShiftService, editAuditSignoffService } from "./verify-shift";
 
 // Re-export helpers
 export { mapShift, mapTransaction } from "./helpers";
@@ -19,7 +19,7 @@ import { endShiftService } from "./end-shift";
 import { getAllShiftsService } from "./get-all-shifts";
 import { getShiftDetailsService } from "./get-shift-details";
 import { addFloatService } from "./add-float";
-import { verifyShiftService, flagShiftService } from "./verify-shift";
+import { verifyShiftService, flagShiftService, editAuditSignoffService } from "./verify-shift";
 
 export async function isAdminUser(userId: string): Promise<boolean> {
   return cashIsAdminUserService.execute(userId);
@@ -43,6 +43,10 @@ export async function verifyShift(shiftId: string, adminId: string) {
 
 export async function flagShift(shiftId: string, adminId: string, reason: string) {
   return flagShiftService.execute(shiftId, adminId, reason);
+}
+
+export async function editAuditSignoff(shiftId: string, adminId: string, status: string, reason?: string) {
+  return editAuditSignoffService.execute(shiftId, adminId, status, reason);
 }
 
 export async function getAllShifts() {

@@ -11,6 +11,10 @@ router.get("/shifts", requireAuth, (req, res) => cashController.getAllShifts(req
 router.get("/shifts/:id", requireAuth, (req, res) => cashController.getShiftDetails(req, res));
 router.post("/shifts/:id/verify", requireAuth, (req, res) => cashController.verifyShift(req, res));
 router.post("/shifts/:id/flag", requireAuth, (req, res) => cashController.flagShift(req, res));
+router.post("/shifts/:id/audit-signoff", requireAuth, (req, res) => cashController.editAuditSignoff(req, res));
+router.post("/shifts/:id/signoff", requireAuth, (req, res) => cashController.editAuditSignoff(req, res));
+router.put("/shifts/:id/audit-signoff", requireAuth, (req, res) => cashController.editAuditSignoff(req, res));
+router.put("/shifts/:id/signoff", requireAuth, (req, res) => cashController.editAuditSignoff(req, res));
 router.post("/shifts/:id/add-float", requireAuth, (req, res) => cashController.addFloat(req, res));
 
 export default router;

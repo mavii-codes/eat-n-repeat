@@ -8,10 +8,10 @@ async function main() {
   const adminPasswordHash = await bcrypt.hash('EatnRepeat!2026', 12);
   await prisma.user.upsert({
     where: { username: 'admin' },
-    update: { passwordHash: adminPasswordHash, name: 'Cafe Administrator', email: 'owner@eatnrepeat.com', role: 'admin', status: 'active' },
+    update: { passwordHash: adminPasswordHash, name: 'Marvin Barro', email: 'owner@eatnrepeat.com', role: 'admin', status: 'active' },
     create: {
       id: 'admin-1',
-      name: 'Cafe Administrator',
+      name: 'Marvin Barro',
       username: 'admin',
       email: 'owner@eatnrepeat.com',
       passwordHash: adminPasswordHash,

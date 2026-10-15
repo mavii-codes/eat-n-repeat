@@ -149,6 +149,12 @@ function mergeServerStaff(
   );
   const byEmail = new Map(prev.map((a) => [(a.email || "").toLowerCase(), a]));
   const serverIds = new Set(server.map((s) => s.id));
+  const serverUsernames = new Set(
+    server.map((s) => (s.username || "").toLowerCase()),
+  );
+  const serverEmails = new Set(
+    server.map((s) => (s.email || "").toLowerCase()),
+  );
   const merged: StaffAccount[] = server.map((s) => {
     const local =
       byId.get(s.id) ??
@@ -173,7 +179,17 @@ function mergeServerStaff(
     };
   });
   // Keep device-only rows created offline (not yet on server) alongside.
-  const offlineOnly = prev.filter((a) => !serverIds.has(a.id));
+  // Never duplicate rows that already exist on the server by ID, username, or email.
+  // Evict legacy mock sf-1 and Cafe Administrator placeholder.
+  const offlineOnly = prev.filter((a) => {
+    if (serverIds.has(a.id)) return false;
+    const u = (a.username || "").toLowerCase();
+    const e = (a.email || "").toLowerCase();
+    if (u && serverUsernames.has(u)) return false;
+    if (e && serverEmails.has(e)) return false;
+    if (a.id === "sf-1" || a.name === "Cafe Administrator") return false;
+    return true;
+  });
   return [...merged, ...offlineOnly];
 }
 
@@ -397,17 +413,19 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
     stockItems: data.stockItems ?? initialAdminData.stockItems,
     stockRequests: data.stockRequests ?? initialAdminData.stockRequests,
     staffAccounts: ensureArchived(
-      (data.staffAccounts ?? initialAdminData.staffAccounts).map((account) => {
-        const initial = initialAdminData.staffAccounts.find((x) => x.id === account.id);
-        return {
-          ...account,
-          username: account.username || initial?.username || account.name.toLowerCase().replace(/\s+/g, ""),
-          // Never persist plaintext: hash legacy/mock passwords on load.
-          password: ensureHashed(account.password || initial?.password || "staff123"),
-          role:
-            (account.role as string) === "cashier" ? "staff" : account.role,
-        };
-      }),
+      (data.staffAccounts ?? initialAdminData.staffAccounts)
+        .filter((a) => a.id !== "sf-1" && a.name !== "Cafe Administrator")
+        .map((account) => {
+          const initial = initialAdminData.staffAccounts.find((x) => x.id === account.id);
+          return {
+            ...account,
+            username: account.username || initial?.username || account.name.toLowerCase().replace(/\s+/g, ""),
+            // Never persist plaintext: hash legacy/mock passwords on load.
+            password: ensureHashed(account.password || initial?.password || "staff123"),
+            role:
+              (account.role as string) === "cashier" ? "staff" : account.role,
+          };
+        }),
       initialAdminData.staffAccounts,
     ),
     systemSettings: data.systemSettings ?? initialAdminData.systemSettings,

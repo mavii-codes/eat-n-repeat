@@ -14,8 +14,14 @@ export class GetShiftDetailsService {
     const transactions = await cashRepository.findTransactionsByShiftId(shiftId);
     const sales = await cashRepository.sumShiftSales(shiftId);
 
+    let verifiedByName: string | null = null;
+    if (shift.verifiedBy) {
+      const verifier = await cashRepository.findUserName(shift.verifiedBy);
+      verifiedByName = verifier?.name ?? null;
+    }
+
     return {
-      shift: mapShift({ ...shift, ...sales }),
+      shift: { ...mapShift({ ...shift, ...sales }), verified_by_name: verifiedByName },
       transactions: transactions.map(mapTransaction),
     };
   }

@@ -18,9 +18,13 @@ function ServerFootnote() {
   }, []);
   if (!url) return null;
   return (
-    <p className="mt-6 text-center text-[11px] text-[#2D2A26]/40 font-mono">
-      Server: {url}
-    </p>
+    <div className="mt-6 text-center">
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#F4EDE4] border border-[#DDD0C0] text-[12px] font-mono shadow-sm">
+        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+        <span className="font-bold text-[#8B2E2E]">Server:</span>
+        <span className="font-semibold text-[#2D2A26]">{url}</span>
+      </span>
+    </div>
   );
 }
 

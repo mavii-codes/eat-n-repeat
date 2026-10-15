@@ -104,6 +104,27 @@ export class CashRepository {
     return { cash_sales: cash, gcash_sales: gcash };
   }
 
+  async sumAllShiftsSales(shiftIds: string[]): Promise<Record<string, { cash_sales: number; gcash_sales: number }>> {
+    if (shiftIds.length === 0) return {};
+    const rows = await prisma.cashTransaction.findMany({
+      where: { shiftId: { in: shiftIds } },
+      select: { shiftId: true, type: true, amount: true },
+    });
+    const result: Record<string, { cash_sales: number; gcash_sales: number }> = {};
+    for (const id of shiftIds) {
+      result[id] = { cash_sales: 0, gcash_sales: 0 };
+    }
+    for (const r of rows) {
+      if (!result[r.shiftId]) {
+        result[r.shiftId] = { cash_sales: 0, gcash_sales: 0 };
+      }
+      const amount = Number(r.amount) || 0;
+      if (r.type === "sale") result[r.shiftId].cash_sales += amount;
+      else if (r.type === "gcash_sale") result[r.shiftId].gcash_sales += amount;
+    }
+    return result;
+  }
+
   async findCashTransactionByOrderId(orderId: string) {
     return prisma.cashTransaction.findFirst({
       where: { orderId },
