@@ -14,6 +14,7 @@ export function mapShift(row: {
   verifiedBy?: string | null;
   verifiedAt?: Date | null;
   flagReason?: string | null;
+  verified_by_name?: string | null;
   cash_sales?: number;
   gcash_sales?: number;
 }) {
@@ -31,6 +32,7 @@ export function mapShift(row: {
     notes: row.notes ?? null,
     verification_status: row.verificationStatus ?? "unverified",
     verified_by: row.verifiedBy ?? null,
+    verified_by_name: row.verified_by_name ?? null,
     verified_at: row.verifiedAt ?? null,
     flag_reason: row.flagReason ?? null,
     // Computed sales split (cash vs GCash) when the caller attaches them.

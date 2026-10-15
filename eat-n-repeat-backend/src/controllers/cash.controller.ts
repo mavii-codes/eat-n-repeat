@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
-import { endShiftSchema, addFloatSchema, flagShiftSchema } from "@/schema/cash/cash.schema";
+import { endShiftSchema, addFloatSchema, flagShiftSchema, editAuditSignoffSchema } from "@/schema/cash/cash.schema";
 import * as service from "@/services/cash";
 
 export class CashController {
@@ -153,6 +153,32 @@ export class CashController {
       }
     } catch (error) {
       console.error("Error flagging shift:", error);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+
+  async editAuditSignoff(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.auth?.userId;
+      if (!userId) return res.status(401).json({ success: false, message: "Authentication required." });
+
+      const parsed = editAuditSignoffSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: parsed.error.issues[0].message });
+      }
+
+      const id = req.params.id as string;
+      try {
+        const shift = await service.editAuditSignoff(id, userId, parsed.data.status, parsed.data.reason);
+        return res.json({ success: true, shift });
+      } catch (err: any) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+    } catch (error) {
+      console.error("Error editing audit sign-off:", error);
       return res.status(500).json({ success: false, message: "Server error" });
     }
   }
