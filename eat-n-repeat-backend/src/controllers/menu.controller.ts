@@ -79,10 +79,23 @@ export class MenuController {
   }
 
   // Public — customers browse the menu without logging in.
-  async listItems(req: Request, res: Response) {
+  // optionalAuth populates req.auth when a token is present; the aggregate
+  // stays GLOBAL for everyone while myRating/hasReviewed are resolved only
+  // for genuine customers (staff/admin/user rows get null/false).
+  async listItems(req: AuthenticatedRequest, res: Response) {
     try {
       const includeArchived = (req.query.admin as string) === "true";
-      const items = await service.listMenuItems(includeArchived);
+      let viewerCustomerId: string | undefined;
+      const userId = req.auth?.userId;
+      if (userId) {
+        const { prisma } = await import("@/lib/prisma");
+        const customer = await prisma.customer.findUnique({
+          where: { id: userId },
+          select: { id: true },
+        });
+        viewerCustomerId = customer?.id;
+      }
+      const items = await service.listMenuItems(includeArchived, viewerCustomerId);
       // Tombstone ids so clients can hide rows archived on another device.
       // Ids only — no archived content leaks through the public endpoint.
       const { items: archivedIds } = await service.listArchivedMenuIds();

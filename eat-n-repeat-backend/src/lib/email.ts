@@ -102,7 +102,11 @@ async function sendEmail(to: string, subject: string, html: string): Promise<Ema
         port: env.smtp.port,
         secure: env.smtp.port === 465,
         auth: { user: env.smtp.user, pass: env.smtp.pass },
-      });
+        // Keep SMTP on IPv4 (Railway-hosted mail relays resolve only v4);
+        // the process-level DNS result order stays unset so Xendit can
+        // reach api.xendit.co over its working route.
+        family: 4,
+      } as any);
       const info = await transporter.sendMail({ from: env.smtp.from, to, subject, html });
       console.log(`[Email] Sent via SMTP to ${to}${info?.messageId ? ` (id: ${info.messageId})` : ""}`);
       return { ok: true, provider: "smtp", id: info?.messageId };

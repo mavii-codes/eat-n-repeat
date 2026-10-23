@@ -1,4 +1,4 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
 import * as service from "@/services/events";
 
@@ -17,8 +17,78 @@ export class EventsController {
     });
   }
 
-  async streamOrderChat(req: AuthenticatedRequest, res: Response) {
-    const identifier = req.params.orderId as string;
+  // Admin-only invalidation stream. Payloads are intentionally tiny
+  // ({ type, at }): subscribers revalidate their own admin-scoped data.
+  async adminStreamHandler(req: AuthenticatedRequest, res: Response) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-store");
+    res.setHeader("Connection", "keep-alive");
+    // Send headers immediately so proxies/browsers see the stream open.
+    res.flushHeaders();
+
+    // Initial reconnect hint + connection ack, same shape as the other streams.
+    res.write("retry: 15000\n\n");
+    res.write('data: {"type":"CONNECTED"}\n\n');
+
+    const { addAdminSSEClient, removeAdminSSEClient, startSSEKeepAlive } =
+      await import("@/lib/sse");
+    addAdminSSEClient(res);
+
+    const stopKeepAlive = startSSEKeepAlive(res, {
+      removeClient: removeAdminSSEClient,
+    });
+
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      stopKeepAlive();
+      removeAdminSSEClient(res);
+    };
+
+    req.on("close", cleanup);
+    res.on("close", cleanup);
+    res.on("error", cleanup);
+  }
+
+  // Public read-only review stream (guests included). The payload carries
+  // only public review data — the same fields the review list UI already
+  // displays — so no authentication is required and none of the existing
+  // authenticated streams are loosened.
+  async streamReviewEvents(req: Request, res: Response) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    // Send headers immediately so proxies/browsers see the stream open
+    // instead of waiting for the first body write.
+    res.flushHeaders();
+
+    res.write('data: {"type":"CONNECTED"}\n\n');
+
+    const { addReviewSSEClient, removeReviewSSEClient, startSSEKeepAlive } =
+      await import("@/lib/sse");
+    addReviewSSEClient(res);
+
+    // Periodic comment lines keep the stream alive through the Next proxy's
+    // upstream idle timeout. The returned cleanup clears the interval.
+    const stopKeepAlive = startSSEKeepAlive(res, {
+      removeClient: removeReviewSSEClient,
+    });
+
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      stopKeepAlive();
+      removeReviewSSEClient(res);
+    };
+
+    req.on("close", cleanup);
+    res.on("close", cleanup);
+    res.on("error", cleanup);
+  }
+
+  async streamOrderChat(req: AuthenticatedRequest, res: Response) {    const identifier = req.params.orderId as string;
     const userId = req.auth?.userId;
     if (!userId) {
       res.status(401).json({ success: false, message: "Unauthorized" });

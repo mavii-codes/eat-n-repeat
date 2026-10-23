@@ -5,7 +5,11 @@ const prisma = new PrismaClient();
 
 async function main() {
   // Seed default admin
-  const adminPasswordHash = await bcrypt.hash('EatnRepeat!2026', 12);
+  // Password comes from SEED_ADMIN_PASSWORD (loaded by the Prisma CLI when
+  // running `prisma db seed`); the fallback keeps the historical dev value so
+  // bare tsx runs and fresh machines still seed with something valid.
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'EatnRepeat!2026';
+  const adminPasswordHash = await bcrypt.hash(adminPassword, 12);
   await prisma.user.upsert({
     where: { username: 'admin' },
     update: { passwordHash: adminPasswordHash, name: 'Marvin Barro', email: 'owner@eatnrepeat.com', role: 'admin', status: 'active' },

@@ -38,7 +38,11 @@ export function DeliveryOrdersTable({
 
   return (
     <div className="overflow-x-auto px-2 pb-2">
-      <table className="w-full min-w-[900px] text-left text-sm">
+      {/* Layout-only fix for the fixed-content-width admin shell: the old
+          min-w-[900px] guaranteed a horizontal scrollbar on desktop. Tighter
+          cells + capped Order/Items columns fit with no scroll at ≥1280px;
+          min-w only preserves a usable scroll fallback on narrow screens. */}
+      <table className="w-full min-w-[640px] text-left text-sm [&_th]:px-2.5 [&_td]:px-2.5">
         <thead>
           <tr className="admin-table-head text-muted">
             <th className="rounded-l-lg px-4 py-3 font-medium">Order</th>
@@ -58,7 +62,7 @@ export function DeliveryOrdersTable({
         <tbody>
           {orders.map((order) => (
             <tr key={order.id} className="border-b border-accent/5 last:border-0">
-              <td className="px-4 py-3 font-semibold text-accent">
+              <td className="px-4 py-3 font-semibold text-accent text-xs max-w-[150px] truncate" title={order.orderNumber} aria-label={`Order ${order.orderNumber}`}>
                 {order.orderNumber}
               </td>
               <td className="px-4 py-3">
@@ -81,7 +85,7 @@ export function DeliveryOrdersTable({
               <td className="px-4 py-3 text-muted">
                 {getServiceAreaName(order.serviceAreaId)}
               </td>
-              <td className="px-4 py-3 text-muted">{order.items}</td>
+              <td className="px-4 py-3 text-muted max-w-[160px] truncate" title={order.items}>{order.items}</td>
               <td className="px-4 py-3">
                 <p className="font-semibold text-[#800000]">
                   ₱{order.total.toLocaleString()}

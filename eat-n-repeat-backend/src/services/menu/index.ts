@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { menuRepository } from "@/repositories/menu.repository";
+import { reviewsRepository } from "@/repositories/reviews.repository";
 import type { MenuCategoryInput, MenuItemInput } from "@/schema/menu/menu.schema";
 
 function toCategoryResponse(row: {
@@ -109,9 +110,37 @@ export async function setMenuCategoryArchived(id: string, archived: boolean) {
   return toCategoryResponse(row);
 }
 
-export async function listMenuItems(includeArchived = false) {
+export async function listMenuItems(includeArchived = false, viewerCustomerId?: string) {
   const rows = await menuRepository.findManyItems(includeArchived);
-  return rows.map(toItemResponse);
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+  // GLOBAL aggregates: same AVG+COUNT for every viewer (customers A/B,
+  // guests, staff) — computed over ALL visible reviews per menu item.
+  // Rounding lives here only (backend); the frontend renders as-is.
+  const aggregates = await reviewsRepository.aggregateMany(ids);
+  const mine =
+    viewerCustomerId && ids.length > 0
+      ? await reviewsRepository.findManyVisibleByMenuItemIds(ids).then((found) => {
+          const map: Record<string, number> = {};
+          for (const f of found) {
+            if (f.customerId === viewerCustomerId) map[f.menuItemId] = f.rating;
+          }
+          return map;
+        })
+      : {};
+  return rows.map((row) => {
+    const agg = aggregates[row.id];
+    const averageRating = agg ? Math.round(agg.average * 10) / 10 : 0;
+    const ratingCount = agg ? agg.count : 0;
+    const myRating = mine[row.id] ?? null;
+    return {
+      ...toItemResponse(row),
+      averageRating,
+      ratingCount,
+      myRating,
+      hasReviewed: myRating !== null,
+    };
+  });
 }
 
 export async function listArchivedMenuIds() {

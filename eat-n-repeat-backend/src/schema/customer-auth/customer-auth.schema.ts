@@ -3,7 +3,11 @@ import { z } from "zod";
 export const registerSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters."),
   email: z.string().trim().email("Please provide a valid email address."),
-  phone: z.string().trim().optional(),
+  // Optional client-supplied username; validated/locked in the register
+  // service. Customers authenticate by email, so it is never persisted.
+  username: z.string().trim().optional(),
+  // No mobile number at sign-up (Phase 3): collected at first checkout and
+  // then permanent. Any `phone` key in the body is ignored, never stored.
   password: z
     .string()
     .min(8, "Password must be at least 8 characters.")
@@ -11,6 +15,10 @@ export const registerSchema = z.object({
     .regex(/[a-z]/, "Password must contain at least one lowercase letter.")
     .regex(/[0-9]/, "Password must contain at least one number.")
     .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character."),
+  // Bot-protection fields. Unknown keys are stripped by Zod's object parsing.
+  company: z.string().optional(),
+  startedAt: z.union([z.string(), z.number()]).optional(),
+  cfTurnstileToken: z.string().optional(),
 });
 
 export const loginSchema = z.object({

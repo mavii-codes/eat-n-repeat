@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { cashRepository } from "@/repositories/cash.repository";
+import { emitAdminEvent } from "@/lib/sse";
 import { mapShift } from "./helpers";
 
 export class StartShiftService {
@@ -36,6 +37,12 @@ export class StartShiftService {
       status: "open",
       startTime: new Date(),
     });
+
+    try {
+      emitAdminEvent({ type: "SHIFT_UPDATED", at: new Date().toISOString() });
+    } catch {
+      /* event must never break the write */
+    }
 
     return mapShift(created);
   }

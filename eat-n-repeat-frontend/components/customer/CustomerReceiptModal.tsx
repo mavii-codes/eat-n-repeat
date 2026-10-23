@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { Utensils, Bike, ShoppingBag, FileText, Heart, Printer } from 'lucide-react';
+import { formatPhTime } from '@/lib/admin/delivery-utils';
 
 type ReceiptOrderItem = {
   name: string;
@@ -17,12 +18,18 @@ type CustomerReceiptModalProps = {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  // Pick-Up / Take-Out details (pickup orders only; absent on legacy rows).
+  pickupName?: string | null;
+  pickupAt?: string | null;
   deliveryType: 'dine-in' | 'pickup' | 'delivery';
   paymentMethod?: string;
   items: ReceiptOrderItem[];
   subtotal: number;
   deliveryFee: number;
   discount?: number;
+  // Promo snapshot: the applied code (shown on the Discount row) — absent
+  // on legacy rows without promos.
+  promoCode?: string | null;
   total: number;
   notes?: string;
 };
@@ -35,16 +42,28 @@ export function CustomerReceiptModal({
   customerName = 'Valued Customer',
   customerPhone = '(032) 492-0000',
   customerAddress = 'Poblacion, Cordova, Cebu',
+  pickupName,
+  pickupAt,
   deliveryType,
   paymentMethod = 'Cash on Delivery',
   items,
   subtotal,
   deliveryFee,
   discount = 0,
+  promoCode = null,
   total,
   notes,
 }: CustomerReceiptModalProps) {
   if (!isOpen) return null;
+
+  // Pick-Up / Take-Out: explicit pickup fields, falling back to the order's
+  // customer name for legacy rows (placeholder guarded). Time row renders
+  // only when a promised time exists.
+  const pickupWho =
+    (pickupName && pickupName.trim()) ||
+    (customerName !== 'Valued Customer' ? customerName : '') ||
+    '';
+  const pickupWhen = pickupAt ? formatPhTime(pickupAt) : '';
 
   const handlePrint = () => {
     if (typeof window !== 'undefined') {
@@ -122,6 +141,18 @@ export function CustomerReceiptModal({
                 <span className="font-semibold truncate max-w-[200px]">{customerAddress}</span>
               </div>
             )}
+            {deliveryType === 'pickup' && pickupWho && (
+              <div className="flex justify-between">
+                <span className="text-stone-500">Pick up by:</span>
+                <span className="font-semibold">{pickupWho}</span>
+              </div>
+            )}
+            {deliveryType === 'pickup' && pickupWhen && (
+              <div className="flex justify-between">
+                <span className="text-stone-500">Pick-up time:</span>
+                <span className="font-semibold">{pickupWhen}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-stone-500">Payment Method:</span>
               <span className="font-semibold text-emerald-700">{paymentMethod}</span>
@@ -175,7 +206,7 @@ export function CustomerReceiptModal({
             )}
             {discount > 0 && (
               <div className="flex justify-between text-emerald-600 font-semibold">
-                <span>Discount / Promo</span>
+                <span>Discount{promoCode ? ` · ${promoCode}` : ' / Promo'}</span>
                 <span>-₱{discount.toFixed(2)}</span>
               </div>
             )}

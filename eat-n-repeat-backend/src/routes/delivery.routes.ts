@@ -1,9 +1,12 @@
 import { Router } from "express";
-import { requireAuth } from "@/middleware/auth.middleware";
+import { requireRole, STAFF_ROLES } from "@/middleware/requireRole.middleware";
 import { deliveryController } from "@/controllers/delivery.controller";
 
 const router = Router();
-router.use(requireAuth);
+
+// Delivery dispatch is a staff-only console. There are no customer consumers
+// of /delivery/* (customer order history lives under /customer-orders).
+router.use(requireRole(...STAFF_ROLES));
 
 router.get("/orders", (req, res) => deliveryController.getOrders(req, res));
 router.post("/orders", (req, res) => deliveryController.createOrder(req, res));

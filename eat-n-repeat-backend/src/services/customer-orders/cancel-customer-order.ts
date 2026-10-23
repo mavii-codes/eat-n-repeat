@@ -1,4 +1,7 @@
 import { customerOrdersRepository } from "@/repositories/customer-orders.repository";
+import { adminFlagsService } from "@/services/admin-flags";
+import { releaseRedemptionForOrder } from "@/services/promos/promos.service";
+import { emitAdminEvent } from "@/lib/sse";
 
 // Customer-initiated cancellation. Ownership is enforced in the lookup
 // itself (id AND customerId), so one customer can never cancel another's
@@ -32,7 +35,28 @@ export class CancelCustomerOrderService {
         { status: 400 }
       );
     }
-    return customerOrdersRepository.cancelOrder(order.id);
+    const cancelled = await customerOrdersRepository.cancelOrder(order.id);
+
+    // Return the promo use. Only a RESERVED redemption is given back (this
+    // path guarantees no PAID row, so APPLIED uses stay counted). Never let
+    // a promo bookkeeping failure fail the cancellation itself.
+    try {
+      await releaseRedemptionForOrder(order.id);
+    } catch (promoError) {
+      console.error("[cancel-customer-order] promo release failed:", promoError);
+    }
+
+    // Phase 3 signal: consecutive cancelled-no-PAID online orders (this path
+    // already guarantees no PAID row). Also rechecks a watching flag.
+    await adminFlagsService.maybeFlagCancelledStreak(customerId);
+
+    try {
+      emitAdminEvent({ type: "ORDER_UPDATED", at: new Date().toISOString() });
+    } catch {
+      /* event must never break the write */
+    }
+
+    return cancelled;
   }
 }
 

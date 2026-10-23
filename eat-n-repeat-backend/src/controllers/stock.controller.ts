@@ -1,5 +1,7 @@
 import type { Response } from "express";
+import { Prisma } from "@prisma/client";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
+import { prisma } from "@/lib/prisma";
 import * as service from "@/services/stock";
 import {
   categorySchema,
@@ -7,6 +9,12 @@ import {
   stockRequestInputSchema,
   stockRequestStatusSchema,
 } from "@/schema/stock/stock.schema";
+import {
+  adjustSchema,
+  movementsQuerySchema,
+  setLayerCostSchema,
+  stockInSchema,
+} from "@/schema/stock/movements.schema";
 
 export class StockController {
   async listCategories(_req: AuthenticatedRequest, res: Response) {
@@ -90,8 +98,17 @@ export class StockController {
       return res.status(400).json({ message: "Stock item details are invalid." });
     }
 
+    const quantity = new Prisma.Decimal((parsed.data.quantity ?? 0).toString());
+    if (quantity.greaterThan(0)) {
+      return res.status(400).json({
+        message: "New items must start at zero balance. Use Stock In to add stock.",
+      });
+    }
+
     try {
-      const item = await service.createItem(parsed.data);
+      // Force zero even if a zero-ish value was supplied; opening stock must
+      // flow through Stock In so a cost layer exists.
+      const item = await service.createItem({ ...parsed.data, quantity: 0 });
       return res.status(201).json({ item });
     } catch (error: any) {
       if (error.code === "P2003") {
@@ -109,7 +126,17 @@ export class StockController {
     }
 
     try {
-      const item = await service.updateItem(req.params.id as string, parsed.data);
+      const userId = req.auth?.userId;
+      let actor: { id: string; name: string } | undefined;
+      if (userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        });
+        actor = { id: userId, name: user?.name ?? "Admin" };
+      }
+
+      const item = await service.updateItem(req.params.id as string, parsed.data, actor);
       return res.json({ item });
     } catch (error: any) {
       if (error.code === "P2025") {
@@ -117,6 +144,9 @@ export class StockController {
       }
       if (error.code === "P2003") {
         return res.status(400).json({ message: "The selected stock category does not exist." });
+      }
+      if (error?.status) {
+        return res.status(error.status).json({ message: error.message });
       }
       console.error("Error updating item:", error);
       return res.status(500).json({ message: "Internal server error." });
@@ -194,6 +224,156 @@ export class StockController {
         return res.status(404).json({ message: "Stock request not found." });
       }
       console.error("Error updating request status:", error);
+      return res.status(500).json({ message: "Internal server error." });
+    }
+  }
+
+  async stockIn(req: AuthenticatedRequest, res: Response) {
+    const itemId = String(req.params.id ?? "").trim();
+    if (!itemId || itemId.length > 64) {
+      return res.status(400).json({ message: "Invalid stock item id." });
+    }
+
+    const parsed = stockInSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "Invalid stock-in details.",
+      });
+    }
+
+    const userId = req.auth?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required." });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      });
+      const result = await service.stockIn(itemId, parsed.data, {
+        id: userId,
+        name: user?.name ?? "Admin",
+      });
+      return res.status(201).json(result);
+    } catch (error: any) {
+      if (!error?.status || error.status >= 500) {
+        console.error("Error recording stock-in:", error);
+      }
+      return res.status(error?.status ?? 500).json({
+        message: error?.message ?? "Internal server error.",
+      });
+    }
+  }
+
+  async adjust(req: AuthenticatedRequest, res: Response) {
+    const itemId = String(req.params.id ?? "").trim();
+    if (!itemId || itemId.length > 64) {
+      return res.status(400).json({ message: "Invalid stock item id." });
+    }
+
+    const parsed = adjustSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "Invalid adjustment details.",
+      });
+    }
+
+    const userId = req.auth?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required." });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      });
+      const result = await service.adjust(itemId, parsed.data, {
+        id: userId,
+        name: user?.name ?? "Admin",
+      });
+      return res.status(201).json(result);
+    } catch (error: any) {
+      if (!error?.status || error.status >= 500) {
+        console.error("Error recording stock adjustment:", error);
+      }
+      return res.status(error?.status ?? 500).json({
+        message: error?.message ?? "Internal server error.",
+      });
+    }
+  }
+
+  async listMovements(req: AuthenticatedRequest, res: Response) {
+    const parsed = movementsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "Invalid movement filters.",
+      });
+    }
+
+    try {
+      const result = await service.listMovements(parsed.data);
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Error listing stock movements:", error);
+      return res.status(500).json({ message: "Internal server error." });
+    }
+  }
+
+  async listItemLayers(req: AuthenticatedRequest, res: Response) {
+    const itemId = String(req.params.id ?? "").trim();
+    if (!itemId || itemId.length > 64) {
+      return res.status(400).json({ message: "Invalid stock item id." });
+    }
+
+    try {
+      const layers = await service.listItemLayers(itemId);
+      return res.json(layers);
+    } catch (error: any) {
+      console.error("Error listing stock layers:", error);
+      return res.status(500).json({ message: "Internal server error." });
+    }
+  }
+
+  async setLayerCost(req: AuthenticatedRequest, res: Response) {
+    const itemId = String(req.params.id ?? "").trim();
+    const layerId = String(req.params.layerId ?? "").trim();
+    if (
+      !itemId ||
+      itemId.length > 64 ||
+      !layerId ||
+      layerId.length > 64
+    ) {
+      return res.status(400).json({ message: "Invalid stock item or layer id." });
+    }
+
+    const parsed = setLayerCostSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "Invalid unit cost.",
+      });
+    }
+
+    try {
+      const layer = await service.setLayerCost(itemId, layerId, parsed.data.unitCost);
+      return res.json({ success: true, layer });
+    } catch (error: any) {
+      if (!error?.status || error.status >= 500) {
+        console.error("Error setting stock layer cost:", error);
+      }
+      return res.status(error?.status ?? 500).json({
+        message: error?.message ?? "Internal server error.",
+      });
+    }
+  }
+
+  async dashboard(_req: AuthenticatedRequest, res: Response) {
+    try {
+      const result = await service.stockDashboard();
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Error loading stock dashboard:", error);
       return res.status(500).json({ message: "Internal server error." });
     }
   }

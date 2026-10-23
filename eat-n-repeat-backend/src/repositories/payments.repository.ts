@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export class PaymentsRepository {
@@ -24,24 +25,33 @@ export class PaymentsRepository {
     });
   }
 
-  async createOrder(data: {
-    id: string;
-    orderNumber: string;
-    customerId: string | null;
-    customerName: string;
-    phone: string | null;
-    address: string | null;
-    serviceAreaId: string | null;
-    type: string;
-    items: string;
-    subtotal: number;
-    deliveryFee: number;
-    total: number;
-    status: string;
-    notes: string | null;
-    orderMode?: string;
-  }) {
-    return prisma.order.create({
+  async createOrder(
+    data: {
+      id: string;
+      orderNumber: string;
+      customerId: string | null;
+      customerName: string;
+      phone: string | null;
+      address: string | null;
+      serviceAreaId: string | null;
+      type: string;
+      items: string;
+      subtotal: number;
+      deliveryFee: number;
+      total: number;
+      status: string;
+      notes: string | null;
+      orderMode?: string;
+      // Promo snapshot (optional so legacy callers are unchanged).
+      promoCode?: string | null;
+      subtotalBeforeDiscount?: Prisma.Decimal | number | null;
+      discountAmount?: Prisma.Decimal | number;
+    },
+    // When a promo reservation is pending, checkout passes its transaction
+    // client so the order write and the redemption rollback are atomic.
+    tx?: Prisma.TransactionClient,
+  ) {
+    return (tx ?? prisma).order.create({
       data: {
         ...data,
         orderMode: data.orderMode ?? "online",

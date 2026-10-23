@@ -1,7 +1,15 @@
 import { authRepository } from "@/repositories/auth.repository";
 import type { PublicUser } from "./types";
 
-function publicUser(user: { id: string; name: string; username: string; email: string; role: string; status: string }): PublicUser {
+function publicUser(user: {
+  id: string;
+  name: string;
+  username: string;
+  email: string;
+  role: string;
+  status: string;
+  mustChangePassword: boolean;
+}): PublicUser {
   return {
     id: user.id,
     name: user.name,
@@ -9,6 +17,7 @@ function publicUser(user: { id: string; name: string; username: string; email: s
     email: user.email,
     role: user.role,
     status: user.status,
+    mustChangePassword: user.mustChangePassword,
   };
 }
 

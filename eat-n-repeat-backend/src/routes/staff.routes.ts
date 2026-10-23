@@ -11,6 +11,12 @@ const router = Router();
 router.get("/", requireRole(...STAFF_ROLES), (req, res) =>
   staffController.getAllUsers(req, res),
 );
+// One-shot friendly temporary password for the Add-staff modal's "Generate"
+// option. Admin-only and stateless: the modal sends it back as the new
+// account's initial password (or it can be re-generated any time).
+router.post("/temp-password", requireRole("admin"), (req, res) =>
+  staffController.createTempPassword(req, res),
+);
 router.post("/", requireRole("admin"), (req, res) =>
   staffController.createUser(req, res),
 );

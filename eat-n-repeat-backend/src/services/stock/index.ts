@@ -13,8 +13,16 @@ export { ListRequestsService, listRequestsService } from "./list-requests";
 export { CreateRequestService, createRequestService } from "./create-request";
 export { UpdateRequestStatusService, updateRequestStatusService } from "./update-request-status";
 
+export { StockInService, stockInService } from "./stock-in";
+export { AdjustService, adjustService } from "./adjust";
+export { ListMovementsService, listMovementsService } from "./list-movements";
+export { ListItemLayersService, listItemLayersService } from "./list-item-layers";
+export { SetLayerCostService, setLayerCostService } from "./set-layer-cost";
+export { StockDashboardService, stockDashboardService } from "./dashboard";
+
 // Re-export helpers
 export { categoryResponse, itemResponse, requestResponse } from "./helpers";
+export { serializeMovement, buildReference, StockMovementError } from "./movement-helpers";
 
 // Convenience function wrappers that call .execute() on the service instances
 import { listCategoriesService } from "./list-categories";
@@ -30,6 +38,14 @@ import { deleteItemService } from "./delete-item";
 import { listRequestsService } from "./list-requests";
 import { createRequestService } from "./create-request";
 import { updateRequestStatusService } from "./update-request-status";
+
+import { stockInService } from "./stock-in";
+import { adjustService } from "./adjust";
+import { listMovementsService } from "./list-movements";
+import { listItemLayersService } from "./list-item-layers";
+import { setLayerCostService } from "./set-layer-cost";
+import { stockDashboardService } from "./dashboard";
+import type { AdjustInput, MovementsQuery, StockInInput } from "@/schema/stock/movements.schema";
 
 export async function listCategories() {
   return listCategoriesService.execute();
@@ -54,7 +70,7 @@ export async function listItems() {
 export async function createItem(data: {
   name: string;
   categoryId: string;
-  quantity: number;
+  quantity?: number;
   unit: string;
   lowStockThreshold: number;
 }) {
@@ -66,12 +82,13 @@ export async function updateItem(
   data: {
     name: string;
     categoryId: string;
-    quantity: number;
+    quantity?: number;
     unit: string;
     lowStockThreshold: number;
   },
+  actor?: { id: string; name: string },
 ) {
-  return updateItemService.execute(id, data);
+  return updateItemService.execute(id, data, actor);
 }
 
 export async function deleteItem(id: string) {
@@ -97,4 +114,36 @@ export async function createRequest(data: {
 
 export async function updateRequestStatus(id: string, status: string, adminNote?: string) {
   return updateRequestStatusService.execute(id, status, adminNote);
+}
+
+export async function stockIn(
+  itemId: string,
+  input: StockInInput,
+  actor: { id: string; name: string },
+) {
+  return stockInService.execute(itemId, input, actor);
+}
+
+export async function adjust(
+  itemId: string,
+  input: AdjustInput,
+  actor: { id: string; name: string },
+) {
+  return adjustService.execute(itemId, input, actor);
+}
+
+export async function listMovements(query: MovementsQuery) {
+  return listMovementsService.execute(query);
+}
+
+export async function listItemLayers(itemId: string) {
+  return listItemLayersService.execute(itemId);
+}
+
+export async function setLayerCost(itemId: string, layerId: string, unitCost: number) {
+  return setLayerCostService.execute(itemId, layerId, unitCost);
+}
+
+export async function stockDashboard() {
+  return stockDashboardService.execute();
 }

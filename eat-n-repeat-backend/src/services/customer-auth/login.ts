@@ -2,27 +2,30 @@ import jwt from "jsonwebtoken";
 import { compare } from "@/lib/bcrypt";
 import { env } from "@/config/env";
 import { customerAuthRepository } from "@/repositories/customer-auth.repository";
+import { adminFlagsService } from "@/services/admin-flags";
+import { logBlockedAttempt } from "@/middleware/security/blocked-attempts";
+import {
+  clearLoginFailures,
+  isLoginLocked,
+  registerLoginFailure,
+} from "@/middleware/security/login-guard";
 
-// Rate limiting state (same as old route)
-const loginAttempts = new Map<string, { count: number; timestamp: number }>();
+const LOGIN_KIND = "customer";
+const LOCKOUT_MESSAGE =
+  "Too many sign-in attempts. Please try again in a few minutes.";
 
 export class CustomerLoginService {
   async execute(data: { email: string; password: string }, ip: string) {
     const { email, password } = data;
     const lowerEmail = email.toLowerCase();
-    const attemptKey = `${ip}:${lowerEmail}`;
+    const sourceIp = ip || "unknown";
 
-    const attempts = loginAttempts.get(attemptKey);
-    if (attempts) {
-      if (attempts.count >= 5) {
-        if (Date.now() - attempts.timestamp < 15 * 60 * 1000) {
-          const err: any = new Error("Too many failed attempts. Try again in 15 minutes.");
-          err.statusCode = 429;
-          throw err;
-        } else {
-          loginAttempts.delete(attemptKey);
-        }
-      }
+    // Per-account and per-IP buckets compound (5 failures / 10 min by default).
+    if (isLoginLocked(LOGIN_KIND, sourceIp, lowerEmail)) {
+      logBlockedAttempt("login-lockout", sourceIp, "customer_login_locked");
+      const err: any = new Error(LOCKOUT_MESSAGE);
+      err.statusCode = 429;
+      throw err;
     }
 
     // Find customer case-insensitive
@@ -34,8 +37,14 @@ export class CustomerLoginService {
     }
 
     if (!customer || !(await compare(password, customer.passwordHash))) {
-      const newCount = (attempts?.count || 0) + 1;
-      loginAttempts.set(attemptKey, { count: newCount, timestamp: Date.now() });
+      registerLoginFailure(LOGIN_KIND, sourceIp, lowerEmail);
+      // Phase 3 signal: 5 failures per email in a rolling hour (in-memory,
+      // self-contained; a flag is only possible when the account exists).
+      await adminFlagsService.recordFailedLoginAttempt({
+        email: lowerEmail,
+        customerId: customer?.id ?? null,
+        customerName: customer?.name ?? null,
+      });
       const err: any = new Error("Invalid email or password.");
       err.statusCode = 401;
       throw err;
@@ -53,7 +62,11 @@ export class CustomerLoginService {
       throw err;
     }
 
-    loginAttempts.delete(attemptKey);
+    clearLoginFailures(LOGIN_KIND, sourceIp, lowerEmail);
+    adminFlagsService.clearFailedLoginAttempts(lowerEmail);
+
+    // Record the successful sign-in (account-security audit / admin list).
+    await customerAuthRepository.updateLastLoginAt(customer.id, new Date());
 
     const token = jwt.sign({}, env.jwtSecret, { subject: customer.id, expiresIn: "7d" });
     return {

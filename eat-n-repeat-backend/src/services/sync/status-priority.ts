@@ -57,6 +57,12 @@ export function decideStatusReplay(
   if (!current) {
     return { action: "apply", reason: "no server status recorded" };
   }
+  // Completed/cancelled are final server-side states: an offline replay may
+  // never reopen or change them (a stale queued "completed" must not beat a
+  // server-side cancellation).
+  if (current === "completed" || current === "cancelled") {
+    return { action: "drop", reason: `server status "${current}" is final` };
+  }
   const currentTier = orderStatusPriority(current);
   if (currentTier === null) {
     return { action: "apply", reason: `unrecognized server status "${current}"` };

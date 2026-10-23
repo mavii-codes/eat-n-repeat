@@ -66,13 +66,18 @@ export class CustomerSettingsController {
     const { currentPassword, newPassword } = req.body;
     const customerId = req.auth!.userId;
 
-    if (!currentPassword || !newPassword || newPassword.length < 8) {
+    if (!currentPassword || !newPassword) {
       res.status(400).json({ error: "Invalid password data provided" });
       return;
     }
 
     try {
       const result = await customerSettingsService.changePassword(customerId, currentPassword, newPassword);
+
+      if (result.error === "weak_password") {
+        res.status(400).json({ error: result.message });
+        return;
+      }
 
       if (result.error === "not_found") {
         res.status(404).json({ error: "Customer not found" });

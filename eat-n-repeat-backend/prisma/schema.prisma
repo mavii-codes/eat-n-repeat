@@ -17,6 +17,9 @@ model User {
   status            String              @default("active") @db.VarChar(20) @map("status")
   archived          Boolean             @default(false) @map("archived")
   createdAt         DateTime            @default(now()) @db.Timestamp(0) @map("created_at")
+  // Phase 2 account security: forced first-login password change + last sign-in.
+  mustChangePassword Boolean            @default(false) @map("must_change_password")
+  lastLoginAt       DateTime?           @db.Timestamp(0) @map("last_login_at")
   // Default opening cash float for this staff member (set by admin)
   defaultOpeningFloat Decimal?          @db.Decimal(10, 2) @map("default_opening_float")
 
@@ -36,6 +39,8 @@ model Customer {
   notificationPreferences Json?                     @db.Json @map("notification_preferences")
   syncStatus              String                    @default("pending") @db.VarChar(10) @map("sync_status")
   createdAt               DateTime                  @default(now()) @db.Timestamp(0) @map("created_at")
+  // Phase 2 account security: last successful customer sign-in.
+  lastLoginAt             DateTime?                 @db.Timestamp(0) @map("last_login_at")
 
   orders                  Order[]
   customerNotifications   CustomerNotification[]
@@ -61,12 +66,23 @@ model Order {
   subtotal              Decimal   @db.Decimal(10, 2) @map("subtotal")
   deliveryFee           Decimal   @default(0) @db.Decimal(10, 2) @map("delivery_fee")
   total                 Decimal   @db.Decimal(10, 2) @map("total")
+  // Promo codes: order-level discount applied to the item subtotal,
+  // computed SERVER-side at checkout (the client only ever sends the code).
+  // All three stay null/0 for legacy orders and orders without a code.
+  promoCode             String?   @db.VarChar(20) @map("promo_code")
+  subtotalBeforeDiscount Decimal? @db.Decimal(10, 2) @map("subtotal_before_discount")
+  discountAmount        Decimal   @default(0) @db.Decimal(10, 2) @map("discount_amount")
   status                String    @default("pending") @db.VarChar(50) @map("status")
   deliveryPerson        String?   @db.VarChar(50) @map("delivery_person")
   assignedRole          String?   @db.VarChar(50) @map("assigned_role")
   assignedAt            DateTime? @db.Timestamp(0) @map("assigned_at")
   estimatedDeliveryTime String?   @default("15–25 min") @db.VarChar(50) @map("estimated_delivery_time")
   notes                 String?   @db.Text @map("notes")
+  // Pick-Up / Take-Out details (null for delivery, dine-in, and legacy rows).
+  // pickupName: who collects the order (2-60 letters/spaces/.-'), pickupAt:
+  // promised collection time (UTC; displayed in Asia/Manila).
+  pickupName            String?   @db.VarChar(60) @map("pickup_name")
+  pickupAt              DateTime? @db.Timestamp(0) @map("pickup_at")
   createdAt             DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
   deliveredAt           DateTime? @db.Timestamp(0) @map("delivered_at")
   archived              Boolean   @default(false) @map("archived")
@@ -210,6 +226,92 @@ model OfflineStockTransaction {
   @@map("offline_stock_transactions")
 }
 
+model StockMovement {
+  id             String    @id @db.VarChar(64) @map("id")
+  stockItemId    String    @db.VarChar(64) @map("stock_item_id")
+  itemName       String    @db.VarChar(160) @map("item_name")
+  type           String    @db.VarChar(40) @map("type")
+  quantityChange Decimal   @db.Decimal(10, 2) @map("quantity_change")
+  balanceBefore  Decimal   @db.Decimal(10, 2) @map("balance_before")
+  balanceAfter   Decimal   @db.Decimal(10, 2) @map("balance_after")
+  unitCost       Decimal?  @db.Decimal(10, 2) @map("unit_cost")
+  totalCost      Decimal?  @db.Decimal(10, 2) @map("total_cost")
+  reason         String?   @db.VarChar(120)
+  reference      String?   @db.VarChar(255)
+  receivedAt     DateTime? @db.Timestamp(0) @map("received_at")
+  expiryDate     DateTime? @db.Timestamp(0) @map("expiry_date")
+  createdById    String    @db.VarChar(64) @map("created_by_id")
+  createdByName  String    @db.VarChar(120) @map("created_by_name")
+  createdAt      DateTime  @default(now()) @db.Timestamp(3) @map("created_at")
+
+  @@index([stockItemId], map: "idx_stock_movements_stock_item_id")
+  @@index([createdAt], map: "idx_stock_movements_created_at")
+  @@index([createdById], map: "idx_stock_movements_created_by_id")
+  @@map("stock_movements")
+}
+
+/// Phase B FIFO cost layers. One row per STOCK_IN (and opening/backfill/
+/// residual heal). Plain scalar stockItemId — NO database-level foreign key,
+/// same convention as StockMovement. Consumption walks created_at ASC, id ASC.
+model StockLayer {
+  id          String    @id @db.VarChar(64) @map("id")
+  stockItemId String    @db.VarChar(64) @map("stock_item_id")
+  /// Cost per remaining unit in this layer. Null = uncosted stock.
+  unitCost    Decimal?  @db.Decimal(10, 2) @map("unit_cost")
+  remaining   Decimal   @default(0) @db.Decimal(10, 2) @map("remaining")
+  /// Linked movement id ("sm-..."), or "opening" / "residual".
+  sourceRef   String?   @db.VarChar(64) @map("source_ref")
+  /// Phase B quantity/date metadata copied from the source STOCK_IN movement.
+  receivedAt       DateTime? @db.Timestamp(0) @map("received_at")
+  expiryDate       DateTime? @db.Timestamp(0) @map("expiry_date")
+  quantityReceived Decimal?  @db.Decimal(10, 2) @map("quantity_received")
+  /// True for the opening-balance layer (learned from sourceRef "opening").
+  isOpening        Boolean   @default(false) @map("is_opening")
+  /// Source movement id ("sm-..."), when this layer came from a movement.
+  sourceMovementId String?   @db.VarChar(64) @map("source_movement_id")
+  createdAt   DateTime  @default(now()) @db.Timestamp(3) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamp(3) @map("updated_at")
+
+  @@index([stockItemId], map: "idx_stock_layers_stock_item_id")
+  @@index([expiryDate], map: "idx_stock_layers_expiry_date")
+  @@map("stock_layers")
+}
+
+/// Café expense ledger. Drawer-origin rows are paid out of an open cash shift
+/// (expected_cash decreases); admin non-drawer rows are bookkeeping only.
+/// Reversals are additive rows linked by reversalOfId (never hard deletes);
+/// voided rows stay visible and are excluded from money totals.
+model Expense {
+  id            String    @id @db.VarChar(64) @map("id")
+  source        String    @default("drawer") @db.VarChar(20) @map("source")
+  paymentSource String    @default("cash_drawer") @db.VarChar(20) @map("payment_source")
+  shiftId       String?   @db.VarChar(64) @map("shift_id")
+  category      String    @db.VarChar(40) @map("category")
+  amount        Decimal   @db.Decimal(10, 2) @map("amount")
+  reason        String    @db.VarChar(500) @map("reason")
+  note          String?   @db.VarChar(1000) @map("note")
+  payee         String?   @db.VarChar(120) @map("payee")
+  status        String    @default("active") @db.VarChar(20) @map("status")
+  voidReason    String?   @db.VarChar(500) @map("void_reason")
+  voidedById    String?   @db.VarChar(64) @map("voided_by_id")
+  voidedByName  String?   @db.VarChar(120) @map("voided_by_name")
+  voidedAt      DateTime? @db.Timestamp(0) @map("voided_at")
+  reversalOfId  String?   @db.VarChar(64) @map("reversal_of_id")
+  // Explicit default: MariaDB rejects a non-first TIMESTAMP NOT NULL column
+  // without one when explicit_defaults_for_timestamp is OFF. Services always
+  // pass the PH-normalized date explicitly.
+  expenseDate   DateTime  @default(now()) @db.Timestamp(0) @map("expense_date")
+  createdById   String    @db.VarChar(64) @map("created_by_id")
+  createdByName String    @db.VarChar(120) @map("created_by_name")
+  createdByRole String    @db.VarChar(30) @map("created_by_role")
+  createdAt     DateTime  @default(now()) @db.Timestamp(3) @map("created_at")
+
+  @@index([shiftId], map: "idx_expenses_shift_id")
+  @@index([status, expenseDate], map: "idx_expenses_status_date")
+  @@index([createdById], map: "idx_expenses_created_by")
+  @@map("expenses")
+}
+
 model EmailVerificationToken {
   id         String   @id @db.VarChar(64) @map("id")
   customerId String   @db.VarChar(64) @map("customer_id")
@@ -350,6 +452,98 @@ model MenuItem {
   @@index([categoryId], map: "menu_items_category_id_fkey")
 }
 
+/// Customer ratings + comments per menu item. GLOBAL data: aggregates and
+/// the visible review list are computed over ALL rows for a menuItemId
+/// (hidden=false only) — never filtered by customer. customerId is kept for
+/// ownership (edit/delete own), myRating/hasReviewed, and duplicate-review
+/// prevention (@@unique on [menuItemId, customerId] = one review per
+/// customer per item). Plain scalars on purpose: NO database-level foreign
+/// keys (same ER_CANT_CREATE_TABLE precedent as OrderChatMessage); the
+/// service validates menu item + customer existence instead. Never expose
+/// emails/tokens through review payloads — only the display name snapshot.
+model MenuReview {
+  id           String   @id @db.VarChar(64) @map("id")
+  menuItemId   String   @db.VarChar(64) @map("menu_item_id")
+  customerId   String   @db.VarChar(64) @map("customer_id")
+  customerName String   @db.VarChar(120) @map("customer_name")
+  rating       Int      @map("rating")
+  comment      String?  @db.Text @map("comment")
+  orderId      String?  @db.VarChar(64) @map("order_id")
+  hidden       Boolean  @default(false) @map("hidden")
+  createdAt    DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("menu_reviews")
+  @@unique([menuItemId, customerId], map: "menu_reviews_item_customer_unique")
+  @@index([menuItemId], map: "menu_reviews_menu_item_id_idx")
+  @@index([customerId], map: "menu_reviews_customer_id_idx")
+  @@index([orderId], map: "menu_reviews_order_id_idx")
+}
+
+/// Audit trail for admin-only customer mobile-number changes (Phase 3).
+/// No authenticated customer endpoint can write here. Plain scalars, no
+/// database-level foreign keys (same ER_CANT_CREATE_TABLE precedent as
+/// OrderChatMessage / MenuReview).
+model CustomerPhoneChangeLog {
+  id            String   @id @db.VarChar(64) @map("id")
+  customerId    String   @db.VarChar(64) @map("customer_id")
+  customerEmail String   @db.VarChar(255) @map("customer_email")
+  oldPhone      String?  @db.VarChar(20) @map("old_phone")
+  newPhone      String   @db.VarChar(20) @map("new_phone")
+  changedBy     String   @db.VarChar(64) @map("changed_by")
+  changedByName String   @db.VarChar(120) @map("changed_by_name")
+  createdAt     DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@map("customer_phone_change_log")
+  @@index([customerId], map: "customer_phone_change_log_customer_id_idx")
+}
+
+/// Phase 2 admin audit trail for user-management / account-security actions.
+/// Plain scalar actor/target ids (no database-level foreign keys), same
+/// precedent as CustomerPhoneChangeLog. Never stores passwords or hashes.
+model UserActivityLog {
+  id         String   @id @db.VarChar(64) @map("id")
+  actorId    String   @db.VarChar(64) @map("actor_id")
+  actorName  String   @db.VarChar(120) @map("actor_name")
+  action     String   @db.VarChar(60) @map("action")
+  targetType String   @db.VarChar(20) @map("target_type")
+  targetId   String?  @db.VarChar(64) @map("target_id")
+  targetName String?  @db.VarChar(160) @map("target_name")
+  meta       Json?    @map("meta")
+  createdAt  DateTime @default(now()) @db.Timestamp(3) @map("created_at")
+
+  @@index([createdAt], map: "user_activity_logs_created_at_idx")
+  @@index([targetType, targetId], map: "user_activity_logs_target_idx")
+  @@map("user_activity_logs")
+}
+
+/// Phase 3 customer-flagging queue for admin review. customerId is a plain
+/// scalar on purpose (NO database-level foreign key, no cascade): historical
+/// flags must survive a customer deletion, same precedent as
+/// CustomerPhoneChangeLog / UserActivityLog. One OPEN row per customer is
+/// enforced in the service (auto-flags skip silently; staff reports 409).
+model CustomerFlag {
+  id            String    @id @db.VarChar(64) @map("id")
+  customerId    String    @db.VarChar(64) @map("customer_id")
+  status        String    @default("open") @db.VarChar(20) @map("status")
+  outcome       String    @default("pending") @db.VarChar(20) @map("outcome")
+  reason        String    @db.Text @map("reason")
+  flaggedByKind String    @db.VarChar(10) @map("flagged_by_kind")
+  flaggedById   String?   @db.VarChar(64) @map("flagged_by_id")
+  flaggedByName String?   @db.VarChar(120) @map("flagged_by_name")
+  rule          String?   @db.VarChar(40) @map("rule")
+  meta          Json?     @map("meta")
+  flaggedAt     DateTime  @default(now()) @db.Timestamp(0) @map("flagged_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @db.Timestamp(3) @map("updated_at")
+  resolvedById  String?   @db.VarChar(64) @map("resolved_by_id")
+  resolvedByName String?  @db.VarChar(120) @map("resolved_by_name")
+  resolvedAt    DateTime? @db.Timestamp(0) @map("resolved_at")
+
+  @@index([customerId, status], map: "customer_flags_customer_status_idx")
+  @@index([status], map: "customer_flags_status_idx")
+  @@map("customer_flags")
+}
+
 /// Order-scoped chat messages (customer <-> staff/rider). orderId is a
 /// plain scalar on purpose: NO database-level foreign key. Render's MySQL
 /// has a history of ER_CANT_CREATE_TABLE on FK creation (see 91646d2), and
@@ -368,4 +562,55 @@ model OrderChatMessage {
   @@map("order_chat_messages")
   @@index([orderId], map: "order_chat_messages_order_id_fkey")
   @@index([senderId], map: "order_chat_messages_sender_id_fkey")
+}
+
+/// Promo codes: owner-managed discounts applied server-side to the item
+/// subtotal. code is stored uppercase (4-20 chars A-Z0-9) and uniqueness /
+/// pricing / limits are enforced in the service, not just the DB. promoId /
+/// orderId / customerId are plain scalars on purpose (NO database-level
+/// foreign keys, same ER_CANT_CREATE_TABLE precedent as MenuReview /
+/// UserActivityLog); deletion rules live in the service: used codes can
+/// never be hard-deleted, only paused.
+model PromoCode {
+  id        String    @id @db.VarChar(64) @map("id")
+  code      String    @unique @db.VarChar(20) @map("code")
+  description String? @db.VarChar(500) @map("description")
+  type      String    @db.VarChar(10) @map("type") // "PERCENT" | "FIXED"
+  value     Decimal   @db.Decimal(10, 2) @map("value") // percent number or ₱ amount
+  maxDiscount Decimal? @db.Decimal(10, 2) @map("max_discount") // PERCENT-only cap in ₱
+  minOrder  Decimal   @default(0) @db.Decimal(10, 2) @map("min_order")
+  startsAt  DateTime  @db.Timestamp(0) @map("starts_at")
+  endsAt    DateTime? @db.Timestamp(0) @map("ends_at")
+  // Total order-level usage limit (null = unlimited). usageCount tracks
+  // non-RELEASED redemptions and is maintained under row locks at checkout.
+  totalLimit Int?     @map("total_limit")
+  oncePerCustomer Boolean @default(false) @map("per_customer_limit_once")
+  audience  String    @default("EVERYONE") @db.VarChar(20) @map("audience") // "EVERYONE" | "LOGGED_IN"
+  channel   String    @default("BOTH") @db.VarChar(10) @map("channel") // "ONLINE" | "POS" | "BOTH"
+  active    Boolean   @default(true) @map("active")
+  usageCount Int      @default(0) @map("usage_count")
+  createdBy String?   @db.VarChar(64) @map("created_by")
+  createdAt DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  updatedAt DateTime  @default(now()) @updatedAt @db.Timestamp(3) @map("updated_at")
+
+  @@map("promo_codes")
+}
+
+/// One redemption per order (orderId @unique = the idempotency key across
+/// webhook / mark-as-paid / POS-cash "paid" paths). status lifecycle:
+/// RESERVED at checkout -> APPLIED when the order is paid/confirmed,
+/// RELEASED on cancel/expire (returns the use by decrementing usageCount).
+/// Plain scalars, no database-level foreign keys (same precedent above).
+model PromoRedemption {
+  id             String   @id @db.VarChar(64) @map("id")
+  promoId        String   @db.VarChar(64) @map("promo_id")
+  orderId        String   @unique @db.VarChar(64) @map("order_id")
+  customerId     String?  @db.VarChar(64) @map("customer_id")
+  discountAmount Decimal  @db.Decimal(10, 2) @map("discount_amount")
+  status         String   @default("RESERVED") @db.VarChar(10) @map("status")
+  createdAt      DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  @@index([promoId, status], map: "promo_redemptions_promo_status_idx")
+  @@index([customerId, status], map: "promo_redemptions_customer_status_idx")
+  @@map("promo_redemptions")
 }

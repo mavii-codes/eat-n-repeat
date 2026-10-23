@@ -7,7 +7,8 @@ export const categorySchema = z.object({
 export const itemSchema = z.object({
   name: z.string().trim().min(1).max(160),
   categoryId: z.string().trim().min(1),
-  quantity: z.coerce.number().min(0),
+  // Omitted = unchanged on update / zero on create (stock starts at zero).
+  quantity: z.coerce.number().min(0).optional(),
   unit: z.string().trim().min(1).max(30),
   lowStockThreshold: z.coerce.number().min(0),
 });

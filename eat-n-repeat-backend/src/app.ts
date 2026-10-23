@@ -1,6 +1,7 @@
 import cors from "cors";
-import dns from "node:dns";
-dns.setDefaultResultOrder("ipv4first");
+// NOTE: do NOT set dns.setDefaultResultOrder globally. Forcing ipv4first
+// broke Xendit (api.xendit.co IPv4 egress resets on some networks), while
+// SMTP is pinned to IPv4 via `family: 4` on its transport (src/lib/email.ts).
 
 import express from "express";
 import helmet from "helmet";
@@ -9,6 +10,12 @@ import { errorHandler } from "@/middleware/error.middleware";
 import { routes } from "@/routes";
 
 const app = express();
+
+// Must be configured before any middleware so req.ip reflects the real client
+// when the API sits behind a known number of proxy hops. TRUST_PROXY=0
+// disables proxy trust (Express default).
+const trustProxyHops = Number(env.trustProxy);
+app.set("trust proxy", trustProxyHops > 0 ? trustProxyHops : false);
 
 app.use(helmet());
 // Allow configured CLIENT_ORIGIN entries (comma-separated) plus dynamic
@@ -49,7 +56,7 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
 
 // Health check
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));

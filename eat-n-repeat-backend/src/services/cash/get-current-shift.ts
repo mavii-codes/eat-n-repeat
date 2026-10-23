@@ -1,4 +1,6 @@
 import { cashRepository } from "@/repositories/cash.repository";
+import { expenseRepository } from "@/repositories/expense.repository";
+import { mapExpense } from "@/services/expenses/helpers";
 import { mapShift } from "./helpers";
 
 export class GetCurrentShiftService {
@@ -15,7 +17,14 @@ export class GetCurrentShiftService {
     if (!shift) return null;
 
     const sales = await cashRepository.sumShiftSales(shift.id);
-    return mapShift({ ...shift, ...sales });
+    const expenses = (await expenseRepository.findByShiftId(shift.id)).map(
+      mapExpense,
+    );
+
+    return {
+      ...mapShift({ ...shift, ...sales }),
+      expenses,
+    };
   }
 }
 

@@ -8,6 +8,14 @@ export class AuthRepository {
   async findUserById(id: string) {
     return prisma.user.findUnique({ where: { id } });
   }
+
+  async updateLastLoginAt(id: string, at: Date = new Date()) {
+    return prisma.user.update({
+      where: { id },
+      data: { lastLoginAt: at },
+      select: { id: true },
+    });
+  }
 }
 
 export const authRepository = new AuthRepository();

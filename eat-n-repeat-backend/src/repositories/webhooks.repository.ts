@@ -5,10 +5,19 @@ import { prisma } from "@/lib/prisma";
 // ---------------------------------------------------------------------------
 
 export class WebhooksRepository {
-  async findPaymentByXenditReference(referenceId: string) {
+  // Match by the invoice external id (order number) OR the stored invoice id.
+  // Checkout stores the invoice URL in xenditReference, while Xendit webhook
+  // payloads provide external_id (order number) + id (invoice id); the OR
+  // keeps legacy callers working while resolving real invoice events.
+  async findPaymentByXenditReference(referenceId: string, invoiceId?: string) {
     return prisma.payment.findFirst({
-      where: { xenditReference: referenceId },
-      select: { id: true, orderId: true, status: true, amount: true, xenditInvoiceId: true },
+      where: {
+        OR: [
+          { xenditReference: referenceId },
+          ...(invoiceId ? [{ xenditInvoiceId: invoiceId }] : []),
+        ],
+      },
+      select: { id: true, orderId: true, status: true, amount: true, xenditInvoiceId: true, xenditReference: true },
     });
   }
 

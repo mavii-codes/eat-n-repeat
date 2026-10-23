@@ -1,5 +1,8 @@
 import { deliveryRepository } from "@/repositories/delivery.repository";
+import { adminFlagsService } from "@/services/admin-flags";
 import { notifyAllStaff } from "@/services/staff-notifications";
+import { releaseRedemptionForOrder } from "@/services/promos/promos.service";
+import { emitAdminEvent } from "@/lib/sse";
 import crypto from "crypto";
 
 function generateOrderNumber(): string {
@@ -8,12 +11,43 @@ function generateOrderNumber(): string {
   return `DLV-${timestamp}-${random}`;
 }
 
+/** Payment truth for the Phase 3 cancelled-streak / watch signals. */
+function hasPaidPayment(order: any): boolean {
+  return Boolean(
+    Array.isArray(order?.payments) &&
+      order.payments.some(
+        (payment: any) => String(payment?.status).toUpperCase() === "PAID",
+      ),
+  );
+}
+
+/**
+ * Legacy delivery rows store Order.items as a plain-text summary (e.g.
+ * "1x Brown Sugar Boba Milk"), which used to make JSON.parse throw and turn
+ * the whole GET /api/delivery/orders response into a 500. Valid JSON arrays
+ * pass through; anything else becomes a single-line item in the same
+ * { name, quantity, price } shape order consumers already read.
+ */
+function parseDeliveryItems(raw: unknown): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== "string") return [];
+  const text = raw.trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // Plain-text legacy summary — fall through to the tolerant shape.
+  }
+  return [{ name: text, quantity: 1, price: 0 }];
+}
+
 export class DeliveryService {
   async getDeliveryOrders() {
     const orders = await deliveryRepository.findDeliveryOrders();
     return orders.map((order: any) => ({
       ...order,
-      items: typeof order.items === "string" ? JSON.parse(order.items) : order.items,
+      items: parseDeliveryItems(order.items),
     }));
   }
 
@@ -84,6 +118,12 @@ export class DeliveryService {
 
     // Order event emitted via SSE
 
+    try {
+      emitAdminEvent({ type: "ORDER_UPDATED", at: new Date().toISOString() });
+    } catch {
+      /* event must never break the write */
+    }
+
     return { ...order, items: processedItems };
   }
 
@@ -120,6 +160,22 @@ export class DeliveryService {
     }
 
     const updatedOrder = await deliveryRepository.updateOrder(orderId, { status });
+
+    // Phase 3 signals: cancel-without-PAID starts a streak; delivered or
+    // completed rechecks a "keep watching" flag (both are online orders here).
+    if (order.customerId && order.orderMode === "online") {
+      if (status === "cancelled" && !hasPaidPayment(order)) {
+        await adminFlagsService.maybeFlagCancelledStreak(order.customerId);
+      } else if (status === "delivered" || status === "completed") {
+        await adminFlagsService.recheckWatchingFlags(order.customerId);
+      }
+    }
+
+    try {
+      emitAdminEvent({ type: "ORDER_UPDATED", at: new Date().toISOString() });
+    } catch {
+      /* event must never break the write */
+    }
 
     return updatedOrder;
   }
@@ -169,7 +225,32 @@ export class DeliveryService {
       cancelledBy,
     });
 
+    // Return the promo use for unpaid cancellations. No PAID payment was
+    // made on this path (staff handles paid cancellations separately), so
+    // only a RESERVED redemption is expected to flip back.
+    try {
+      await releaseRedemptionForOrder(order.id);
+    } catch (promoError) {
+      console.error("[delivery] promo release failed:", promoError);
+    }
+
+    // Phase 3 signal: only a cancellation without a PAID payment feeds the
+    // consecutive-cancelled streak (also rechecks any watching flag).
+    if (
+      order.customerId &&
+      order.orderMode === "online" &&
+      !hasPaidPayment(order)
+    ) {
+      await adminFlagsService.maybeFlagCancelledStreak(order.customerId);
+    }
+
     // Order event emitted via SSE
+
+    try {
+      emitAdminEvent({ type: "ORDER_UPDATED", at: new Date().toISOString() });
+    } catch {
+      /* event must never break the write */
+    }
 
     return updatedOrder;
   }

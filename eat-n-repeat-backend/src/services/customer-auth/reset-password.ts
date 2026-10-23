@@ -1,5 +1,7 @@
 import { hash, compare } from "@/lib/bcrypt";
 import { customerAuthRepository } from "@/repositories/customer-auth.repository";
+import { assertPasswordPolicy } from "@/middleware/security/password-policy";
+import { revokeUserTokensBeforeNow } from "@/middleware/security/token-revocations";
 import { consumeResetAuthorization } from "./verification-code";
 
 export class ResetPasswordService {
@@ -14,6 +16,15 @@ export class ResetPasswordService {
   async execute(input: { token?: string; resetToken?: string; password: string }) {
     const { token, resetToken, password } = input;
 
+    // Validate before consuming a single-use reset authorization so a weak
+    // password retry does not burn the customer's code/link.
+    const policyError = assertPasswordPolicy(password);
+    if (policyError) {
+      const err: any = new Error(policyError);
+      err.statusCode = 400;
+      throw err;
+    }
+
     if (resetToken) {
       const customerId = consumeResetAuthorization(resetToken);
       if (!customerId) {
@@ -25,6 +36,8 @@ export class ResetPasswordService {
       await customerAuthRepository.updateCustomerPasswordHash(customerId, passwordHash);
       // Burn any leftover reset rows too: no emailed code may outlive this.
       await customerAuthRepository.deletePasswordResetTokensByCustomerId(customerId);
+      // Password changes invalidate every existing session for this customer.
+      revokeUserTokensBeforeNow(customerId);
       return;
     }
 
@@ -60,6 +73,9 @@ export class ResetPasswordService {
     // Invalidate every reset token for this customer, not just the used one,
     // so older emailed links cannot be reused afterwards.
     await customerAuthRepository.deletePasswordResetTokensByCustomerId(foundToken.customerId);
+
+    // Password changes invalidate every existing session for this customer.
+    revokeUserTokensBeforeNow(foundToken.customerId);
   }
 }
 

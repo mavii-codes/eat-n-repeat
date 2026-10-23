@@ -1,4 +1,5 @@
 import { cashRepository } from "@/repositories/cash.repository";
+import { emitAdminEvent } from "@/lib/sse";
 import { mapShift } from "./helpers";
 
 export class EndShiftService {
@@ -33,6 +34,12 @@ export class EndShiftService {
       status,
       notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 2000) : null,
     });
+
+    try {
+      emitAdminEvent({ type: "SHIFT_UPDATED", at: new Date().toISOString() });
+    } catch {
+      /* event must never break the write */
+    }
 
     return mapShift(updated);
   }

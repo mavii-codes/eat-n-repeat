@@ -1,5 +1,7 @@
 import { staffRepository } from "@/repositories/staff.repository";
 import { hashPassword } from "@/lib/bcrypt";
+import { assertPasswordPolicy } from "@/middleware/security/password-policy";
+import { revokeUserTokensBeforeNow } from "@/middleware/security/token-revocations";
 
 // A bcrypt hash must NEVER be hashed again: hashing hash(password) permanently
 // locks the account (the original password stops verifying). This guard turns
@@ -43,6 +45,9 @@ export async function createUser(data: {
   assertPlaintextPassword(data.password);
   const passwordHash = await hashPassword(data.password);
 
+  // mustChangePassword: true — whichever way the admin set the initial
+  // password (typed or generated), the team member sets their own at first
+  // sign-in, the same flow as an admin-triggered password reset.
   return staffRepository.createUser({
     id: uuidv4(),
     name: data.name,
@@ -52,6 +57,7 @@ export async function createUser(data: {
     role: data.role,
     status: data.status,
     archived: data.archived ?? false,
+    mustChangePassword: true,
   });
 }
 
@@ -59,20 +65,51 @@ export async function updateUser(
   id: string,
   data: Record<string, unknown>
 ) {
-  if (data.password) {
+  const passwordChanged =
+    typeof data.password === "string" && data.password.length > 0;
+  // Only treat the status as changed when the value actually differs — a
+  // plain rename must not revoke the (possibly self-edited) account's
+  // active sessions.
+  const existing = await findUserByIdRaw(id);
+  const statusChanged =
+    (data.status !== undefined &&
+      !!existing &&
+      existing.status !== data.status) ||
+    data.archived !== undefined;
+
+  if (passwordChanged) {
     assertPlaintextPassword(data.password);
+    const policyError = assertPasswordPolicy(data.password as string);
+    if (policyError) {
+      const err: any = new Error(policyError);
+      err.statusCode = 400;
+      throw err;
+    }
     const passwordHash = await hashPassword(data.password as string);
     delete data.password;
     data.passwordHash = passwordHash;
   }
 
-  return staffRepository.updateUser(id, data);
+  const updated = await staffRepository.updateUser(id, data);
+
+  // A password change or an account status/archive change invalidates every
+  // token issued before this instant. Identity checks also reject inactive
+  // accounts on the next request; revocation covers any token replay paths.
+  if (passwordChanged || statusChanged) {
+    revokeUserTokensBeforeNow(id);
+  }
+
+  return updated;
 }
 
 export async function deleteUser(id: string) {
-  return staffRepository.updateUser(id, { archived: true });
+  const updated = await staffRepository.updateUser(id, { archived: true });
+  revokeUserTokensBeforeNow(id);
+  return updated;
 }
 
 export async function archiveUser(id: string) {
-  return staffRepository.updateUser(id, { archived: true });
+  const updated = await staffRepository.updateUser(id, { archived: true });
+  revokeUserTokensBeforeNow(id);
+  return updated;
 }

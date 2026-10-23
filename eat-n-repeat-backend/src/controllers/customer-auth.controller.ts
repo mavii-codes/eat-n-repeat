@@ -10,16 +10,76 @@ import {
   verifyResetCodeSchema,
 } from "@/schema/customer-auth/customer-auth.schema";
 import * as customerAuthService from "@/services/customer-auth";
+import { logBlockedAttempt } from "@/middleware/security/blocked-attempts";
+import { verifyTurnstile } from "@/middleware/security/turnstile";
+
+const SIGNUP_GENERIC_ERROR =
+  "Sign-up failed. Please check your details and try again.";
+const MIN_SUBMIT_MS = 3000;
+
+/** ISO string or epoch milliseconds -> epoch ms, or null when unparseable. */
+function parseStartedAt(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const numeric = Number(trimmed);
+      return Number.isFinite(numeric) ? numeric : null;
+    }
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
 
 export class CustomerAuthController {
   async register(req: Request, res: Response) {
+    const ip = req.ip ?? null;
     try {
-      const parsed = registerSchema.safeParse(req.body);
+      const body = req.body ?? {};
+
+      // Honeypot: hidden "company" field is empty for humans.
+      const honeypot = body.company;
+      if (
+        honeypot !== undefined &&
+        honeypot !== null &&
+        String(honeypot).trim() !== ""
+      ) {
+        logBlockedAttempt("honeypot", ip, "non-empty honeypot");
+        return res.status(400).json({ message: SIGNUP_GENERIC_ERROR });
+      }
+
+      // Minimum submit time: bots post instantly after loading the form.
+      const rawStartedAt = body.startedAt;
+      if (rawStartedAt === undefined || rawStartedAt === null || rawStartedAt === "") {
+        logBlockedAttempt("min-submit", ip, "startedAt missing");
+        return res.status(400).json({ message: SIGNUP_GENERIC_ERROR });
+      }
+      const startedAtMs = parseStartedAt(rawStartedAt);
+      if (startedAtMs === null) {
+        logBlockedAttempt("min-submit", ip, "startedAt invalid");
+        return res.status(400).json({ message: SIGNUP_GENERIC_ERROR });
+      }
+      if (Date.now() - startedAtMs < MIN_SUBMIT_MS) {
+        logBlockedAttempt("min-submit", ip, "submitted too quickly");
+        return res.status(400).json({ message: SIGNUP_GENERIC_ERROR });
+      }
+
+      const parsed = registerSchema.safeParse(body);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.issues[0].message });
       }
 
-      await customerAuthService.register(parsed.data);
+      const captcha = await verifyTurnstile(parsed.data.cfTurnstileToken, ip);
+      if (!captcha.ok) {
+        logBlockedAttempt("captcha", ip, captcha.message);
+        return res.status(captcha.status).json({ message: captcha.message });
+      }
+
+      await customerAuthService.register(parsed.data, ip);
       return res.status(201).json({ message: "Account created successfully. Please verify your email." });
     } catch (error: any) {
       console.error("Register Error:", error);

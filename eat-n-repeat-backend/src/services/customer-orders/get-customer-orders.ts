@@ -15,12 +15,19 @@ export class GetCustomerOrdersService {
         total: Number(o.total),
         subtotal: Number(o.subtotal),
         deliveryFee: Number(o.deliveryFee),
-        discount: 0,
+        // Real promo snapshot (legacy rows without a code map to no discount).
+        discount: Number(o.discountAmount) || 0,
+        promoCode: o.promoCode,
+        subtotalBeforeDiscount:
+          o.subtotalBeforeDiscount != null ? Number(o.subtotalBeforeDiscount) : Number(o.subtotal),
         paymentMethod: payment?.paymentMethod ?? null,
         paymentStatus: payment?.status ?? null,
         customerName: o.customerName,
         phone: o.phone,
         address: o.address,
+        // Pick-Up / Take-Out details (null for delivery/dine-in/legacy rows).
+        pickupName: o.pickupName,
+        pickupAt: o.pickupAt,
         items: o.items,
         specialInstructions: null,
         estimatedDeliveryTime: o.estimatedDeliveryTime,

@@ -106,7 +106,7 @@ export function MenuItemDetailsModal({
   if (!isOpen || !item) return null;
 
   const liveSummary = getAverageRating(item.id);
-  const rating = liveSummary.totalReviews > 0 ? liveSummary.averageRating : (item.rating ?? 4.8);
+  const rating = liveSummary.totalReviews > 0 ? liveSummary.averageRating : (item.rating ?? 0);
   const reviews = liveSummary.totalReviews > 0 ? liveSummary.totalReviews : (item.reviews ?? 0);
   const isAutoTopRated = rating >= 4.5 && reviews >= 10;
   const effectiveBadge = isAutoTopRated ? 'Top Rated' : item.badge;

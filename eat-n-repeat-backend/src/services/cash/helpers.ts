@@ -1,23 +1,33 @@
-export function mapShift(row: {
-  id: string;
-  staffId: string;
-  staffName: string;
-  startTime: Date;
-  endTime: Date | null;
-  startingFloat: any;
-  expectedCash: any;
-  actualCash: any;
-  difference: any;
-  status: string;
-  notes?: string | null;
-  verificationStatus?: string | null;
-  verifiedBy?: string | null;
-  verifiedAt?: Date | null;
-  flagReason?: string | null;
-  verified_by_name?: string | null;
-  cash_sales?: number;
-  gcash_sales?: number;
-}) {
+export type ShiftExpenseExtras = {
+  /** Active expense net for the shift (reversals subtract). */
+  expenses?: number | null;
+  /** Number of ledger rows attached to the shift. */
+  expenses_count?: number | null;
+};
+
+export function mapShift(
+  row: {
+    id: string;
+    staffId: string;
+    staffName: string;
+    startTime: Date;
+    endTime: Date | null;
+    startingFloat: any;
+    expectedCash: any;
+    actualCash: any;
+    difference: any;
+    status: string;
+    notes?: string | null;
+    verificationStatus?: string | null;
+    verifiedBy?: string | null;
+    verifiedAt?: Date | null;
+    flagReason?: string | null;
+    verified_by_name?: string | null;
+    cash_sales?: number;
+    gcash_sales?: number;
+  },
+  extras: ShiftExpenseExtras = {},
+) {
   return {
     id: row.id,
     staff_id: row.staffId,
@@ -42,6 +52,9 @@ export function mapShift(row: {
         ? Number(row.cash_sales)
         : Math.max(0, Number(row.expectedCash) - Number(row.startingFloat))),
     gcash_sales: row.gcash_sales != null ? Number(row.gcash_sales) : 0,
+    // Attached by callers that batch expense nets (shift history/detail).
+    expenses: Number(extras.expenses ?? 0),
+    expenses_count: Number(extras.expenses_count ?? 0),
   };
 }
 

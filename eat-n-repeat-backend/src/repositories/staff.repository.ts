@@ -38,6 +38,7 @@ export class StaffRepository {
     role: string;
     status: string;
     archived: boolean;
+    mustChangePassword?: boolean;
   }) {
     return prisma.user.create({ data });
   }

@@ -66,8 +66,36 @@ export class CashRepository {
     });
   }
 
-  async findAllShifts() {
+  async findAllShifts(filters: {
+    staffId?: string;
+    startDate?: Date;
+    endExclusive?: Date;
+    status?: string;
+    signoff?: "verified" | "unverified";
+  } = {}) {
+    // Whitelisted filter values only — route params are validated before
+    // they reach this layer; Prisma parameterizes every value.
+    const where: {
+      staffId?: string;
+      startTime?: { gte?: Date; lt?: Date };
+      status?: string;
+      verificationStatus?: string | { in: string[] };
+    } = {};
+    if (filters.staffId) where.staffId = filters.staffId;
+    if (filters.startDate || filters.endExclusive) {
+      where.startTime = {};
+      if (filters.startDate) where.startTime.gte = filters.startDate;
+      if (filters.endExclusive) where.startTime.lt = filters.endExclusive;
+    }
+    if (filters.status) where.status = filters.status;
+    if (filters.signoff === "verified") {
+      where.verificationStatus = "verified";
+    } else if (filters.signoff === "unverified") {
+      // Anything not signed off as verified (covers flagged shifts too).
+      where.verificationStatus = { in: ["unverified", "flagged"] };
+    }
     return prisma.cashShift.findMany({
+      where,
       orderBy: { startTime: "desc" },
     });
   }
@@ -128,6 +156,26 @@ export class CashRepository {
   async findCashTransactionByOrderId(orderId: string) {
     return prisma.cashTransaction.findFirst({
       where: { orderId },
+    });
+  }
+
+  /** POS cash/GCash sales recorded today (optionally scoped to one staff user). */
+  async findPosSalesToday({ start, end, adminId }: { start: Date; end: Date; adminId?: string }) {
+    return prisma.cashTransaction.findMany({
+      where: {
+        timestamp: { gte: start, lt: end },
+        type: { in: ["sale", "gcash_sale"] },
+        orderId: { not: null },
+        ...(adminId ? { adminId } : {}),
+      },
+      orderBy: { timestamp: "desc" },
+    });
+  }
+
+  async findOrdersByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    return prisma.order.findMany({
+      where: { id: { in: ids } },
     });
   }
 

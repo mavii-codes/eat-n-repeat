@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { staffSchema } from "@/schema/staff/staff.schema";
 import * as service from "@/services/staff";
+import { generateTemporaryPassword } from "@/services/admin-users";
 
 export class StaffController {
   async getAllUsers(_req: any, res: Response) {
@@ -11,6 +12,16 @@ export class StaffController {
         return rest;
       });
       res.json({ users: safeUsers });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+
+  async createTempPassword(_req: any, res: Response) {
+    try {
+      // Never log the generated password.
+      res.json({ tempPassword: generateTemporaryPassword() });
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: "Server error" });

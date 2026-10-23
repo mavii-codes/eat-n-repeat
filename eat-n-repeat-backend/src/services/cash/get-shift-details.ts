@@ -1,4 +1,6 @@
 import { cashRepository } from "@/repositories/cash.repository";
+import { expenseRepository } from "@/repositories/expense.repository";
+import { mapExpense } from "@/services/expenses/helpers";
 import { mapShift, mapTransaction } from "./helpers";
 
 export class GetShiftDetailsService {
@@ -13,6 +15,9 @@ export class GetShiftDetailsService {
 
     const transactions = await cashRepository.findTransactionsByShiftId(shiftId);
     const sales = await cashRepository.sumShiftSales(shiftId);
+    const expenses = (await expenseRepository.findByShiftId(shiftId)).map(
+      mapExpense,
+    );
 
     let verifiedByName: string | null = null;
     if (shift.verifiedBy) {
@@ -23,6 +28,7 @@ export class GetShiftDetailsService {
     return {
       shift: { ...mapShift({ ...shift, ...sales }), verified_by_name: verifiedByName },
       transactions: transactions.map(mapTransaction),
+      expenses,
     };
   }
 }

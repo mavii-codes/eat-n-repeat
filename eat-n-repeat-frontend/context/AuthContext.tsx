@@ -106,6 +106,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   email: backendUser.email,
                   role: backendUser.role,
                   status: backendUser.status ?? "active",
+                  // Backend survives a reload's forced-change state through
+                  // /api/auth/me; map it so guards and the login redirect see it.
+                  // When /me doesn't send the field (older backend), keep the
+                  // value stored at login instead of resetting it.
+                  mustChangePassword:
+                    backendUser.mustChangePassword != null
+                      ? Boolean(backendUser.mustChangePassword)
+                      : Boolean(
+                          (parsedUser as { mustChangePassword?: boolean })
+                            .mustChangePassword,
+                        ),
                 } as StaffAccount;
                 syncAuthTokens(parsedUser.token, backendUser.role);
                 if (!cancelled) {
@@ -184,8 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 1) Backend first (existing /api/auth/login). A 401/403 is a real
     // denial — never fall back to local in that case. Only network-level
     // failure (backend unreachable = offline café) uses the local fallback.
-    let backendUnreachable = false;
-    let serverErrorStatus: number | null = null;
+    let serverMessage: string | null = null;
     try {
       const res = await fetchWithTimeout(
         `${apiUrl}/api/auth/login`,
@@ -207,6 +217,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             email: backendUser.email,
             role: backendUser.role,
             status: backendUser.status ?? "active",
+            // Backend contract: login responses may flag mustChangePassword
+            // for accounts carrying the administrator-generated password.
+            mustChangePassword: Boolean(backendUser.mustChangePassword),
           } as StaffAccount;
           setUser(sessionUser);
           localStorage.setItem(SESSION_KEY, JSON.stringify(toStoredSession(sessionUser, data.token)));
@@ -215,21 +228,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } else if (res.status === 401 || res.status === 403 || res.status === 429) {
         const data = await res.json().catch(() => null);
-        setError(data?.message || "Invalid username/email or password.");
+        const message = typeof data?.message === "string" ? data.message.trim() : "";
+        // Preserve server copy (including 429 lockout/captcha copy) as-is.
+        setError(
+          message ||
+            (res.status === 429
+              ? "Too many sign-in attempts. Try again later."
+              : "Invalid username/email or password."),
+        );
         return false;
       } else {
         // Reachable backend, unexpected status (404 = wrong backend URL such
         // as a Vercel origin instead of Render; 5xx = broken backend/DB).
-        // Remember it so a failed local check reports this instead of a
-        // misleading "invalid password".
-        serverErrorStatus = res.status;
+        // Keep a server-provided explanation only — never the URL or status.
+        const data = await res.json().catch(() => null);
+        if (typeof data?.message === "string" && data.message.trim()) {
+          serverMessage = data.message.trim();
+        }
       }
       // Other statuses fall through to the local fallback below.
     } catch {
       // Network failure / timeout — offline mode: use local verification.
-      // Remember this so a failed local check reports the real problem
-      // (server unreachable) instead of a misleading "invalid password".
-      backendUnreachable = true;
     }
 
     // 2) Local fallback (offline café): verify against hashed local passwords.
@@ -241,13 +260,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (!matchedAccount) {
-      setError(
-        backendUnreachable
-          ? `Cannot reach the server at ${apiUrl}. Check your connection — or the account simply isn't on this device.`
-          : serverErrorStatus
-            ? `Login server error (status ${serverErrorStatus} at ${apiUrl}). The app may be pointing at the wrong backend — check NEXT_PUBLIC_API_URL.`
-            : "Invalid username/email or password.",
-      );
+      // Never expose the backend URL or HTTP status in the sign-in form.
+      // Show a server-provided message when there is one; otherwise use the
+      // generic staff copy. (401/403/429 already returned above.)
+      setError(serverMessage ?? "Sign-in failed. Please try again.");
       return false;
     }
 

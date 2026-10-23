@@ -6,5 +6,8 @@ const router = Router();
 
 router.post("/login", (req, res) => authController.login(req, res));
 router.get("/me", requireAuth, (req, res) => authController.getMe(req, res));
+router.post("/change-initial-password", requireAuth, (req, res) =>
+  authController.changeInitialPassword(req, res),
+);
 
 export default router;

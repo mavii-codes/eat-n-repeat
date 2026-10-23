@@ -59,6 +59,14 @@ export class CustomerAuthRepository {
     });
   }
 
+  async updateLastLoginAt(customerId: string, at: Date = new Date()) {
+    return prisma.customer.update({
+      where: { id: customerId },
+      data: { lastLoginAt: at },
+      select: { id: true },
+    });
+  }
+
   async updateCustomerEmailById(customerId: string, email: string) {
     return prisma.customer.update({
       where: { id: customerId },

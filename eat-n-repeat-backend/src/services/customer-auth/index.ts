@@ -8,8 +8,11 @@ import { verifyResetCodeService } from "./verify-reset-code";
 import { resendVerificationService } from "./resend-verification";
 import { changeEmailService } from "./change-email";
 
-export async function register(data: { name: string; email: string; phone?: string; password: string }) {
-  return registerService.execute(data);
+export async function register(
+  data: { name: string; email: string; password: string; username?: string },
+  ip?: string | null,
+) {
+  return registerService.execute(data, ip);
 }
 
 export async function login(data: { email: string; password: string }, ip: string) {

@@ -6,7 +6,7 @@ export class CreateItemService {
   async execute(data: {
     name: string;
     categoryId: string;
-    quantity: number;
+    quantity?: number;
     unit: string;
     lowStockThreshold: number;
   }) {
@@ -15,7 +15,8 @@ export class CreateItemService {
       id,
       name: data.name,
       categoryId: data.categoryId,
-      quantity: data.quantity,
+      // New items always start at zero; stock arrives through Stock In.
+      quantity: data.quantity ?? 0,
       unit: data.unit,
       lowStockThreshold: data.lowStockThreshold,
     });

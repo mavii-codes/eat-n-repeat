@@ -1,6 +1,9 @@
 import { adminOrdersRepository } from "@/repositories/admin-orders.repository";
+import { adminFlagsService } from "@/services/admin-flags";
+import { applyRedemptionForOrder, releaseRedemptionForOrder } from "@/services/promos/promos.service";
 import { v4 as uuidv4 } from "uuid";
 import type { HistoryQueryInput } from "@/schema/admin-orders/admin-orders.schema";
+import { emitAdminEvent } from "@/lib/sse";
 
 export async function getAdminOrders() {
   return adminOrdersRepository.findManyOrders(
@@ -29,7 +32,9 @@ export async function getOrderHistory(query: HistoryQueryInput) {
         ? ["cancelled"]
         : ["completed", "cancelled"];
 
-  const where: Record<string, unknown> = { status: { in: statuses } };
+  // Archived records keep existing (never deleted) but are excluded from
+  // history listings; they remain viewable via the admin archives page.
+  const where: Record<string, unknown> = { status: { in: statuses }, archived: false };
   if (search) {
     (where as any).OR = [
       { orderNumber: { contains: search } },
@@ -68,6 +73,36 @@ export async function getOrderHistory(query: HistoryQueryInput) {
   };
 }
 
+/**
+ * Pick-Up orders carry who collects and when. Appended to customer
+ * notifications as `Pick up by: <name> · <time>` (Manila wall clock), the same
+ * wording the customer/staff screens use. Legacy Pick-Up rows without these
+ * columns fall back to nothing here, leaving the plain Pick-Up message.
+ */
+function pickupNote(order: any): string {
+  // Prisma field is `type`; `orderType` is accepted so this also works if the
+  // row is an API-shaped object.
+  const orderType = String(order?.type ?? order?.orderType ?? "").toLowerCase();
+  if (!order || orderType !== "pickup") return "";
+
+  const name = String(order.pickupName || "").trim();
+  const at = order.pickupAt ? new Date(order.pickupAt) : null;
+  const time =
+    at && !Number.isNaN(at.getTime())
+      ? at.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZone: "Asia/Manila",
+        })
+      : "";
+
+  if (name && time) return ` Pick up by: ${name} · ${time}`;
+  if (name) return ` Pick up by: ${name}`;
+  if (time) return ` Pick-up time: ${time}`;
+  return "";
+}
+
 export async function updateAdminOrderStatus(orderIdParam: string, status: string) {
   const order = await adminOrdersRepository.findOrderByIdentifier(orderIdParam);
   if (!order) {
@@ -75,10 +110,37 @@ export async function updateAdminOrderStatus(orderIdParam: string, status: strin
   }
 
   if (order.status === "cancelled") {
-    throw Object.assign(new Error("Cannot update a cancelled order"), { status: 403 });
+    throw Object.assign(new Error("Cancelled orders cannot be reopened or changed."), { status: 403 });
+  }
+
+  if (order.status === "completed") {
+    throw Object.assign(new Error("Completed orders cannot be reopened or changed."), { status: 403 });
   }
 
   const updatedOrder = await adminOrdersRepository.updateOrder(order.id, { status });
+
+  // Redemption bookkeeping, best-effort (never fails the status change):
+  // cancelled unpaid orders give the promo use back; delivered/completed
+  // orders confirm any still-RESERVED redemption out of safety.
+  try {
+    if (status === "cancelled") {
+      await releaseRedemptionForOrder(order.id);
+    } else if (status === "delivered" || status === "completed") {
+      await applyRedemptionForOrder(order.id);
+    }
+  } catch (promoError) {
+    console.error("[admin-orders] promo redemption status sync failed:", promoError);
+  }
+
+  // Phase 3 signals for online customer orders: cancellation feeds the
+  // cancelled-streak rule; delivered/completed rechecks "keep watching".
+  if (order.customerId && order.orderMode === "online") {
+    if (status === "cancelled") {
+      await adminFlagsService.maybeFlagCancelledStreak(order.customerId);
+    } else if (status === "delivered" || status === "completed") {
+      await adminFlagsService.recheckWatchingFlags(order.customerId);
+    }
+  }
 
   // Notify customer
   const statusMessages: Record<string, string> = {
@@ -90,7 +152,7 @@ export async function updateAdminOrderStatus(orderIdParam: string, status: strin
   };
 
   const title = `Order #${order.orderNumber} Updated`;
-  const description = statusMessages[status] || `Order status updated to ${status}`;
+  const description = (statusMessages[status] || `Order status updated to ${status}`) + pickupNote(order);
 
   // Notify customer (best-effort, never fails the status update:
   // guest/walk-in orders have no customerId, and the notifications FK
@@ -109,6 +171,12 @@ export async function updateAdminOrderStatus(orderIdParam: string, status: strin
     }
   }
 
+  try {
+    emitAdminEvent({ type: "ORDER_UPDATED", at: new Date().toISOString() });
+  } catch {
+    /* event must never break the write */
+  }
+
   return updatedOrder;
 }
 
@@ -116,6 +184,14 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
   const order = await adminOrdersRepository.findOrderByIdentifier(orderIdParam);
   if (!order) {
     throw Object.assign(new Error("Order not found"), { status: 404 });
+  }
+
+  const currentStatus = String(order.status ?? "").toLowerCase();
+  if (currentStatus === "completed" || currentStatus === "cancelled") {
+    throw Object.assign(
+      new Error("This order is already completed/cancelled and cannot be marked as paid."),
+      { status: 400 },
+    );
   }
 
   const { paymentMethod = "cash", amount } = body;
@@ -146,6 +222,13 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
 
   // Update order status
   await adminOrdersRepository.updateOrder(order.id, { status: "confirmed" });
+
+  // Payment truth confirmed: the redemption matures RESERVED → APPLIED.
+  try {
+    await applyRedemptionForOrder(order.id);
+  } catch (promoError) {
+    console.error("[admin-orders] promo apply failed (order is paid):", promoError);
+  }
 
   // Handle cash shift if payment method is cash. The drawer total lives
   // in expectedCash (there is no totalSales column — writing one threw and
@@ -193,6 +276,17 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
     } catch (notifyError) {
       console.error("Payment saved but customer notification failed:", notifyError);
     }
+  }
+
+  // Phase 3 signal: a PAID payment may let a "keep watching" flag auto-dismiss.
+  if (order.customerId) {
+    await adminFlagsService.recheckWatchingFlags(order.customerId);
+  }
+
+  try {
+    emitAdminEvent({ type: "PAYMENT_UPDATED", at: new Date().toISOString() });
+  } catch {
+    /* event must never break the write */
   }
 
   return { change };

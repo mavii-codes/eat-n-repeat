@@ -1,6 +1,8 @@
 import type { Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
-import { endShiftSchema, addFloatSchema, flagShiftSchema, editAuditSignoffSchema } from "@/schema/cash/cash.schema";
+import { endShiftSchema, addFloatSchema, flagShiftSchema, editAuditSignoffSchema, listShiftsQuerySchema } from "@/schema/cash/cash.schema";
+import { drawerExpenseSchema } from "@/schema/expenses/expenses.schema";
+import { ExpenseServiceError } from "@/services/expenses/helpers";
 import * as service from "@/services/cash";
 
 export class CashController {
@@ -76,7 +78,12 @@ export class CashController {
         return res.status(403).json({ success: false, message: "Admin access required" });
       }
 
-      const shifts = await service.getAllShifts();
+      const parsed = listShiftsQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: parsed.error.issues[0].message });
+      }
+
+      const shifts = await service.getAllShifts(parsed.data);
       res.json({ success: true, shifts });
     } catch (error) {
       console.error("Error fetching shifts:", error);
@@ -96,8 +103,8 @@ export class CashController {
 
       const id = req.params.id as string;
       try {
-        const { shift, transactions } = await service.getShiftDetails(id);
-        res.json({ success: true, shift, transactions });
+        const { shift, transactions, expenses } = await service.getShiftDetails(id);
+        res.json({ success: true, shift, transactions, expenses });
       } catch (err: any) {
         if (err.statusCode) {
           return res.status(err.statusCode).json({ success: false, message: err.message });
@@ -183,6 +190,20 @@ export class CashController {
     }
   }
 
+  async getPosSalesToday(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.auth?.userId;
+      if (!userId) return res.status(401).json({ success: false, message: "Authentication required." });
+
+      const isAdmin = req.auth?.role === "admin";
+      const result = await service.getPosSalesToday(userId, isAdmin);
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Error fetching today's POS sales:", error);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+
   async addFloat(req: AuthenticatedRequest, res: Response) {
     try {
       const userId = req.auth?.userId;
@@ -221,6 +242,32 @@ export class CashController {
     } catch (error) {
       console.error("Error adding float:", error);
       res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+
+  async addShiftExpense(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.auth?.userId;
+      if (!userId) return res.status(401).json({ success: false, message: "Authentication required." });
+
+      const parsed = drawerExpenseSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: parsed.error.issues[0].message });
+      }
+
+      const id = req.params.id as string;
+      try {
+        const result = await service.addShiftExpense(userId, id, parsed.data);
+        return res.json({ success: true, message: "Expense recorded.", ...result });
+      } catch (err: any) {
+        if (err instanceof ExpenseServiceError) {
+          return res.status(err.statusCode).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+    } catch (error) {
+      console.error("Error adding shift expense:", error);
+      return res.status(500).json({ success: false, message: "Server error" });
     }
   }
 }

@@ -1,5 +1,8 @@
 import crypto from "crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { emitAdminEvent } from "@/lib/sse";
+import { consumeFifo, lockItemForUpdate, round2 } from "@/services/stock/fifo-layers";
 import { decideStatusReplay, normalizeOrderStatus } from "@/services/sync/status-priority";
 
 // ---------------------------------------------------------------------------
@@ -200,6 +203,12 @@ export class SyncRepository {
     offline_shifts: any[] = [],
     drainingUserId?: string | null,
   ) {
+    // Admin SSE emits happen once after the batch transaction resolves; these
+    // flags only record which kinds of writes the batch actually applied.
+    let orderChanged = false;
+    let paymentChanged = false;
+    let stockChanged = false;
+
     await prisma.$transaction(async (tx) => {
       // Shift starts replay FIRST so later steps can attribute to them.
       // Starts are idempotent (existing id skipped) and never duplicate an
@@ -291,6 +300,7 @@ export class SyncRepository {
             INSERT IGNORE INTO orders (id, order_number, type, items, total, status, archived, created_at, address, notes)
             VALUES (${order.id}, ${order.id}, ${replayType}, ${items}, ${order.total}, ${order.status}, 0, ${createdAt}, ${order.address ?? null}, ${order.customerNotes ?? null})
           `;
+          orderChanged = true;
 
           // Journaled cash sales replay as paid: mirror a PAID payment row
           // whenever the replayed order carries paid=true and no payment
@@ -321,15 +331,69 @@ export class SyncRepository {
         for (const txItem of offline_stock_transactions) {
           const transactionDate = txItem.timestamp || new Date();
           try {
+            // Item-row lock FIRST (engine invariant), inside the already-open
+            // outer transaction. The clamp means a journaled quantity larger
+            // than on-hand can never drive stock negative.
+            const stockItemId = String(txItem.stockItemId ?? "");
+            const locked = await lockItemForUpdate(tx, stockItemId);
+
+            if (!locked) {
+              // Legacy behavior: journal the entry, deduct nothing.
+              const requested = new Prisma.Decimal(txItem.quantityDeducted ?? 0);
+              await tx.$executeRaw`
+                INSERT INTO offline_stock_transactions (id, stock_item_id, quantity_deducted, order_id, staff_id, transaction_date)
+                VALUES (${txItem.id}, ${txItem.stockItemId}, ${requested}, ${txItem.orderId}, ${txItem.staffId}, ${transactionDate})
+              `;
+              console.warn(`[offline-sync] stock item "${stockItemId}" not found — deduction journaled without stock change.`);
+              continue;
+            }
+
+            const quantityBefore = new Prisma.Decimal(locked.quantity as any);
+            const requested = new Prisma.Decimal(txItem.quantityDeducted ?? 0);
+            const actual = Prisma.Decimal.min(requested, quantityBefore);
+
+            // Journal the CLAMPED quantity, never the requested one, so the
+            // durable offline record matches what actually left stock.
             await tx.$executeRaw`
               INSERT INTO offline_stock_transactions (id, stock_item_id, quantity_deducted, order_id, staff_id, transaction_date)
-              VALUES (${txItem.id}, ${txItem.stockItemId}, ${txItem.quantityDeducted}, ${txItem.orderId}, ${txItem.staffId}, ${transactionDate})
+              VALUES (${txItem.id}, ${txItem.stockItemId}, ${actual}, ${txItem.orderId}, ${txItem.staffId}, ${transactionDate})
             `;
 
-            // If insert succeeds, deduct stock
-            await tx.$executeRaw`
-              UPDATE stock_items SET quantity = GREATEST(0, quantity - ${txItem.quantityDeducted}) WHERE id = ${txItem.stockItemId}
-            `;
+            // Consume before updating quantity: consumeFifo heals layer skew
+            // against the item's current on-hand balance.
+            const fifo = await consumeFifo(tx, { stockItemId, qty: actual });
+            const quantityAfter = quantityBefore.minus(actual);
+
+            await tx.stockItem.update({
+              where: { id: stockItemId },
+              data: { quantity: quantityAfter },
+            });
+
+            const unitCost =
+              fifo.consumedUncostedQty.isZero() && !fifo.consumedCost.isZero() && !actual.isZero()
+                ? round2(fifo.consumedCost.dividedBy(actual))
+                : null;
+
+            await tx.stockMovement.create({
+              data: {
+                id: `sm-${crypto.randomUUID()}`,
+                stockItemId,
+                itemName: locked.name,
+                type: "SALE_DEDUCTION",
+                quantityChange: actual.negated(),
+                balanceBefore: quantityBefore,
+                balanceAfter: quantityAfter,
+                unitCost,
+                totalCost: fifo.consumedCost.isZero() ? null : fifo.consumedCost,
+                reason: "Offline order sync",
+                reference: null,
+                receivedAt: null,
+                expiryDate: null,
+                createdById: drainingUserId ?? "system-offline-sync",
+                createdByName: "System (offline sync)",
+              },
+            });
+            stockChanged = true;
           } catch (e: any) {
             // If ER_DUP_ENTRY, already synced — skip double deduct
             const code = e?.code;
@@ -356,7 +420,7 @@ export class SyncRepository {
               continue;
             }
             const paidAt = pay?.paidAt ? new Date(pay.paidAt) : new Date();
-            await this.applyOfflinePayment(
+            const paymentResult = await this.applyOfflinePayment(
               tx,
               identifier,
               String(pay?.method ?? pay?.payment_method ?? "Cash"),
@@ -364,6 +428,7 @@ export class SyncRepository {
               pay?.staffId ? String(pay.staffId) : null,
               drainingUserId ?? null,
             );
+            if (paymentResult === "applied") paymentChanged = true;
           } catch (e: any) {
             console.warn(`[offline-sync] payment replay failed: ${e?.message ?? e}`);
           }
@@ -396,6 +461,7 @@ export class SyncRepository {
               await tx.$executeRaw`
                 UPDATE orders SET status = ${incoming} WHERE id = ${order.id}
               `;
+              orderChanged = true;
               console.info(`[offline-sync] order ${order.orderNumber}: status → "${incoming}" (${verdict.reason}).`);
             } else {
               console.warn(`[offline-sync] order ${order.orderNumber}: status "${incoming}" dropped (${verdict.reason}).`);
@@ -456,6 +522,29 @@ export class SyncRepository {
         }
       }
     });
+
+    // Emit once per replayed batch, only after the transaction committed.
+    try {
+      if (orderChanged) {
+        emitAdminEvent({ type: "ORDER_UPDATED", at: new Date().toISOString() });
+      }
+    } catch {
+      /* event must never break the write */
+    }
+    try {
+      if (paymentChanged) {
+        emitAdminEvent({ type: "PAYMENT_UPDATED", at: new Date().toISOString() });
+      }
+    } catch {
+      /* event must never break the write */
+    }
+    try {
+      if (stockChanged) {
+        emitAdminEvent({ type: "STOCK_UPDATED", at: new Date().toISOString() });
+      }
+    } catch {
+      /* event must never break the write */
+    }
   }
 }
 

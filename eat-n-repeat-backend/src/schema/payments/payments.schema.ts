@@ -23,7 +23,16 @@ export const orderDetailsSchema = z.object({
   address: z.string().optional().nullable(),
   serviceAreaId: z.string().optional().nullable(),
   type: z.string().optional().default("delivery"),
+  // Pick-Up / Take-Out details. Accepted as-is here; semantic validation
+  // (required for pickup, name rules, time window) happens in the service
+  // so callers get friendly 400 messages. Ignored for delivery/dine-in.
+  pickupName: z.string().optional().nullable(),
+  pickupAt: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  // Promo code: a raw uppercase-able string only. The server resolves
+  // validity and computes the discount; the client never sends prices,
+  // totals, or adjustments of any kind.
+  promoCode: z.string().max(24).optional(),
 });
 
 export const checkoutSchema = z.object({

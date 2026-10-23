@@ -1,6 +1,8 @@
 import { webhooksRepository } from "@/repositories/webhooks.repository";
+import { adminFlagsService } from "@/services/admin-flags";
 import { notifyAllStaff } from "@/services/staff-notifications";
-import { emitPaymentEvent } from "@/lib/sse";
+import { applyRedemptionForOrder, releaseRedemptionForOrder } from "@/services/promos/promos.service";
+import { emitAdminEvent, emitPaymentEvent } from "@/lib/sse";
 
 export class HandleXenditWebhookService {
   async execute(event: any) {
@@ -11,8 +13,11 @@ export class HandleXenditWebhookService {
     const referenceId = event.external_id;
     const status = event.status; // e.g. PAID, EXPIRED
 
-    // Find the payment by referenceId
-    const payment = await webhooksRepository.findPaymentByXenditReference(referenceId);
+    // Find the payment by reference id (external_id) or the invoice id.
+    const payment = await webhooksRepository.findPaymentByXenditReference(
+      referenceId,
+      typeof event.id === "string" ? event.id : undefined,
+    );
 
     if (!payment) {
       return null;
@@ -55,15 +60,32 @@ export class HandleXenditWebhookService {
     // Update order status if paid
     if (status === "PAID") {
       await webhooksRepository.updateOrderStatus(payment.orderId, "confirmed");
+      // Promo redemption matured: RESERVED → APPLIED (idempotent via status).
+      try {
+        await applyRedemptionForOrder(payment.orderId);
+      } catch (promoError) {
+        console.error("[webhooks] promo apply failed:", promoError);
+      }
     } else if (status === "EXPIRED" || status === "FAILED") {
       const revertStatus = orderType === "dine-in" ? "awaiting_payment" : "pending_payment";
       await webhooksRepository.updateOrderStatus(payment.orderId, revertStatus);
+      // Invoice died: give the promo use back so the customer can retry.
+      try {
+        await releaseRedemptionForOrder(payment.orderId);
+      } catch (promoError) {
+        console.error("[webhooks] promo release failed:", promoError);
+      }
     }
 
     // Fetch updated order info to broadcast
     const updatedOrder = await webhooksRepository.findOrderById(payment.orderId);
 
     if (updatedOrder) {
+      // Phase 3 signal: a PAID payment rechecks any "keep watching" flag.
+      if (status === "PAID" && updatedOrder.customerId) {
+        await adminFlagsService.recheckWatchingFlags(updatedOrder.customerId);
+      }
+
       if (status === "PAID") {
         // Full notification for GCash-paid orders
         const typeLabel =
@@ -90,11 +112,22 @@ export class HandleXenditWebhookService {
         await notifyAllStaff(updatedOrder.type || "payment", titlePrefix, paidMessage, updatedOrder.id);
       }
 
-      // Emit Server-Sent Event to connected clients
+      // Emit Server-Sent Event to connected clients. Payload is deliberately
+      // limited to routing fields (no customer PII, items, or amounts).
       emitPaymentEvent({
         type: status === "PAID" ? "PAYMENT_PAID" : status === "EXPIRED" ? "PAYMENT_FAILED" : "PAYMENT_UPDATED",
-        order: updatedOrder,
+        at: new Date().toISOString(),
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        status: updatedOrder.status,
+        paymentStatus: status ?? null,
       });
+
+      try {
+        emitAdminEvent({ type: "PAYMENT_UPDATED", at: new Date().toISOString() });
+      } catch {
+        /* event must never break the write */
+      }
     }
 
     return updatedOrder;
