@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { NextAuthProvider } from "@/providers/NextAuthProvider";
 import { ReviewsProvider } from "@/context/ReviewsContext";
 import { ConfirmProvider } from "@/components/shared/ConfirmDialog";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { sessionMustChangePassword } from "@/lib/admin/auth-token";
 import { Menu, X } from "lucide-react";
 
 export default function AdminLayout({
@@ -32,6 +34,13 @@ export default function AdminLayout({
 
   useEffect(() => {
     if (!loading) {
+      // Forced password change wins over every normal redirect: while the
+      // stored session is flagged, no admin page renders until the password
+      // is replaced (customers are unaffected — this layout is admin-only).
+      if (user && sessionMustChangePassword()) {
+        router.replace("/change-password");
+        return;
+      }
       if (!user) {
         router.replace("/login");
       } else if (user.role !== "admin") {
@@ -80,6 +89,7 @@ export default function AdminLayout({
 
   return (
     <ConfirmProvider>
+    <NextAuthProvider>
     <ReviewsProvider>
       <div className="admin-shell min-h-screen w-full overflow-x-hidden">
         <div className="admin-shell-bg" aria-hidden="true">
@@ -131,12 +141,18 @@ export default function AdminLayout({
 
         {/* Main Content Area */}
         <div className="relative z-10 w-full lg:pl-72 transition-all duration-300">
-          <main className="mx-auto max-w-6xl w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+          {/* Cash Management, Delivery, Expenses, and Inventory pages use the
+              full width next to the sidebar (dense shift / delivery /
+              movement / expense tables must fit without horizontal
+              scrolling); every other admin page keeps the standard reading
+              width. */}
+          <main className={`mx-auto w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 ${pathname?.startsWith("/admin/cash") || pathname?.startsWith("/admin/delivery") || pathname?.startsWith("/admin/inventory") || pathname?.startsWith("/admin/expenses") ? "max-w-none" : "max-w-6xl"}`}>
             {children}
           </main>
         </div>
       </div>
     </ReviewsProvider>
+    </NextAuthProvider>
     </ConfirmProvider>
   );
 }

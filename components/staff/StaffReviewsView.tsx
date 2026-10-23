@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useReviews } from '@/context/ReviewsContext';
 import { Star, MessageSquare } from 'lucide-react';
+import { getStaffOrAdminToken } from '@/lib/admin/auth-token';
 
 type RatingFilter = 'all' | '5' | '4' | '3' | '2' | '1';
 
@@ -17,15 +18,17 @@ function formatDate(dateString: string): string {
 }
 
 export function StaffReviewsView() {
-  const { getAllReviews } = useReviews();
-  const allReviews = getAllReviews();
-
+  const { adminState, fetchAdminPage, adminLoading } = useReviews();
   const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const hasStaffToken = typeof window !== 'undefined' && !!getStaffOrAdminToken();
 
-  const visibleReviews = useMemo(() => {
-    return allReviews.filter((r) => !r.hidden);
-  }, [allReviews]);
+  // Read-only global list (same server data as the admin portal).
+  useEffect(() => {
+    fetchAdminPage({ status: 'visible', page: 1, limit: 100 });
+  }, [fetchAdminPage]);
+
+  const visibleReviews = useMemo(() => adminState.reviews, [adminState.reviews]);
 
   const filteredReviews = useMemo(() => {
     return visibleReviews.filter((r) => {
@@ -43,19 +46,28 @@ export function StaffReviewsView() {
   }, [visibleReviews, ratingFilter, searchQuery]);
 
   const stats = useMemo(() => {
-    if (visibleReviews.length === 0) {
-      return { total: 0, averageRating: 0, fiveStarPct: 0 };
+    const s = adminState.stats;
+    if (!s || visibleReviews.length === 0) {
+      return { total: visibleReviews.length, averageRating: s?.averageRating ?? 0, fiveStarPct: 0 };
     }
-    const sum = visibleReviews.reduce((acc, r) => acc + r.rating, 0);
-    const avg = Math.round((sum / visibleReviews.length) * 10) / 10;
     const fiveStars = visibleReviews.filter((r) => r.rating === 5).length;
     const fiveStarPct = Math.round((fiveStars / visibleReviews.length) * 100);
     return {
       total: visibleReviews.length,
-      averageRating: avg,
+      averageRating: s.averageRating,
       fiveStarPct,
     };
-  }, [visibleReviews]);
+  }, [visibleReviews, adminState.stats]);
+
+  if (!hasStaffToken) {
+    return (
+      <div className="text-center py-16 rounded-3xl bg-white border border-dashed border-amber-300 p-8">
+        <div className="mb-2"><MessageSquare className="w-10 h-10 text-stone-400 mx-auto" /></div>
+        <p className="text-sm font-bold text-stone-700">Sign in as staff to view reviews</p>
+        <p className="text-xs text-stone-400 mt-1">Customer feedback is only visible to authorized staff.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -133,7 +145,11 @@ export function StaffReviewsView() {
       </div>
 
       {/* Reviews List */}
-      {filteredReviews.length === 0 ? (
+      {adminLoading && filteredReviews.length === 0 ? (
+        <div className="text-center py-16 rounded-3xl bg-white border border-stone-200 p-8">
+          <p className="text-sm font-bold text-stone-700">Loading reviews...</p>
+        </div>
+      ) : filteredReviews.length === 0 ? (
         <div className="text-center py-16 rounded-3xl bg-white border border-dashed border-amber-300 p-8">
           <div className="mb-2"><MessageSquare className="w-10 h-10 text-stone-400 mx-auto" /></div>
           <p className="text-sm font-bold text-stone-700">No reviews matching filters</p>

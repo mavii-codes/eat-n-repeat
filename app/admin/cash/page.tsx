@@ -6,7 +6,14 @@ import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { Eye, Clock, ShieldCheck, PhilippinePeso, History, Flag, CheckCircle2, X, Loader2, Pencil } from "lucide-react";
 import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 import { useAuth } from "@/context/AuthContext";
-import type { CashShift, CashTransaction } from "@/lib/admin/types";
+import type { CashShift, CashTransaction, ExpenseItem } from "@/lib/admin/types";
+import {
+  expenseCategoryChip,
+  expenseSourceChip,
+  expenseStatusChip,
+  normalizeExpenses,
+  shiftExpensesNet,
+} from "@/lib/admin/expense-utils";
 
 function getCashSales(s: CashShift) {
   if (s.cash_sales != null) {
@@ -16,6 +23,26 @@ function getCashSales(s: CashShift) {
   const starting = Number(s.starting_float || 0);
   return Math.max(0, expected - starting);
 }
+
+const SORT_OPTIONS = [
+  { value: "date:desc", label: "Date/Time (Newest first)" },
+  { value: "date:asc", label: "Date/Time (Oldest first)" },
+  { value: "staff:asc", label: "Staff (A-Z)" },
+  { value: "staff:desc", label: "Staff (Z-A)" },
+  { value: "variance:desc", label: "Variance (Highest first)" },
+  { value: "variance:asc", label: "Variance (Lowest first)" },
+  { value: "counted_cash:desc", label: "Counted Cash (Highest first)" },
+  { value: "counted_cash:asc", label: "Counted Cash (Lowest first)" },
+  { value: "expected_cash:desc", label: "Expected Cash (Highest first)" },
+  { value: "expected_cash:asc", label: "Expected Cash (Lowest first)" },
+  { value: "duration:desc", label: "Duration (Longest first)" },
+  { value: "duration:asc", label: "Duration (Shortest first)" },
+] as const;
+
+const DEFAULT_SORT = "date:desc";
+
+const FILTER_CONTROL_CLASS =
+  "text-xs font-semibold text-stone-700 border border-stone-300 rounded-lg pl-2 pr-2 py-1.5 bg-white focus:ring-2 focus:ring-[#800000]/30 focus:border-[#800000] outline-none cursor-pointer";
 
 export default function CashManagementPage() {
   const { user } = useAuth();
@@ -40,6 +67,15 @@ export default function CashManagementPage() {
   const [showVerifyModal, setShowVerifyModal] = useState<string | null>(null);
   const [showFlagModal, setShowFlagModal] = useState<string | null>(null);
 
+  // Shift History filters + sorting (applied server-side via query params).
+  const [staffFilter, setStaffFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [signoffFilter, setSignoffFilter] = useState("");
+  const [sortKey, setSortKey] = useState<string>(DEFAULT_SORT);
+  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>([]);
+
   // Edit Audit Sign-off state
   const [editSignoffShift, setEditSignoffShift] = useState<CashShift | null>(null);
   const [editSignoffStatus, setEditSignoffStatus] = useState<string>("unverified");
@@ -61,7 +97,16 @@ export default function CashManagementPage() {
         setLoading(false);
         return;
       }
-      const res = await fetch(`${getApiUrl()}/api/cash/shifts`, {
+      const params = new URLSearchParams();
+      if (staffFilter) params.set("staffId", staffFilter);
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", endDate);
+      if (statusFilter) params.set("status", statusFilter);
+      if (signoffFilter) params.set("signoff", signoffFilter);
+      const [sortBy, sortDir] = sortKey.split(":");
+      if (sortBy) params.set("sortBy", sortBy);
+      if (sortDir) params.set("sortDir", sortDir);
+      const res = await fetch(`${getApiUrl()}/api/cash/shifts?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.status === 401 || res.status === 403) {
@@ -72,9 +117,31 @@ export default function CashManagementPage() {
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success) {
         setShifts(data.shifts);
-        try {
-          localStorage.setItem("eat-n-repeat-cached-cash-shifts", JSON.stringify(data.shifts));
-        } catch {}
+        const isDefaultView =
+          !staffFilter && !startDate && !endDate && !statusFilter && !signoffFilter;
+        // Only the unfiltered view refreshes the offline cache, so the cache
+        // is never replaced by a filtered subset.
+        if (isDefaultView) {
+          try {
+            localStorage.setItem("eat-n-repeat-cached-cash-shifts", JSON.stringify(data.shifts));
+          } catch {}
+        }
+        // Staff dropdown options come from unfiltered fetches and accumulate,
+        // so the selected staff never disappears from the list.
+        if (!staffFilter) {
+          setStaffOptions((prev) => {
+            const merged = new Map(prev.map((o) => [o.id, o.name]));
+            for (const s of data.shifts as CashShift[]) {
+              if (s.staff_id && s.staff_name && !merged.has(s.staff_id)) {
+                merged.set(s.staff_id, s.staff_name);
+              }
+            }
+            if (merged.size === prev.length) return prev;
+            return Array.from(merged, ([id, name]) => ({ id, name })).sort((a, b) =>
+              a.name.localeCompare(b.name)
+            );
+          });
+        }
         setIsStale(false);
         setFetchError(null);
       } else {
@@ -87,7 +154,19 @@ export default function CashManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.role]);
+  }, [user?.role, staffFilter, startDate, endDate, statusFilter, signoffFilter, sortKey]);
+
+  const isDefaultView =
+    !staffFilter && !startDate && !endDate && !statusFilter && !signoffFilter && sortKey === DEFAULT_SORT;
+
+  const clearFilters = () => {
+    setStaffFilter("");
+    setStartDate("");
+    setEndDate("");
+    setStatusFilter("");
+    setSignoffFilter("");
+    setSortKey(DEFAULT_SORT);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -282,6 +361,92 @@ export default function CashManagementPage() {
           </button>
         </div>
 
+        {/* Filter + sort bar — one compact row, wraps on narrow screens.
+            All controls combine with AND and are applied server-side. */}
+        <div className="px-4 py-3 border-b border-stone-100 bg-white flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Filter by staff"
+            value={staffFilter}
+            onChange={(e) => setStaffFilter(e.target.value)}
+            className={FILTER_CONTROL_CLASS}
+          >
+            <option value="">All Staff</option>
+            {staffOptions.map((o) => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="shift-filter-from" className="text-[10px] font-black uppercase tracking-wider text-stone-400">
+              From
+            </label>
+            <input
+              id="shift-filter-from"
+              type="date"
+              value={startDate}
+              max={endDate || undefined}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={FILTER_CONTROL_CLASS}
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="shift-filter-to" className="text-[10px] font-black uppercase tracking-wider text-stone-400">
+              To
+            </label>
+            <input
+              id="shift-filter-to"
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(e) => setEndDate(e.target.value)}
+              className={FILTER_CONTROL_CLASS}
+            />
+          </div>
+
+          <select
+            aria-label="Filter by shift status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className={FILTER_CONTROL_CLASS}
+          >
+            <option value="">All Statuses</option>
+            <option value="open">Open Shift</option>
+            <option value="matched">Reconciled</option>
+          </select>
+
+          <select
+            aria-label="Filter by audit sign-off"
+            value={signoffFilter}
+            onChange={(e) => setSignoffFilter(e.target.value)}
+            className={FILTER_CONTROL_CLASS}
+          >
+            <option value="">All Sign-offs</option>
+            <option value="verified">Verified</option>
+            <option value="unverified">Unverified</option>
+          </select>
+
+          <select
+            aria-label="Sort shifts"
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value)}
+            className={FILTER_CONTROL_CLASS}
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={clearFilters}
+            disabled={isDefaultView}
+            className="text-xs font-bold text-stone-500 enabled:hover:text-[#800000] enabled:hover:underline underline-offset-2 disabled:opacity-40 disabled:cursor-default"
+          >
+            Clear Filters
+          </button>
+        </div>
+
         {fetchError && (
           <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs flex items-center justify-between">
             <span>{fetchError}</span>
@@ -297,49 +462,55 @@ export default function CashManagementPage() {
         {loading ? (
           <div className="p-10 text-center text-stone-400 font-bold text-sm">Loading shifts...</div>
         ) : shifts.length === 0 ? (
-          <div className="p-10 text-center text-stone-400 font-bold text-sm">No cash shifts found.</div>
+          <div className="p-10 text-center text-stone-400 font-bold text-sm">
+            {isDefaultView ? "No cash shifts found." : "No shifts match the applied filters."}
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-<thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
                 <tr>
-                  <th className="px-4 py-3">Staff</th>
-                  <th className="px-4 py-3">Shift Time</th>
-                  <th className="px-4 py-3">Opening Float</th>
-                  <th className="px-4 py-3">Cash Sales</th>
-                  <th className="px-4 py-3">Expected</th>
-                  <th className="px-4 py-3">Counted Cash</th>
-                  <th className="px-4 py-3">Variance</th>
-                  <th className="px-4 py-3 text-center">Shift Status</th>
-                  <th className="px-4 py-3 text-center">Audit Sign-off</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <th className="px-2.5 py-2.5">Staff</th>
+                  <th className="px-2.5 py-2.5">Shift Time</th>
+                  <th className="px-2.5 py-2.5">Opening Float</th>
+                  <th className="px-2.5 py-2.5">Cash Sales</th>
+                  <th className="px-2.5 py-2.5">Expected</th>
+                  <th className="px-2.5 py-2.5">Expenses</th>
+                  <th className="px-2.5 py-2.5">Counted Cash</th>
+                  <th className="px-2.5 py-2.5">Variance</th>
+                  <th className="px-2.5 py-2.5 text-center">Shift Status</th>
+                  <th className="px-2.5 py-2.5 text-center">Audit Sign-off</th>
+                  <th className="px-2.5 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {shifts.map((s) => (
                   <tr key={s.id} className="hover:bg-stone-50 transition-colors">
-                    <td className="px-4 py-3 font-bold text-[#800000]">{s.staff_name}</td>
-                    <td className="px-4 py-3 text-stone-600">
+                    <td className="px-2.5 py-2.5 font-bold text-[#800000]">{s.staff_name}</td>
+                    <td className="px-2.5 py-2.5 text-stone-600">
                       <div>{new Date(s.start_time).toLocaleString('en-PH', { month: 'short', day: 'numeric' })}</div>
                       <div className="text-[10px] text-stone-400">
                         {new Date(s.start_time).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
                         {s.end_time ? ` - ${new Date(s.end_time).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}` : " - Present"}
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-medium">₱{parseFloat(s.starting_float as string).toFixed(2)}</td>
-                    <td className="px-4 py-3 font-medium text-emerald-700">₱{getCashSales(s).toFixed(2)}</td>
-                    <td className="px-4 py-3 font-medium">₱{parseFloat(s.expected_cash as string).toFixed(2)}</td>
-                    <td className="px-4 py-3 font-bold text-stone-900">{s.actual_cash ? `₱${parseFloat(s.actual_cash as string).toFixed(2)}` : "-"}</td>
-                    <td className="px-4 py-3 font-bold">
+                    <td className="px-2.5 py-2.5 font-medium">₱{parseFloat(s.starting_float as string).toFixed(2)}</td>
+                    <td className="px-2.5 py-2.5 font-medium text-emerald-700">₱{getCashSales(s).toFixed(2)}</td>
+                    <td className="px-2.5 py-2.5 font-medium">₱{parseFloat(s.expected_cash as string).toFixed(2)}</td>
+                    <td className="px-2.5 py-2.5 font-medium text-amber-700">
+                      {Array.isArray(s.expenses) ? "₱0.00" : `₱${(Number(s.expenses) || 0).toFixed(2)}`}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-bold text-stone-900">{s.actual_cash ? `₱${parseFloat(s.actual_cash as string).toFixed(2)}` : "-"}</td>
+                    <td className="px-2.5 py-2.5 font-bold">
                       {s.difference != null ? (
                         <span className={parseFloat(s.difference as string) < 0 ? "text-rose-600" : parseFloat(s.difference as string) > 0 ? "text-blue-600" : "text-emerald-600"}>
                           {parseFloat(s.difference as string) === 0 ? "₱0.00" : parseFloat(s.difference as string) > 0 ? `+₱${parseFloat(s.difference as string).toFixed(2)}` : `-₱${Math.abs(parseFloat(s.difference as string)).toFixed(2)}`}
                         </span>
                       ) : "-"}
                     </td>
-                    <td className="px-4 py-3 text-center">{getStatusBadge(s.status)}</td>
-                    <td className="px-4 py-3 text-center">{getVerificationBadge(s)}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <td className="px-2.5 py-2.5 text-center">{getStatusBadge(s.status)}</td>
+                    <td className="px-2.5 py-2.5 text-center">{getVerificationBadge(s)}</td>
+                    <td className="px-2.5 py-2.5 text-right whitespace-nowrap">
                       {(() => {
                         const vStatus = (s.verification_status || 'unverified').toLowerCase();
                         if (s.status === 'open') return null;
@@ -349,10 +520,11 @@ export default function CashManagementPage() {
                               <button
                                 onClick={() => setShowVerifyModal(s.id)}
                                 disabled={verifyingId === s.id || flaggingId === s.id}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
-                                title="Sign off this shift as verified"
+                                className="p-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg shadow-sm mr-1"
+                                title="Verify shift"
+                                aria-label="Verify shift"
                               >
-                                Verify
+                                <CheckCircle2 className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => {
@@ -360,10 +532,11 @@ export default function CashManagementPage() {
                                   setFlagReason("");
                                 }}
                                 disabled={verifyingId === s.id || flaggingId === s.id}
-                                className="px-2.5 py-1.5 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5"
-                                title="Flag this shift for discrepancy"
+                                className="p-1.5 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 rounded-lg shadow-sm mr-1"
+                                title="Flag shift"
+                                aria-label="Flag shift"
                               >
-                                Flag
+                                <Flag className="w-3.5 h-3.5" />
                               </button>
                             </>
                           );
@@ -372,16 +545,16 @@ export default function CashManagementPage() {
                         return (
                           <button
                             onClick={() => openEditSignoff(s)}
-                            className="px-2.5 py-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 text-[10px] font-bold uppercase rounded-lg shadow-sm mr-1.5 inline-flex items-center gap-1"
+                            className="p-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 rounded-lg shadow-sm mr-1 inline-flex items-center"
                             title="Edit audit sign-off"
+                            aria-label="Edit audit sign-off"
                           >
-                            <Pencil className="w-3 h-3" />
-                            Edit Sign-off
+                            <Pencil className="w-3.5 h-3.5" />
                           </button>
                         );
                       })()}
-                      <button onClick={() => setSelectedShiftId(s.id)} className="p-1.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 text-[#800000] shadow-sm" title="View details">
-                        <Eye className="w-4 h-4" />
+                      <button onClick={() => setSelectedShiftId(s.id)} className="p-1.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 text-[#800000] shadow-sm" title="View details" aria-label="View shift details">
+                        <Eye className="w-3.5 h-3.5" />
                       </button>
                     </td>
                   </tr>
@@ -588,6 +761,7 @@ export default function CashManagementPage() {
 function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () => void }) {
   const [shift, setShift] = useState<CashShift | null>(null);
   const [transactions, setTransactions] = useState<CashTransaction[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [addingFloat, setAddingFloat] = useState(false);
   const [floatAmount, setFloatAmount] = useState("");
@@ -609,7 +783,16 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
       const data = await res.json();
       if (data.success) {
         setShift(data.shift);
-        setTransactions(data.transactions);
+        setTransactions(data.transactions ?? []);
+        // Expense rows: root array first, shift-attached fallback (contract
+        // tolerant — details payload may carry either).
+        const rows = Array.isArray(data.expenses)
+          ? data.expenses
+          : Array.isArray(data.shift?.expenses)
+            ? data.shift.expenses
+            : [];
+        // Wire rows are snake_case (mapExpense) — normalize to ExpenseItem.
+        setExpenses(normalizeExpenses(rows));
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
@@ -755,7 +938,7 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
               <div className="p-3 bg-stone-50 border-b border-stone-200 flex items-center gap-2 text-stone-600 font-bold text-sm">
                 <PhilippinePeso className="w-4 h-4" /> Reconciliation
               </div>
-              <div className="p-4 grid grid-cols-2 sm:grid-cols-5 gap-4 text-center divide-x divide-stone-100">
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-6 gap-4 text-center divide-x divide-stone-100">
                 <div>
                   <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Opening Float</p>
                   <p className="font-bold text-stone-700">₱{parseFloat(shift.starting_float as string).toFixed(2)}</p>
@@ -767,6 +950,10 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
                 <div>
                   <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Expected</p>
                   <p className="font-bold text-[#800000]">₱{parseFloat(shift.expected_cash as string).toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Expenses</p>
+                  <p className="font-bold text-amber-700">₱{shiftExpensesNet(shift).toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-bold uppercase text-stone-400 tracking-wider mb-1">Counted Cash</p>
@@ -819,6 +1006,79 @@ function ShiftDetailsModal({ shiftId, onClose }: { shiftId: string, onClose: () 
                           <td className="px-3 py-2 text-right font-bold text-stone-900">₱{parseFloat(t.amount as string).toFixed(2)}</td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Shift Expenses — drawer paid-outs + admin-attached rows */}
+            <div>
+              <h3 className="font-bold text-sm text-stone-800 mb-3 flex items-center gap-2">
+                <PhilippinePeso className="w-4 h-4 text-amber-600" /> Shift Expenses
+                <span className="ml-auto text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                  Net ₱{shiftExpensesNet({ expenses }).toFixed(2)}
+                </span>
+              </h3>
+              {expenses.length === 0 ? (
+                <div className="p-5 border border-stone-200 rounded-xl text-center text-sm text-stone-400 font-medium">
+                  No expenses recorded in this shift.
+                </div>
+              ) : (
+                <div className="border border-stone-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-stone-50 border-b border-stone-200">
+                      <tr>
+                        <th className="px-3 py-2 text-stone-500 font-bold">Time</th>
+                        <th className="px-3 py-2 text-stone-500 font-bold">Category</th>
+                        <th className="px-3 py-2 text-stone-500 font-bold">Details</th>
+                        <th className="px-3 py-2 text-stone-500 font-bold">Source</th>
+                        <th className="px-3 py-2 text-stone-500 font-bold">Status</th>
+                        <th className="px-3 py-2 text-stone-500 font-bold text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {expenses.map((row) => {
+                        const source = expenseSourceChip(row);
+                        const status = expenseStatusChip(row);
+                        const voided = row.status === "voided";
+                        return (
+                          <tr key={row.id} className="hover:bg-stone-50">
+                            <td className="px-3 py-2 text-stone-500 whitespace-nowrap">
+                              {new Date(row.expenseDate || row.createdAt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={expenseCategoryChip().className}>{row.category || "—"}</span>
+                            </td>
+                            <td className="px-3 py-2 max-w-[240px]">
+                              <div className="text-stone-700 font-semibold truncate">{row.reason || "—"}</div>
+                              {(row.note || row.payee) && (
+                                <div className="text-[10px] text-stone-500 mt-0.5">
+                                  {row.payee ? <>Payee: {row.payee}</> : null}
+                                  {row.payee && row.note ? " · " : ""}
+                                  {row.note ? <span className="italic">"{row.note}"</span> : null}
+                                </div>
+                              )}
+                              {row.createdByRole && (
+                                <div className="text-[10px] text-stone-400 mt-0.5">
+                                  By: {row.createdByName || "—"} ({row.createdByRole})
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={source.className}>{source.label}</span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={status.className} title={status.title}>{status.label}</span>
+                            </td>
+                            <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${voided ? "text-stone-400 line-through" : "text-stone-900"}`}>
+                              {voided
+                                ? `₱${parseFloat(row.amount as string).toFixed(2)}`
+                                : `₱${Math.abs(parseFloat(row.amount as string) || 0).toFixed(2)}`}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

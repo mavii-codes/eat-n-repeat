@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -12,6 +12,13 @@ import { useCustomerPortalMode } from '@/lib/config';
 import { resolveMenuImage } from '@/lib/menu-image';
 import { journalOrder, removeOfflineOrder } from '@/lib/offlineSync';
 import { getApiUrl } from '@/lib/config';
+import { parse2 } from '@/lib/customer/promo-format';
+import {
+  generatePickupSlots,
+  normalizePickupName,
+  pickupNameError,
+  PICKUP_PREP_BUFFER_MINUTES,
+} from '@/lib/pickup';
 import type { CustomerMenuItem } from '@/components/customer/MenuCard';
 
 export type { CustomerMenuItem } from '@/components/customer/MenuCard';
@@ -140,9 +147,32 @@ export function CartDrawer({
   // Checkout states
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
+  const [confirmPhone, setConfirmPhone] = useState('');
   const [address, setAddress] = useState('');
+  // Phase 3: permanent number + address book (online signed-in checkout).
+  // savedPhone null = not loaded yet OR none on file (see contactLoaded).
+  const [savedPhone, setSavedPhone] = useState<string | null>(null);
+  const [contactLoaded, setContactLoaded] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [confirmPhoneError, setConfirmPhoneError] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState<string | null>(null);
+  type SavedAddressOption = {
+    id: string;
+    address_name: string;
+    full_address: string;
+    is_default: number | boolean;
+  };
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddressOption[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string>('');
+  const [addingNewAddress, setAddingNewAddress] = useState(false);
+  const [newAddressLabel, setNewAddressLabel] = useState('');
   const [selectedServiceAreaId, setSelectedServiceAreaId] = useState('');
   const [tableNumber, setTableNumber] = useState('');
+  // Pick-Up / Take-Out details (pickup orders only; ignored for delivery/dine-in).
+  const [pickupName, setPickupName] = useState('');
+  const [pickupTime, setPickupTime] = useState('');
+  const [pickupNameErrorText, setPickupNameErrorText] = useState<string | null>(null);
+  const [pickupTimeErrorText, setPickupTimeErrorText] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'gcash' | 'cod' | null>(null);
   
   useEffect(() => {
@@ -151,11 +181,109 @@ export function CartDrawer({
     }
   }, [isLocalMode]);
 
+  const sessionUserId = (session as any)?.user?.id as string | undefined;
+  const sessionAccessToken = (session as any)?.accessToken as string | undefined;
+
+  const normalizePhoneInput = (v: string) => v.replace(/[\s-]/g, '').trim();
+  const isPhoneFormatValid = (v: string) => /^09\d{9}$/.test(normalizePhoneInput(v));
+
+  // Load the permanent number + address book when the drawer opens for a
+  // signed-in online customer. Guests and local counter mode keep the
+  // legacy manual-entry behavior below.
+  const refreshCheckoutContact = async () => {
+    if (isLocalMode || !session?.user || !sessionAccessToken) return;
+    try {
+      const [profileRes, addrRes] = await Promise.all([
+        fetch(`${getApiUrl()}/api/customer-settings`, {
+          headers: { Authorization: `Bearer ${sessionAccessToken}` },
+        }),
+        fetch(`${getApiUrl()}/api/customer-addresses`, {
+          headers: { Authorization: `Bearer ${sessionAccessToken}` },
+        }),
+      ]);
+      if (profileRes.ok) {
+        const profile = await profileRes.json().catch(() => null);
+        const stored =
+          typeof profile?.phone === 'string' && profile.phone.trim()
+            ? profile.phone.trim()
+            : null;
+        setSavedPhone(stored);
+      }
+      if (addrRes.ok) {
+        const list = await addrRes.json().catch(() => []);
+        if (Array.isArray(list)) {
+          const opts: SavedAddressOption[] = list
+            .filter((a: any) => a && a.id && a.full_address)
+            .map((a: any) => ({
+              id: String(a.id),
+              address_name: String(a.address_name || 'Saved address'),
+              full_address: String(a.full_address),
+              is_default: a.is_default,
+            }));
+          setSavedAddresses(opts);
+          const def =
+            opts.find((a) => a.is_default === 1 || a.is_default === true) ?? opts[0];
+          setSelectedAddressId((prev) => prev || (def ? def.id : ''));
+          setAddingNewAddress((prev) => (opts.length === 0 ? true : prev));
+        }
+      }
+    } catch {
+      // Backend unreachable — fall back to manual entry (offline journal).
+    } finally {
+      setContactLoaded(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setPhoneError(null);
+    setConfirmPhoneError(null);
+    setAddressError(null);
+    setPickupNameErrorText(null);
+    setPickupTimeErrorText(null);
+    refreshCheckoutContact();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, isLocalMode, sessionUserId, sessionAccessToken]);
+
+  // Pick-Up prefill: default the collector's name to the signed-in account
+  // name once the session is available; the customer can always edit it.
+  const accountName = ((session as any)?.user?.name as string | undefined)?.trim() || '';
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!accountName) return;
+    setPickupName((prev) => (prev.trim() ? prev : accountName));
+  }, [isOpen, accountName]);
+
+  // Today's selectable slots (Asia/Manila wall time), regenerated when the
+  // drawer opens or the fulfillment type changes. Empty = none left today.
+  const pickupSlots = useMemo(
+    () => generatePickupSlots(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isOpen, fulfillmentType],
+  );
+
+  // If a stored selection falls off the grid (time passed or drawer reopened
+  // later), clear it so a stale time can never be submitted.
+  useEffect(() => {
+    if (!pickupTime) return;
+    if (!pickupSlots.some((s) => s.value === pickupTime)) setPickupTime('');
+  }, [pickupSlots, pickupTime]);
+
+  // Pickup orders cannot be placed until the collector's name and a valid
+  // collection time are set (handleCheckout re-checks as defense-in-depth).
+  const pickupIncomplete =
+    fulfillmentType === 'pickup' && (pickupNameError(pickupName) !== null || !pickupTime);
+
   const [isPaymentExpanded, setIsPaymentExpanded] = useState(false);
+  // Promo code: the cart only PREVIEWS — the server is the sole discount
+  // authority. The cart sends the raw code string at checkout and never
+  // computes/adjusts any price itself; the quoted amount comes from
+  // POST /api/promos/validate (same rules the checkout re-checks).
   const [promoCode, setPromoCode] = useState('');
-  const [discountPercent, setDiscountPercent] = useState(0);
-  const [promoApplied, setPromoApplied] = useState(false);
-  const [promoError, setPromoError] = useState('');
+  const [promoValidating, setPromoValidating] = useState(false);
+  const [promoAppliedCode, setPromoAppliedCode] = useState<string | null>(null);
+  const [promoPreview, setPromoPreview] = useState<string | null>(null); // "30.00"
+  const [promoMessage, setPromoMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // amountDue is captured at checkout time (the persisted order total) so the
   // "Order Reserved" screen keeps showing the real total after the cart is
@@ -218,18 +346,100 @@ export function CartDrawer({
     }
   }
 
-  const discount = (subtotal * discountPercent) / 100;
+  // Server-quoted preview (parse2 handles "30.00"). Checkout re-resolves the
+  // code authoritatively; this preview uses the same server rules so the
+  // shown total stays truthful. Clamped locally to the item subtotal so a
+  // quoted amount can never exceed what the items are worth here.
+  const promoDiscountAmount = Math.min(
+    promoPreview != null ? parse2(promoPreview) : 0,
+    subtotal,
+  );
+  const discount = promoDiscountAmount;
   const total = Math.max(0, subtotal + deliveryFee - discount);
 
-  const handleApplyPromo = () => {
-    if (promoCode.trim().toUpperCase() === 'EATREPEAT' || promoCode.trim().toUpperCase() === 'MANGBEST') {
-      setDiscountPercent(15);
-      setPromoApplied(true);
-      setPromoError('');
-    } else {
-      setPromoError('Invalid code. Try "EATREPEAT" for 15% off!');
+  const applyPromo = async (rawCode: string) => {
+    const code = rawCode.trim();
+    if (!code) {
+      setPromoMessage('Enter a code first.');
+      return;
+    }
+    if (promoValidating) return;
+    setPromoValidating(true);
+    setPromoMessage(null);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (sessionAccessToken) headers.Authorization = `Bearer ${sessionAccessToken}`;
+      const channel = isLocalMode ? 'pos' : 'online';
+      const res = await fetch(`${getApiUrl()}/api/promos/validate`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ code, subtotal, channel }),
+      });
+      const data = await res.json().catch(() => null);
+      if (data?.ok) {
+        setPromoAppliedCode(String(data.code));
+        setPromoPreview(String(data.discount ?? '0.00'));
+        setPromoMessage(null);
+      } else {
+        setPromoAppliedCode(null);
+        setPromoPreview(null);
+        // Server copy verbatim (min-order, pause, login-required, etc.).
+        setPromoMessage(data?.message ?? "This code isn't valid");
+      }
+    } catch {
+      setPromoAppliedCode(null);
+      setPromoPreview(null);
+      setPromoMessage("We can't reach the server to check this code. Reconnect and try again.");
+    } finally {
+      setPromoValidating(false);
     }
   };
+
+  const clearPromo = () => {
+    setPromoAppliedCode(null);
+    setPromoPreview(null);
+    setPromoMessage(null);
+    setPromoCode('');
+  };
+
+  // Keep the preview truthful as the cart changes: re-run the validation
+  // whenever a code is applied and the item subtotal moved (min-order rules
+  // and percentage caps are live server rules, not cached math).
+  useEffect(() => {
+    if (!promoAppliedCode) return;
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (sessionAccessToken) headers.Authorization = `Bearer ${sessionAccessToken}`;
+        const channel = isLocalMode ? 'pos' : 'online';
+        const res = await fetch(`${getApiUrl()}/api/promos/validate`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ code: promoAppliedCode, subtotal, channel }),
+        });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (data?.ok) {
+          setPromoPreview(String(data.discount ?? '0.00'));
+        } else {
+          setPromoAppliedCode(null);
+          setPromoPreview(null);
+          setPromoMessage(data?.message ?? "This code isn't valid");
+        }
+      } catch {
+        if (cancelled) return;
+        // Offline: drop the applied code rather than show a bogus discount.
+        setPromoAppliedCode(null);
+        setPromoPreview(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promoAppliedCode, subtotal, fulfillmentType, isOpen]);
 
   // Add recommended addon to cart as a standalone item
   const handleAddRecommendedAddon = (addon: RecommendedAddon) => {
@@ -250,15 +460,82 @@ export function CartDrawer({
       return;
     }
 
+    // Phase 3: permanent mobile number (online checkout only — local
+    // counter mode keeps its legacy behavior). A saved number needs no
+    // input; first-timers must enter + confirm a valid 09 number.
+    const usingSavedPhone = !isLocalMode && !!savedPhone;
+    if (!isLocalMode) {
+      if (usingSavedPhone) {
+        setPhoneError(null);
+        setConfirmPhoneError(null);
+      } else {
+        const clean = normalizePhoneInput(phone);
+        const cleanConfirm = normalizePhoneInput(confirmPhone);
+        let blocked = false;
+        if (!clean) {
+          setPhoneError('Mobile number is required.');
+          blocked = true;
+        } else if (!isPhoneFormatValid(phone)) {
+          setPhoneError('Mobile number must be 11 digits starting with 09.');
+          blocked = true;
+        } else {
+          setPhoneError(null);
+        }
+        if (!cleanConfirm) {
+          setConfirmPhoneError('Please confirm your mobile number.');
+          blocked = true;
+        } else if (clean && cleanConfirm !== clean) {
+          setConfirmPhoneError('Mobile numbers do not match.');
+          blocked = true;
+        } else {
+          setConfirmPhoneError(null);
+        }
+        if (blocked) return;
+      }
+    }
+
+    // Phase 3: address book (online delivery for signed-in customers).
+    const useAddressBook = !isLocalMode && !!session?.user && fulfillmentType === 'delivery';
+    const selectedSaved =
+      useAddressBook && !addingNewAddress
+        ? savedAddresses.find((a) => a.id === selectedAddressId) ?? null
+        : null;
     if (fulfillmentType === 'delivery') {
       if (!selectedServiceAreaId) {
         alert('Please select your Delivery Area (Barangay/City)');
         return;
       }
-      if (!address.trim()) {
-        alert('Please enter a complete delivery address');
+      if (useAddressBook && selectedSaved) {
+        setAddressError(null);
+      } else if (!address.trim()) {
+        setAddressError('Please enter a complete delivery address.');
         return;
+      } else {
+        setAddressError(null);
       }
+    }
+
+    // Pick-Up / Take-Out details: collector's name + promised collection time.
+    // Only pickup orders validate/send these; delivery and dine-in ignore them.
+    if (fulfillmentType === 'pickup') {
+      let blocked = false;
+      const nameErr = pickupNameError(pickupName);
+      if (nameErr) {
+        setPickupNameErrorText(nameErr);
+        blocked = true;
+      } else {
+        setPickupNameErrorText(null);
+      }
+      if (!pickupTime) {
+        setPickupTimeErrorText('Please choose a pick-up time.');
+        blocked = true;
+      } else if (!pickupSlots.some((s) => s.value === pickupTime)) {
+        setPickupTimeErrorText('That pick-up time is no longer available. Please choose another.');
+        blocked = true;
+      } else {
+        setPickupTimeErrorText(null);
+      }
+      if (blocked) return;
     }
 
     if (!paymentMethod) {
@@ -292,15 +569,45 @@ export function CartDrawer({
       const { getApiUrl } = await import('@/lib/config');
       const accessToken = (session as any)?.accessToken as string | undefined;
 
+      const resolvedPhone = isLocalMode
+        ? phone.trim() || 'LocalGuest'
+        : usingSavedPhone
+          ? (savedPhone as string)
+          : normalizePhoneInput(phone) || '09170000000';
+      // Snapshot text for the order row + offline journal. For saved
+      // addresses the backend re-reads the book row (ownership-checked);
+      // the text here only feeds local displays.
+      const resolvedAddressText =
+        fulfillmentType === 'dine-in'
+          ? tableNumber || 'Counter'
+          : selectedSaved
+            ? selectedSaved.full_address
+            : address.trim() || null;
+
       const orderDetails = {
         orderNumber,
         customerName: finalCustomerName,
-        phone: phone.trim() || (isLocalMode ? 'LocalGuest' : '09170000000'),
-        address: fulfillmentType === 'dine-in' ? (tableNumber || 'Counter') : (address.trim() || null),
+        phone: resolvedPhone,
+        // First-timer proof: the backend requires the confirmation match
+        // whenever the customer has no saved number. Never sent when the
+        // stored (permanent) number is in effect.
+        ...(usingSavedPhone ? {} : { confirmPhone: normalizePhoneInput(confirmPhone) }),
+        address: resolvedAddressText,
+        ...(selectedSaved ? { savedAddressId: selectedSaved.id } : {}),
+        ...(!selectedSaved && useAddressBook && newAddressLabel.trim()
+          ? { addressLabel: newAddressLabel.trim() }
+          : {}),
         serviceAreaId: fulfillmentType === 'delivery' ? selectedServiceAreaId : null,
+        // Pick-Up / Take-Out details (null for delivery/dine-in; the backend
+        // ignores these fields on other order types anyway).
+        pickupName: fulfillmentType === 'pickup' ? normalizePickupName(pickupName) : null,
+        pickupAt: fulfillmentType === 'pickup' ? pickupTime : null,
         type: fulfillmentType,
         items: orderItemsSummary,
         subtotal,
+        // Promos travel as the raw code string only. The backend resolves
+        // validity and computes the discount; totals sent here are ignored.
+        ...(promoAppliedCode ? { promoCode: promoAppliedCode } : {}),
         // Cart total WITHOUT the add-on portion: the backend re-prices every
         // selected add-on from the database, so DevTools edits can't change it.
         baseSubtotal,
@@ -349,7 +656,7 @@ export function CartDrawer({
         addDeliveryOrder({
           orderNumber: data.orderNumber || orderNumber,
           customerName: finalCustomerName,
-          phone: phone.trim() || '09170000000',
+          phone: resolvedPhone,
           address: address.trim(),
           serviceAreaId: selectedServiceAreaId || 'sa-1',
           items: orderItemsSummary,
@@ -375,6 +682,12 @@ export function CartDrawer({
           // Preserve the fulfillment type so staff views show PICK-UP
           // instead of falling back to dine-in. DB type is unchanged.
           orderType: fulfillmentType,
+          // Pick-Up / Take-Out details carried onto the optimistic local row
+          // so the "Pick up by" line shows immediately, before the next
+          // server poll replaces the row.
+          ...(fulfillmentType === 'pickup'
+            ? { pickupName: normalizePickupName(pickupName), pickupAt: pickupTime }
+            : {}),
         });
         // NOTE: no journalOrder here — the server just accepted this order
         // (see delivery branch above). Offline journaling happens only in the
@@ -395,6 +708,14 @@ export function CartDrawer({
         amountDue: Number.isFinite(persistedTotal) ? persistedTotal : total,
       });
       onClearCart();
+      // First order just persisted the permanent number / a new address —
+      // reload them so the next checkout shows read-only + pre-filled data.
+      setConfirmPhone('');
+      setPhoneError(null);
+      setConfirmPhoneError(null);
+      setAddingNewAddress(false);
+      setNewAddressLabel('');
+      refreshCheckoutContact();
     } catch (error: any) {
       console.error('Checkout error:', error);
       setIsSubmitting(false);
@@ -415,12 +736,14 @@ export function CartDrawer({
         // Offline: the backend never saw this order, so journal it locally
         // for the background sync. Same id => retries overwrite, never duplicate.
         // Address + customer notes mirror orderDetails above so the replayed
-        // order keeps them (the drain writes both columns).
+        // order keeps them (the drain writes both columns). Promo codes stay
+        // UNJOURNALED: discounts are only valid online, so the replayed total
+        // is the plain (undiscounted) amount and the code is cleared here.
         journalOrder({
           id: orderNumber,
           time: new Date().toISOString(),
           items: orderItemsSummary,
-          total,
+          total: Math.max(0, subtotal + deliveryFee),
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
           notes: 'cart-offline',
@@ -764,29 +1087,57 @@ export function CartDrawer({
         </div>
       )}
 
-      {/* Promo Code Strip */}
+      {/* Promo Code Strip — server-validated preview (the checkout re-checks it) */}
                 <div className="pt-2 border-t border-stone-200">
                   <label className="text-xs font-bold text-stone-800 block mb-1">Promo Code</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g. EATREPEAT"
-                      value={promoCode}
-                      onChange={(e) => setPromoCode(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-stone-300 rounded-xl text-xs uppercase font-mono focus:ring-2 focus:ring-rose-900 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleApplyPromo}
-                      className="px-4 py-2 bg-stone-900 text-white rounded-xl text-xs font-bold hover:bg-stone-800 transition"
-                    >
-                      Apply
-                    </button>
-                  </div>
-                  {promoApplied && (
-                    <p className="text-[11px] font-semibold text-emerald-600 mt-1">✓ Promo code applied! 15% discount.</p>
+                  {promoAppliedCode ? (
+                    <div className="flex items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
+                      <div>
+                        <p className="text-xs font-black text-emerald-700">
+                          ✓ {promoAppliedCode} applied
+                          {promoPreview && discount > 0 ? (
+                            <span className="font-semibold"> — you save ₱{discount.toFixed(2)}</span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearPromo}
+                        className="text-[11px] font-bold text-stone-500 hover:text-rose-600 underline"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Enter promo code"
+                        value={promoCode}
+                        onChange={(e) => setPromoCode(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            applyPromo(promoCode);
+                          }
+                        }}
+                        className="flex-1 px-3 py-2 border border-stone-300 rounded-xl text-xs uppercase font-mono focus:ring-2 focus:ring-rose-900 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => applyPromo(promoCode)}
+                        disabled={promoValidating || !promoCode.trim()}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+                          promoValidating || !promoCode.trim()
+                            ? 'bg-stone-300 text-stone-500 cursor-not-allowed'
+                            : 'bg-stone-900 text-white hover:bg-stone-800'
+                        }`}
+                      >
+                        {promoValidating ? 'Checking…' : 'Apply'}
+                      </button>
+                    </div>
                   )}
-                  {promoError && <p className="text-[11px] text-rose-600 mt-1">{promoError}</p>}
+                  {promoMessage && <p className="text-[11px] font-semibold text-rose-600 mt-1">{promoMessage}</p>}
                 </div>
 
                 {/* Customer Checkout Form */}
@@ -806,19 +1157,87 @@ export function CartDrawer({
                     />
                   </div>
 
-                  {!isLocalMode && (
-                    <div>
-                      <label className="text-xs font-semibold text-stone-700 block mb-1">Mobile Phone *</label>
-                      <input
-                        type="tel"
-                        required
-                        placeholder="0917XXXXXXX"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none"
-                      />
-                    </div>
-                  )}
+                  {!isLocalMode &&
+                    (savedPhone ? (
+                      <div>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">
+                          Mobile Number
+                        </label>
+                        {/* Permanent number: plain read-only text, no edit control. */}
+                        <p className="w-full px-3 py-2 text-xs font-extrabold text-stone-900">
+                          {savedPhone}
+                        </p>
+                        <p className="text-[10px] text-stone-400 mt-0.5">
+                          Saved to your account. Only an admin can change it.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="text-xs font-semibold text-stone-700 block mb-1">
+                            Mobile Number *
+                          </label>
+                          <input
+                            type="tel"
+                            required
+                            placeholder="0917XXXXXXX"
+                            value={phone}
+                            onChange={(e) => {
+                              setPhone(e.target.value);
+                              if (phoneError) setPhoneError(null);
+                            }}
+                            onBlur={() => {
+                              if (!normalizePhoneInput(phone)) {
+                                setPhoneError('Mobile number is required.');
+                              } else if (!isPhoneFormatValid(phone)) {
+                                setPhoneError('Mobile number must be 11 digits starting with 09.');
+                              }
+                            }}
+                            className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none ${
+                              phoneError ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
+                            }`}
+                          />
+                          {phoneError && (
+                            <p className="text-[11px] text-red-600 font-semibold mt-1">{phoneError}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-stone-700 block mb-1">
+                            Confirm Mobile Number *
+                          </label>
+                          <input
+                            type="tel"
+                            required
+                            placeholder="Re-enter mobile number"
+                            value={confirmPhone}
+                            onChange={(e) => {
+                              setConfirmPhone(e.target.value);
+                              if (confirmPhoneError) setConfirmPhoneError(null);
+                            }}
+                            onBlur={() => {
+                              const clean = normalizePhoneInput(phone);
+                              const cleanConfirm = normalizePhoneInput(confirmPhone);
+                              if (!cleanConfirm) {
+                                setConfirmPhoneError('Please confirm your mobile number.');
+                              } else if (clean && cleanConfirm !== clean) {
+                                setConfirmPhoneError('Mobile numbers do not match.');
+                              }
+                            }}
+                            className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none ${
+                              confirmPhoneError ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
+                            }`}
+                          />
+                          {confirmPhoneError && (
+                            <p className="text-[11px] text-red-600 font-semibold mt-1">
+                              {confirmPhoneError}
+                            </p>
+                          )}
+                          <p className="text-[10px] text-stone-400 mt-1">
+                            Saved permanently to your account on your first order.
+                          </p>
+                        </div>
+                      </>
+                    ))}
 
                   {fulfillmentType === 'delivery' && (
                     <>
@@ -840,14 +1259,124 @@ export function CartDrawer({
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-stone-700 block mb-1">Delivery Address *</label>
-                        <textarea
-                          required
-                          rows={2}
-                          placeholder="Complete street address, barangay, landmarks"
-                          value={address}
-                          onChange={(e) => setAddress(e.target.value)}
-                          className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none mt-3"
+                        {contactLoaded && savedAddresses.length > 0 && !addingNewAddress ? (
+                          <>
+                            <select
+                              value={selectedAddressId}
+                              onChange={(e) => setSelectedAddressId(e.target.value)}
+                              className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none bg-white"
+                            >
+                              {savedAddresses.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.address_name} — {a.full_address}
+                                  {a.is_default === 1 || a.is_default === true ? ' (Default)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setAddingNewAddress(true)}
+                              className="mt-1.5 text-[11px] font-extrabold text-[#B91C1C] hover:underline"
+                            >
+                              + Add New Address
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {contactLoaded && savedAddresses.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setAddingNewAddress(false)}
+                                className="mb-1.5 text-[11px] font-extrabold text-stone-500 hover:underline"
+                              >
+                                ‹ Use saved address
+                              </button>
+                            )}
+                            {session?.user && !isLocalMode && (
+                              <input
+                                type="text"
+                                placeholder="Label (e.g. Home, Work, School)"
+                                value={newAddressLabel}
+                                onChange={(e) => setNewAddressLabel(e.target.value)}
+                                className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none mb-1.5"
+                              />
+                            )}
+                            <textarea
+                              required
+                              rows={2}
+                              placeholder="Complete street address, barangay, landmarks"
+                              value={address}
+                              onChange={(e) => {
+                                setAddress(e.target.value);
+                                if (addressError) setAddressError(null);
+                              }}
+                              className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none mt-1 ${
+                                addressError ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
+                              }`}
+                            />
+                            {addressError && (
+                              <p className="text-[11px] text-red-600 font-semibold mt-1">{addressError}</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {fulfillmentType === 'pickup' && (
+                    <>
+                      <div>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">Pick up by (Name) *</label>
+                        <input
+                          type="text"
+                          placeholder="Who will pick up this order?"
+                          value={pickupName}
+                          maxLength={60}
+                          onChange={(e) => {
+                            setPickupName(e.target.value);
+                            if (pickupNameErrorText) setPickupNameErrorText(null);
+                          }}
+                          onBlur={() => setPickupNameErrorText(pickupNameError(pickupName))}
+                          className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none ${
+                            pickupNameErrorText ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
+                          }`}
                         />
+                        {pickupNameErrorText && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">{pickupNameErrorText}</p>
+                        )}
+                        <p className="text-[10px] text-stone-400 mt-1">
+                          The person collecting this order — we&apos;ll write this name on the receipt.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-stone-700 block mb-1">Pick-up Time *</label>
+                        {pickupSlots.length > 0 ? (
+                          <select
+                            value={pickupTime}
+                            onChange={(e) => {
+                              setPickupTime(e.target.value);
+                              if (pickupTimeErrorText) setPickupTimeErrorText(null);
+                            }}
+                            className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none bg-white ${
+                              pickupTimeErrorText ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
+                            }`}
+                          >
+                            <option value="" disabled>Select a pick-up time</option>
+                            {pickupSlots.map((slot) => (
+                              <option key={slot.value} value={slot.value}>{slot.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-[11px] text-amber-700 font-semibold bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                            No pick-up slots remain today. Please try again tomorrow.
+                          </p>
+                        )}
+                        {pickupTimeErrorText && (
+                          <p className="text-[11px] text-red-600 font-semibold mt-1">{pickupTimeErrorText}</p>
+                        )}
+                        <p className="text-[10px] text-stone-400 mt-1">
+                          Earliest {PICKUP_PREP_BUFFER_MINUTES} minutes from now, in 15-minute steps.
+                        </p>
                       </div>
                     </>
                   )}
@@ -999,9 +1528,9 @@ export function CartDrawer({
                   </div>
                 )}
 
-                {discount > 0 && (
+                {promoAppliedCode && discount > 0 && (
                   <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>Discount (15%)</span>
+                    <span>Discount · {promoAppliedCode}</span>
                     <span>-₱{discount.toFixed(2)}</span>
                   </div>
                 )}
@@ -1016,9 +1545,9 @@ export function CartDrawer({
                 <button
                   type="submit"
                   form="checkout-form"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || pickupIncomplete}
                   className={`w-full py-3.5 px-4 text-white rounded-xl font-black text-sm shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2 ${
-                    isSubmitting 
+                    isSubmitting || pickupIncomplete
                       ? 'bg-stone-400 cursor-not-allowed' 
                       : 'bg-[#B91C1C] hover:bg-[#991B1B]'
                   }`}

@@ -5,28 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Image from "next/image";
 import { Lock, Eye, EyeOff, ShieldCheck, User, Package, Users } from "lucide-react";
-import { getApiUrl } from "@/lib/config";
-
-function ServerFootnote() {
-  const [url, setUrl] = useState<string>("");
-  useEffect(() => {
-    try {
-      setUrl(getApiUrl());
-    } catch {
-      setUrl("");
-    }
-  }, []);
-  if (!url) return null;
-  return (
-    <div className="mt-6 text-center">
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#F4EDE4] border border-[#DDD0C0] text-[12px] font-mono shadow-sm">
-        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-        <span className="font-bold text-[#8B2E2E]">Server:</span>
-        <span className="font-semibold text-[#2D2A26]">{url}</span>
-      </span>
-    </div>
-  );
-}
 
 export default function LoginPage() {
   const { user, login, loading: authLoading, error, clearError } = useAuth();
@@ -37,14 +15,26 @@ export default function LoginPage() {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  // Note shown after a successful forced password change — the change screen
+  // routes here with /login?password=changed once the session is cleared.
+  const [passwordChangedNote] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("password") === "changed";
+  });
+
   // Clear context error on mount
   useEffect(() => {
     clearError();
   }, [clearError]);
 
-  // Redirect if already logged in
+  // Redirect if already logged in. A session flagged mustChangePassword
+  // goes straight to the forced password change screen instead.
   useEffect(() => {
     if (!authLoading && user) {
+      if (user.mustChangePassword === true) {
+        router.replace("/change-password");
+        return;
+      }
       if (user.role === "admin") {
         router.replace("/admin");
       } else {
@@ -218,6 +208,15 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {passwordChangedNote && (
+            <div className="mb-6 rounded-lg p-3.5 text-[14px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 flex items-center gap-3 justify-center lg:justify-start">
+              <ShieldCheck className="w-5 h-5 shrink-0" />
+              <span>
+                Your password was changed. Sign in with your new password.
+              </span>
+            </div>
+          )}
+
           {errorMsg && (
             <div className="mb-6 rounded-lg p-3.5 text-[14px] font-semibold text-[#8B2E2E] bg-red-50 border border-red-100 flex items-center gap-3 justify-center lg:justify-start">
               <ShieldCheck className="w-5 h-5 shrink-0" />
@@ -328,10 +327,9 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Server footnote: which backend this device logs into. Both
-              devices must show the same URL or cross-device login is
-              impossible (separate databases). */}
-          <ServerFootnote />
+          <p className="mt-6 text-center text-[12px] font-semibold text-[#2D2A26]/60">
+            Secure owner &amp; staff sign-in
+          </p>
           
         </div>
       </div>

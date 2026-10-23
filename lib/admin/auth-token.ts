@@ -43,6 +43,31 @@ export function isTokenValid(token: string | null | undefined): boolean {
 }
 
 /**
+ * Returns the `role` claim of the given (or the currently stored) JWT.
+ * Returns null for tokens without a role claim (e.g. customer JWTs).
+ * Client-side convenience only — the server remains the authority.
+ */
+export function getTokenRole(token: string = getStaffOrAdminToken() ?? ""): string | null {
+  if (!token) return null;
+  try {
+    const base64Url = token.split(".")[1];
+    if (!base64Url) return null;
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(
+      decodeURIComponent(
+        atob(base64)
+          .split("")
+          .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+          .join("")
+      )
+    );
+    return typeof payload?.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Returns a valid staff or admin token from localStorage.
  * Checks:
  * 1. `eat-n-repeat-auth-session` (parsed.token)
@@ -129,4 +154,34 @@ export function clearAuthTokens(): void {
     localStorage.removeItem(STAFF_TOKEN_KEY);
     localStorage.removeItem(ADMIN_TOKEN_KEY);
   } catch {}
+}
+
+/**
+ * True when the stored session was flagged by the backend as
+ * mustChangePassword (forced first-sign-in password change). Read from
+ * storage — not context state — so guards work after every reload.
+ */
+export function sessionMustChangePassword(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return parsed?.mustChangePassword === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when an API body is the backend's forced-password-change rejection
+ * (403 { code: "MUST_CHANGE_PASSWORD" }). Guard locations route the session
+ * to /change-password when this fires.
+ */
+export function isMustChangePasswordBody(body: unknown): boolean {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    (body as { code?: unknown }).code === "MUST_CHANGE_PASSWORD"
+  );
 }

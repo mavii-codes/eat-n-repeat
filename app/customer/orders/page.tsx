@@ -154,11 +154,22 @@ function OrdersPageContent() {
                 subtotal: o.subtotal,
                 deliveryFee: o.deliveryFee,
                 total: o.total,
+                // Real promo snapshot (backend maps legacy rows to zero).
+                discount: Number(o.discount) || 0,
+                promoCode: o.promoCode ?? null,
+                subtotalBeforeDiscount:
+                  o.subtotalBeforeDiscount != null
+                    ? Number(o.subtotalBeforeDiscount)
+                    : Number(o.subtotal) || 0,
                 paymentMethod: o.paymentMethod || 'Unknown',
                 paymentStatus: o.paymentStatus ?? null,
                 customerName: o.customerName || 'Valued Customer',
                 customerPhone: o.phone || '',
                 customerAddress: o.address || '',
+                // Pick-Up / Take-Out details (null for delivery/dine-in and
+                // legacy pickup rows; OrderCard falls back to customerName).
+                pickupName: o.pickupName ?? null,
+                pickupAt: o.pickupAt ?? null,
                 items: [{ name: o.items ? o.items.replace(/^,\s*/, '') : 'Signature Menu Items', quantity: 1, price: o.subtotal }],
                 deliveryType: o.type === 'dine-in' ? 'dine-in' : o.type === 'pickup' ? 'pickup' : 'delivery',
               };

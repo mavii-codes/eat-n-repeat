@@ -1,0 +1,26 @@
+
+> eat-n-repeat-frontend@0.1.0 start
+> next start
+
+▲ Next.js 16.2.9
+- Local:         http://localhost:3000
+- Network:       http://192.168.56.1:3000
+✓ Ready in 976ms
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}

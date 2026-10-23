@@ -112,8 +112,10 @@ export default function CustomerHome() {
       const categoryName = categoryObj?.name || 'General';
 
       const liveSummary = getAverageRating(item.id);
-      const rating = liveSummary.totalReviews > 0 ? liveSummary.averageRating : 4.7 + (index % 3) * 0.1;
-      const reviews = liveSummary.totalReviews > 0 ? liveSummary.totalReviews : 20 + index * 7;
+      // Backend-provided GLOBAL aggregate, rendered as-is. Zero reviews stay
+      // honest (0 / 0, "No reviews yet") — never a fabricated 4.7 fallback.
+      const rating = liveSummary.averageRating;
+      const reviews = liveSummary.totalReviews;
 
       const isBestseller = ['mi-1', 'mi-4', 'mi-5', 'mi-7'].includes(item.id);
       const isStaffPick = ['mi-2'].includes(item.id);
