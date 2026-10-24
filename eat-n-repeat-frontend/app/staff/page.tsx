@@ -12,6 +12,7 @@ import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { CafeQrPanel } from "@/components/staff/CafeQrPanel";
+import { useIsLocalBackend } from "@/lib/config";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
@@ -254,6 +255,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     fetchOrderHistoryPage,
   } = useAdminData();
   const router = useRouter();
+  const isLocal = useIsLocalBackend();
   const [activeTab, setActiveTab] = useState<StaffTab>("dashboard");
 
   // Menu Tab State
@@ -593,21 +595,23 @@ function OrderTableScroll({ className, children }: { className?: string; childre
       ),
     });
 
-    list.push({
-      id: "qr",
-      label: "Café QR",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-          <rect x="3" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="3" width="7" height="7" rx="1" />
-          <rect x="3" y="14" width="7" height="7" rx="1" />
-          <path d="M14 14h3v3h-3zM20 14v.01M14 20v.01M18 18h3v3h-3z" />
-        </svg>
-      ),
-    });
+    if (!isLocal) {
+      list.push({
+        id: "qr",
+        label: "Café QR",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <path d="M14 14h3v3h-3zM20 14v.01M14 20v.01M18 18h3v3h-3z" />
+          </svg>
+        ),
+      });
+    }
 
     return list;
-  }, [user]);
+  }, [user, isLocal]);
 
   // Dynamic Sales Calculations for Daily Summary
   const salesSummary = useMemo(() => {

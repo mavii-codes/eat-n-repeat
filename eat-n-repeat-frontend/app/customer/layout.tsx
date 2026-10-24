@@ -5,6 +5,7 @@ import { ReviewsProvider } from "@/context/ReviewsContext";
 import { CustomerNotificationProvider } from "@/context/CustomerNotificationContext";
 import { CustomerChatBot } from "@/components/customer/CustomerChatBot";
 import { NextAuthProvider } from "@/providers/NextAuthProvider";
+import { OfflineCustomerGuard } from "@/components/customer/OfflineCustomerGuard";
 import "@/styles/customer.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -20,8 +21,9 @@ export default function CustomerLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="customer-portal min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col font-sans">
-      <NextAuthProvider>
-        <CartProvider>
+      <OfflineCustomerGuard>
+        <NextAuthProvider>
+          <CartProvider>
             <ReviewsProvider>
               <CustomerNotificationProvider>
                 {children}
@@ -29,7 +31,8 @@ export default function CustomerLayout({
               </CustomerNotificationProvider>
             </ReviewsProvider>
           </CartProvider>
-      </NextAuthProvider>
+        </NextAuthProvider>
+      </OfflineCustomerGuard>
     </div>
   );
 }

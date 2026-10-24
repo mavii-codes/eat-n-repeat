@@ -221,66 +221,6 @@ html, body {
   text-decoration: underline;
 }
 
-/* ---- QR Panel ---- */
-.qr-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  box-shadow: var(--shadow);
-}
-
-.qr-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.qr-panel-header h3 {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.btn-close {
-  background: none;
-  border: none;
-  font-size: 22px;
-  cursor: pointer;
-  color: var(--text-muted);
-  padding: 0 4px;
-  line-height: 1;
-}
-
-.btn-close:hover {
-  color: var(--text);
-}
-
-.qr-content {
-  text-align: center;
-}
-
-.qr-content img {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 12px;
-}
-
-.qr-instructions {
-  font-size: 13px;
-  color: var(--text-muted);
-  max-width: 400px;
-  margin: 0 auto 8px;
-  line-height: 1.6;
-}
-
-.qr-url {
-  font-size: 11px;
-  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-  color: var(--maroon);
-  word-break: break-all;
-}
-
 /* ---- Log Section ---- */
 .log-section {
   background: var(--surface);

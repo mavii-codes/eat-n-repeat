@@ -6,7 +6,6 @@ const os = require("os");
 const net2 = require("net");
 const { spawn, execSync } = require("child_process");
 const fs = require("fs");
-const QRCode = require("qrcode");
 
 // ---------------------------------------------------------------------------
 // Project root resolution.
@@ -468,7 +467,7 @@ function killProcessTree(child) {
 // ---------------------------------------------------------------------------
 function spawnBackend(lanIP) {
   log("Starting backend on port " + BACKEND_PORT + "...");
-  const env = Object.assign({}, process.env, {});
+  const env = Object.assign({}, process.env, { LOCAL_BACKEND: "true" });
 
   backendProcess = spawn("npm", ["run", "dev"], {
     cwd: BACKEND_DIR,
@@ -691,29 +690,6 @@ ipcMain.handle("stop-system", async function () {
   log("System stopped.");
   broadcastStatus();
   return { ok: true, message: "System stopped." };
-});
-
-ipcMain.handle("get-qr", async function () {
-  const lanIP = detectLANIP();
-  const customerURL = "http://" + lanIP + ":" + FRONTEND_PORT + "/customer";
-
-  try {
-    const dataURL = await QRCode.toDataURL(customerURL, {
-      width: 300,
-      margin: 2,
-      color: {
-        dark: "#800000",
-        light: "#FFFDD0",
-      },
-    });
-    return {
-      ok: true,
-      dataURL: dataURL,
-      url: customerURL,
-    };
-  } catch (err) {
-    return { ok: false, message: "QR generation failed: " + err.message };
-  }
 });
 
 ipcMain.handle("get-project-root", async function () {

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { isLocalBackend, isDevOnlinePortal } from "@/lib/config";
 
 export default function Home() {
   const { loading } = useAuth();
@@ -10,7 +11,11 @@ export default function Home() {
 
   useEffect(() => {
     if (!loading) {
-      router.replace("/customer");
+      if (isLocalBackend() && !isDevOnlinePortal()) {
+        router.replace("/login");
+      } else {
+        router.replace("/customer");
+      }
     }
   }, [loading, router]);
 

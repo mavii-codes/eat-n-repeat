@@ -1,46 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-
-/**
- * Café QR entry card (Staff Portal).
- *
- * One STATIC printed QR cannot serve both environments: a URL either
- * resolves through internet DNS (online domain — dead without internet) or
- * through the café LAN (LAN IP — unreachable outside the café's Wi-Fi).
- * Faking single-QR auto-detection is technically impossible, so this card
- * carries the two honest entry points side by side instead:
- *
- *   1. ONLINE — fixed public URL, works anywhere with internet.
- *   2. CAFÉ WI-FI — http://<this-device's-LAN-IP>:3000/customer, derived at
- *      runtime from the hostname the staff browser itself used, so it is
- *      never hardcoded and never localhost (phones cannot reach localhost).
- *      Shown only when this page was opened via a LAN IP; otherwise a
- *      guidance note explains how to reveal it.
- *
- * No backend calls, no auth changes, no ordering logic. The Electron
- * launcher's own LAN QR is untouched and remains the offline fallback.
- */
 
 // Public entry URL. Overridable for staging via env; the default is the
 // canonical production customer portal (NOT a localhost/LAN address).
 const ONLINE_CUSTOMER_URL =
   process.env.NEXT_PUBLIC_ONLINE_CUSTOMER_URL ||
   'https://www.eatnrepeat.online/customer';
-
-function getLanHostname(): string | null {
-  if (typeof window === 'undefined') return null;
-  const h = window.location.hostname.trim();
-  if (
-    h.startsWith('192.168.') ||
-    h.startsWith('10.') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(h)
-  ) {
-    return h;
-  }
-  return null;
-}
 
 function QrBlock({
   title,
@@ -64,20 +30,6 @@ function QrBlock({
 }
 
 export function CafeQrPanel() {
-  // SSR-safe: hostname is client-only, so the LAN block resolves after mount
-  // (avoids hydration mismatch; online QR renders immediately).
-  const [lanHost, setLanHost] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setLanHost(getLanHostname());
-    setMounted(true);
-  }, []);
-
-  const lanUrl = lanHost
-    ? `http://${lanHost}:${window.location.port || '3000'}/customer`
-    : null;
-
   return (
     <div className="space-y-6">
       <style>{`@media print {
@@ -95,7 +47,7 @@ export function CafeQrPanel() {
           Café QR Code
         </h1>
         <p className="text-sm text-muted">
-          One card, two entries: online for customers with internet, café Wi-Fi for offline ordering.
+          Online Customer Portal QR code for customer mobile menu & ordering.
         </p>
       </div>
 
@@ -109,7 +61,7 @@ export function CafeQrPanel() {
         </button>
       </div>
 
-      {/* Print area: café name + codes only — no staff/admin navigation or secrets. */}
+      {/* Print area: café name + code only — no staff/admin navigation or secrets. */}
       <div id="cafe-qr-print" className="rounded-3xl border border-amber-200/80 bg-[#FFF8F0] p-6 sm:p-10 shadow-2xs">
         <div className="text-center mb-6">
           <h2 className="font-serif text-3xl sm:text-4xl font-black text-[#451a03]">
@@ -117,40 +69,16 @@ export function CafeQrPanel() {
           </h2>
           <p className="mt-2 text-sm sm:text-base font-bold text-stone-700">Scan to Order</p>
           <p className="mt-1 text-xs text-stone-500 font-medium">
-            Connect to the Caf&eacute; Wi-Fi when using the local ordering system.
+            Scan to view the menu and place your order online.
           </p>
         </div>
 
-        <div
-          className={`grid gap-6 ${
-            mounted && lanUrl ? 'md:grid-cols-2' : 'md:grid-cols-1 max-w-md mx-auto'
-          }`}
-        >
+        <div className="max-w-md mx-auto">
           <QrBlock
             title="Online Ordering"
-            description="Scan with internet access — works on mobile data or any Wi-Fi, inside or outside the café."
+            description="Scan with internet access — works on mobile data or any Wi-Fi."
             url={ONLINE_CUSTOMER_URL}
           />
-          {mounted &&
-            (lanUrl ? (
-              <QrBlock
-                title="Café Wi-Fi Ordering"
-                description="No internet? Join the café Wi-Fi and scan — orders go straight to the local system."
-                url={lanUrl}
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-amber-300 bg-white/60 p-6 text-center">
-                <h3 className="font-black text-sm text-[#451a03] uppercase tracking-wider">
-                  Café Wi-Fi QR unavailable here
-                </h3>
-                <p className="text-xs text-stone-500 leading-relaxed">
-                  This page was not opened through the café&rsquo;s LAN address, so no
-                  local QR can be generated (a localhost code would not scan on
-                  customer phones). Open the Staff Portal via the café&rsquo;s LAN IP
-                  (e.g. http://192.168.1.23:3000/staff) to reveal the offline code.
-                </p>
-              </div>
-            ))}
         </div>
       </div>
     </div>

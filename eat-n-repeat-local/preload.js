@@ -12,9 +12,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   stopSystem: function () {
     return ipcRenderer.invoke("stop-system");
   },
-  getQR: function () {
-    return ipcRenderer.invoke("get-qr");
-  },
   openURL: function (url) {
     return ipcRenderer.invoke("open-url", url);
   },
