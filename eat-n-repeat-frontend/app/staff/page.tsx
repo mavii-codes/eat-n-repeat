@@ -16,6 +16,7 @@ import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import { ProofOfDeliveryModal } from "@/components/admin/ProofOfDeliveryModal";
 import { useNetworkStatus } from "@/context/NetworkStatusContext";
 import { isLocalBackend, isDevOnlinePortal } from "@/lib/config";
+import toast from "react-hot-toast";
 import {
   AdminButton,
   AdminField,
@@ -542,20 +543,20 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   useEffect(() => {
     const onStorageFull = () => {
       const msg =
-        "Not enough local storage — your last change may not have saved. Remove the photo or clear old orders, then try again.";
+        "Browser storage capacity reached. Old local caches have been automatically cleaned.";
       if (menuModalOpen) {
         setMenuSubmitError(msg);
       } else {
-        alert(msg);
+        toast.error(msg);
       }
     };
     const onMenuSyncFailed = () => {
       const msg =
-        "Saved on this device, but the server rejected it (login may have expired). Please log in again — otherwise other devices won't see this change.";
+        "Saved on this device, but the server rejected it (login may have expired). Please log in again.";
       if (menuModalOpen) {
         setMenuSubmitError(msg);
       } else {
-        alert(msg);
+        toast.error(msg);
       }
     };
     window.addEventListener("eat-n-repeat:storage-full", onStorageFull);

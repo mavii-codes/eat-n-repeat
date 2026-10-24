@@ -833,6 +833,38 @@ type AdminDataContextValue = AdminDataState & {
 
 const AdminDataContext = createContext<AdminDataContextValue | null>(null);
 
+/**
+ * Sanitizes and trims AdminData before saving to browser localStorage.
+ * Browser localStorage has a strict ~5MB limit per origin.
+ *
+ * 1. Delivery orders are online-only and saved in MySQL. Their heavy base64
+ *    proof-of-delivery photos and signatures must NEVER be stored in localStorage.
+ * 2. Trims deliveryOrders (max 30 recent) and storeOrders (max 50 recent).
+ * 3. Keeps essential catalog, categories, addons, staff accounts, and settings intact.
+ */
+function prepareStoragePayload(data: AdminDataState): string {
+  const sanitizedDeliveryOrders = (data.deliveryOrders || []).slice(0, 30).map((o) => {
+    const isPhotoData = typeof o.proofOfDeliveryPhoto === "string" && o.proofOfDeliveryPhoto.startsWith("data:");
+    const isSigData = typeof o.proofOfDeliverySignature === "string" && o.proofOfDeliverySignature.startsWith("data:");
+    if (!isPhotoData && !isSigData) return o;
+    return {
+      ...o,
+      proofOfDeliveryPhoto: isPhotoData ? null : o.proofOfDeliveryPhoto,
+      proofOfDeliverySignature: isSigData ? null : o.proofOfDeliverySignature,
+    };
+  });
+
+  const sanitizedStoreOrders = (data.storeOrders || []).slice(0, 50);
+
+  const payload: AdminDataState = {
+    ...data,
+    deliveryOrders: sanitizedDeliveryOrders,
+    storeOrders: sanitizedStoreOrders,
+  };
+
+  return JSON.stringify(payload);
+}
+
 // Synchronous first-read of the local cache, used as the lazy useState
 // initializer. Previously the cache loaded in a mount effect, so every page
 // first painted (and persisted!) the factory mocks — flashing stale data and
@@ -858,7 +890,18 @@ function readStoredAdminData(): AdminDataState {
       return initialAdminData;
     }
 
-    return normalizeStoredData(parsed);
+    const normalized = normalizeStoredData(parsed);
+
+    // If existing stored data is dangerously bloated (> 1.5MB), immediately clean it
+    if (stored.length > 1.5 * 1024 * 1024) {
+      try {
+        localStorage.setItem(STORAGE_KEY, prepareStoragePayload(normalized));
+      } catch {
+        // Ignored during startup
+      }
+    }
+
+    return normalized;
   } catch {
     return initialAdminData;
   }
@@ -898,11 +941,26 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     // real cache with mock data.
     if (!hydratedFromStorage.current) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      const payload = prepareStoragePayload(data);
+      localStorage.setItem(STORAGE_KEY, payload);
     } catch (e: any) {
+      console.warn("[AdminData] Local storage write failed, attempting auto-recovery:", e);
+      try {
+        // Auto-recovery: prune orders & non-essentials to guarantee saving fits within quota
+        const pruned: AdminDataState = {
+          ...data,
+          deliveryOrders: [],
+          storeOrders: (data.storeOrders || []).slice(0, 15),
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(pruned));
+        return; // Successfully recovered without bothering user
+      } catch (pruneErr) {
+        console.error("[AdminData] Auto-recovery pruning failed:", pruneErr);
+      }
+
       // Quota blowouts otherwise fail silently and the change looks "saved"
       // until reload. Surface it loudly; callers keep their own messaging.
-      console.error("[AdminData] Local storage write failed:", e);
+      console.error("[AdminData] Local storage write failed permanently:", e);
       if (
         typeof window !== "undefined" &&
         (e?.name === "QuotaExceededError" ||
