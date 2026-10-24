@@ -109,7 +109,7 @@ export class DeliveryController {
     }
 
     try {
-      const submittedBy = (req as any).auth?.userId || "Staff";
+      const submittedBy = (req as any).auth?.userId || (req as any).user?.id || (req as any).user?.name || "Staff";
       const order = await this.service.completeDeliveryWithProof(id as string, {
         photo: photo.trim(),
         signature: signature.trim(),
@@ -118,10 +118,10 @@ export class DeliveryController {
       });
       return res.json({ success: true, order });
     } catch (error: any) {
+      console.error("Error submitting proof of delivery:", error);
       if (error.status === 404) return res.status(404).json({ message: error.message });
       if (error.status === 400) return res.status(400).json({ message: error.message });
-      console.error("Error submitting proof of delivery:", error);
-      return res.status(500).json({ message: "Server error" });
+      return res.status(error.status || 500).json({ message: error.message || "Failed to complete delivery." });
     }
   }
 

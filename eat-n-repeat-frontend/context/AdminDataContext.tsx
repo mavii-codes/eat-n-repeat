@@ -2486,12 +2486,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           },
           body: JSON.stringify(proof),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setData((prev) => ({
             ...prev,
             deliveryOrders: prev.deliveryOrders.map((order) =>
-              order.id === id
+              order.id === id || order.orderNumber === id
                 ? {
                     ...order,
                     status: "delivered",
@@ -2507,7 +2507,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           refreshBackendOrders();
           return { success: true };
         }
-        return { success: false, message: data.message || "Failed to submit proof of delivery." };
+        return { success: false, message: data.message || `Server error (${res.status})` };
       } catch (err: any) {
         return { success: false, message: err.message || "Network error. Internet connection required." };
       }

@@ -200,7 +200,7 @@ export class DeliveryService {
     orderId: string,
     proof: { photo: string; signature: string; note: string | null; submittedBy: string }
   ) {
-    const order = await deliveryRepository.findOrderByIdWithPayments(orderId);
+    const order = await deliveryRepository.findOrderByIdOrNumber(orderId);
     if (!order) {
       throw Object.assign(new Error("Order not found"), { status: 404 });
     }
@@ -213,7 +213,7 @@ export class DeliveryService {
     }
 
     const now = new Date();
-    const updatedOrder = await deliveryRepository.updateOrder(orderId, {
+    const updatedOrder = await deliveryRepository.updateOrder(order.id, {
       status: "delivered",
       deliveredAt: now,
       proofOfDeliveryPhoto: proof.photo,
@@ -223,8 +223,12 @@ export class DeliveryService {
       proofOfDeliverySubmittedBy: proof.submittedBy,
     });
 
-    if (order.customerId && order.orderMode === "online") {
-      await adminFlagsService.recheckWatchingFlags(order.customerId);
+    if (order.customerId && (order as any).orderMode === "online") {
+      try {
+        await adminFlagsService.recheckWatchingFlags(order.customerId);
+      } catch (flagErr) {
+        console.warn("Failed to recheck watching flags:", flagErr);
+      }
     }
 
     try {
