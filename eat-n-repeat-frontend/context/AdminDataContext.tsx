@@ -2535,15 +2535,14 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         return { success: false, message: "Delivery is available online only. Internet connection required." };
       }
       try {
-        const token = getStaffOrAdminToken();
-        const res = await fetch(`${getApiUrl()}/api/delivery/orders/${id}/proof-of-delivery`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        const res = await staffApi(
+          `/api/delivery/orders/${id}/proof-of-delivery`,
+          {
+            method: "POST",
+            body: JSON.stringify(proof),
           },
-          body: JSON.stringify(proof),
-        });
+          25000,
+        );
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setData((prev) => ({
@@ -2567,6 +2566,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         }
         return { success: false, message: data.message || `Server error (${res.status})` };
       } catch (err: any) {
+        if (err?.name === "AbortError") {
+          return { success: false, message: "Request timed out. The server is still processing or offline." };
+        }
         return { success: false, message: err.message || "Network error. Internet connection required." };
       }
     },

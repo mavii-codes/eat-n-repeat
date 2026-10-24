@@ -160,7 +160,7 @@ export function ProofOfDeliveryModal({
       img.onload = () => {
         URL.revokeObjectURL(objectUrl);
         try {
-          const MAX_SIDE = 1000;
+          const MAX_SIDE = 800;
           const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
           const w = Math.max(1, Math.round(img.width * scale));
           const h = Math.max(1, Math.round(img.height * scale));
@@ -170,7 +170,7 @@ export function ProofOfDeliveryModal({
           const ctx = canvas.getContext("2d");
           if (!ctx) throw new Error("Canvas not supported");
           ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
           resolve(dataUrl);
         } catch (err) {
           reject(err);
@@ -184,60 +184,14 @@ export function ProofOfDeliveryModal({
   };
 
   const getPhotoUrl = async (file: File): Promise<string> => {
-    try {
-      const compressedDataUrl = await compressPhoto(file);
-      // Attempt upload to /api/upload
-      const resBlob = await fetch(compressedDataUrl).then((r) => r.blob());
-      const formData = new FormData();
-      formData.append("file", new File([resBlob], "proof.jpg", { type: "image/jpeg" }));
-
-      const token = getStaffOrAdminToken();
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: formData,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.url) return data.url;
-      }
-      return compressedDataUrl;
-    } catch {
-      // Fallback directly to compressed Data URL
-      return compressPhoto(file);
-    }
+    // Compress directly to lightweight JPEG data URL (~40-60KB)
+    return compressPhoto(file);
   };
 
   const getSignatureUrl = async (): Promise<string> => {
     const canvas = canvasRef.current;
     if (!canvas) throw new Error("Signature pad unavailable");
-    const signatureDataUrl = canvas.toDataURL("image/png");
-
-    try {
-      const resBlob = await fetch(signatureDataUrl).then((r) => r.blob());
-      const formData = new FormData();
-      formData.append("file", new File([resBlob], "sig.png", { type: "image/png" }));
-
-      const token = getStaffOrAdminToken();
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: formData,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.url) return data.url;
-      }
-      return signatureDataUrl;
-    } catch {
-      return signatureDataUrl;
-    }
+    return canvas.toDataURL("image/png");
   };
 
   const handleSubmit = async () => {
