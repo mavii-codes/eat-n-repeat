@@ -166,6 +166,7 @@ function OrdersPageContent() {
                 customerName: o.customerName || 'Valued Customer',
                 customerPhone: o.phone || '',
                 customerAddress: o.address || '',
+                deliveredAt: o.deliveredAt ? new Date(o.deliveredAt).toISOString() : undefined,
                 // Pick-Up / Take-Out details (null for delivery/dine-in and
                 // legacy pickup rows; OrderCard falls back to customerName).
                 pickupName: o.pickupName ?? null,

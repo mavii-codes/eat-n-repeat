@@ -598,29 +598,47 @@ export async function checkout(
     municipality: string;
   } | null = null;
 
-  if (customerRow && customerId) {
-    if (customerRow.phone) {
-      // Saved number is permanent: the request value is ignored entirely.
-      finalPhone = customerRow.phone;
-    } else {
-      const reqPhone = normalizePhoneNumber(phone);
-      const reqConfirm = normalizePhoneNumber((orderDetails as any)?.confirmPhone);
-      if (!reqPhone) {
-        throw new ServiceError("Mobile number is required for your first order.", 400);
-      }
-      if (!isValidPhoneNumber(reqPhone)) {
+  const rawInputPhone = phone || (orderDetails as any)?.phone;
+  const saveAsDefault =
+    (orderDetails as any)?.saveAsDefaultPhone === true ||
+    (orderDetails as any)?.saveAsDefault === true;
+
+  if (type === "delivery") {
+    // Delivery orders require a valid Philippine mobile number so the rider can contact the customer
+    const candidatePhone = rawInputPhone || customerRow?.phone;
+    if (!candidatePhone || String(candidatePhone).trim() === "") {
+      throw new ServiceError("Mobile number is required for delivery orders.", 400);
+    }
+    const normalized = normalizePhoneNumber(candidatePhone);
+    if (!isValidPhoneNumber(normalized)) {
+      throw new ServiceError(phoneFormatMessage(), 400);
+    }
+    finalPhone = normalized;
+  } else {
+    // Optional for Dine-in and Pickup
+    if (rawInputPhone && String(rawInputPhone).trim().length > 0) {
+      const normalized = normalizePhoneNumber(rawInputPhone);
+      if (!isValidPhoneNumber(normalized)) {
         throw new ServiceError(phoneFormatMessage(), 400);
       }
-      if (!reqConfirm) {
-        throw new ServiceError("Please confirm your mobile number.", 400);
-      }
-      if (reqPhone !== reqConfirm) {
-        throw new ServiceError("Mobile numbers do not match.", 400);
-      }
-      finalPhone = reqPhone;
-      phoneToSave = reqPhone;
+      finalPhone = normalized;
+    } else if (customerRow?.phone) {
+      finalPhone = customerRow.phone;
+    } else {
+      finalPhone = null;
     }
+  }
 
+  // Update default profile number if:
+  // 1. Signed-in customer has NO phone yet on profile, and a valid phone was provided, OR
+  // 2. Customer checked "Save as my default number" (saveAsDefault === true), and a valid phone was provided
+  if (customerRow && customerId && finalPhone) {
+    if (!customerRow.phone || saveAsDefault) {
+      phoneToSave = finalPhone;
+    }
+  }
+
+  if (customerRow && customerId) {
     if (type === "delivery") {
       const savedAddressId =
         typeof (orderDetails as any)?.savedAddressId === "string"

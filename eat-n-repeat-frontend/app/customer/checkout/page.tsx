@@ -51,6 +51,7 @@ export default function CheckoutPage() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('+63 ');
+  const [saveAsDefaultPhone, setSaveAsDefaultPhone] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'gcash' | 'card' | 'maya'>('cod');
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
 
@@ -353,6 +354,15 @@ export default function CheckoutPage() {
                   {isMobileError && (
                     <p className="text-xs text-red-600 font-semibold mt-1">This field cannot be empty</p>
                   )}
+                  <label className="mt-2 flex items-center gap-2 text-xs text-stone-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={saveAsDefaultPhone}
+                      onChange={(e) => setSaveAsDefaultPhone(e.target.checked)}
+                      className="rounded border-stone-300 text-[#800000] focus:ring-[#800000]"
+                    />
+                    <span>Save as my default number</span>
+                  </label>
                 </div>
               </form>
             </div>

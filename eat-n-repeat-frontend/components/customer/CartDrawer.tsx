@@ -134,10 +134,10 @@ export function CartDrawer({
   // Checkout states
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
+  const [saveAsDefaultPhone, setSaveAsDefaultPhone] = useState(true);
   const [confirmPhone, setConfirmPhone] = useState('');
   const [address, setAddress] = useState('');
-  // Phase 3: permanent number + address book (online signed-in checkout).
-  // savedPhone null = not loaded yet OR none on file (see contactLoaded).
+  // Customer profile default number and address book.
   const [savedPhone, setSavedPhone] = useState<string | null>(null);
   const [contactLoaded, setContactLoaded] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -165,10 +165,18 @@ export function CartDrawer({
   const sessionUserId = (session as any)?.user?.id as string | undefined;
   const sessionAccessToken = (session as any)?.accessToken as string | undefined;
 
-  const normalizePhoneInput = (v: string) => v.replace(/[\s-]/g, '').trim();
+  const normalizePhoneInput = (v: string) => {
+    let s = v.replace(/[\s\-()]/g, '').trim();
+    if (s.startsWith('+639')) {
+      s = '0' + s.slice(3);
+    } else if (s.startsWith('639')) {
+      s = '0' + s.slice(2);
+    }
+    return s;
+  };
   const isPhoneFormatValid = (v: string) => /^09\d{9}$/.test(normalizePhoneInput(v));
 
-  // Load the permanent number + address book when the drawer opens for a
+  // Load the default number + address book when the drawer opens for a
   // signed-in online customer.
   const refreshCheckoutContact = async () => {
     if (!session?.user || !sessionAccessToken) return;
@@ -188,6 +196,9 @@ export function CartDrawer({
             ? profile.phone.trim()
             : null;
         setSavedPhone(stored);
+        if (stored) {
+          setPhone((prev) => (prev ? prev : stored));
+        }
       }
       if (addrRes.ok) {
         const list = await addrRes.json().catch(() => []);
@@ -448,33 +459,26 @@ export function CartDrawer({
       return;
     }
 
-    const usingSavedPhone = !!savedPhone;
-    if (usingSavedPhone) {
+    const cleanPhone = normalizePhoneInput(phone);
+    if (fulfillmentType === 'delivery') {
+      if (!cleanPhone) {
+        setPhoneError('Mobile number is required for delivery.');
+        setCheckoutError('Mobile number is required for delivery so our rider can contact you.');
+        return;
+      }
+      if (!isPhoneFormatValid(phone)) {
+        setPhoneError('Must be a valid Philippine mobile number (e.g. 09XXXXXXXXX or +639XXXXXXXXX).');
+        setCheckoutError('Please enter a valid Philippine mobile number.');
+        return;
+      }
       setPhoneError(null);
-      setConfirmPhoneError(null);
     } else {
-      const clean = normalizePhoneInput(phone);
-      const cleanConfirm = normalizePhoneInput(confirmPhone);
-      let blocked = false;
-      if (!clean) {
-        setPhoneError('Mobile number is required.');
-        blocked = true;
-      } else if (!isPhoneFormatValid(phone)) {
-        setPhoneError('Mobile number must be 11 digits starting with 09.');
-        blocked = true;
-      } else {
-        setPhoneError(null);
+      if (cleanPhone && !isPhoneFormatValid(phone)) {
+        setPhoneError('Must be a valid Philippine mobile number (e.g. 09XXXXXXXXX or +639XXXXXXXXX).');
+        setCheckoutError('Please enter a valid Philippine mobile number.');
+        return;
       }
-      if (!cleanConfirm) {
-        setConfirmPhoneError('Please confirm your mobile number.');
-        blocked = true;
-      } else if (clean && cleanConfirm !== clean) {
-        setConfirmPhoneError('Mobile numbers do not match.');
-        blocked = true;
-      } else {
-        setConfirmPhoneError(null);
-      }
-      if (blocked) return;
+      setPhoneError(null);
     }
 
     // Address book (online delivery for signed-in customers).
@@ -551,9 +555,7 @@ export function CartDrawer({
     try {
       const accessToken = (session as any)?.accessToken as string | undefined;
 
-      const resolvedPhone = usingSavedPhone
-        ? (savedPhone as string)
-        : normalizePhoneInput(phone) || '09170000000';
+      const resolvedPhone = cleanPhone || '';
       // Snapshot text for the order row. For saved
       // addresses the backend re-reads the book row (ownership-checked);
       // the text here only feeds local displays.
@@ -568,10 +570,7 @@ export function CartDrawer({
         orderNumber,
         customerName: finalCustomerName,
         phone: resolvedPhone,
-        // First-timer proof: the backend requires the confirmation match
-        // whenever the customer has no saved number. Never sent when the
-        // stored (permanent) number is in effect.
-        ...(usingSavedPhone ? {} : { confirmPhone: normalizePhoneInput(confirmPhone) }),
+        saveAsDefaultPhone,
         address: resolvedAddressText,
         ...(selectedSaved ? { savedAddressId: selectedSaved.id } : {}),
         ...(!selectedSaved && useAddressBook && newAddressLabel.trim()
@@ -1113,86 +1112,54 @@ export function CartDrawer({
                     />
                   </div>
 
-                  {savedPhone ? (
-                      <div>
-                        <label className="text-xs font-semibold text-stone-700 block mb-1">
-                          Mobile Number
-                        </label>
-                        {/* Permanent number: plain read-only text, no edit control. */}
-                        <p className="w-full px-3 py-2 text-xs font-extrabold text-stone-900">
-                          {savedPhone}
-                        </p>
-                        <p className="text-[10px] text-stone-400 mt-0.5">
-                          Saved to your account. Only an admin can change it.
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <label className="text-xs font-semibold text-stone-700 block mb-1">
-                            Mobile Number *
-                          </label>
-                          <input
-                            type="tel"
-                            required
-                            placeholder="0917XXXXXXX"
-                            value={phone}
-                            onChange={(e) => {
-                              setPhone(e.target.value);
-                              if (phoneError) setPhoneError(null);
-                            }}
-                            onBlur={() => {
-                              if (!normalizePhoneInput(phone)) {
-                                setPhoneError('Mobile number is required.');
-                              } else if (!isPhoneFormatValid(phone)) {
-                                setPhoneError('Mobile number must be 11 digits starting with 09.');
-                              }
-                            }}
-                            className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none ${
-                              phoneError ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
-                            }`}
-                          />
-                          {phoneError && (
-                            <p className="text-[11px] text-red-600 font-semibold mt-1">{phoneError}</p>
-                          )}
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-stone-700 block mb-1">
-                            Confirm Mobile Number *
-                          </label>
-                          <input
-                            type="tel"
-                            required
-                            placeholder="Re-enter mobile number"
-                            value={confirmPhone}
-                            onChange={(e) => {
-                              setConfirmPhone(e.target.value);
-                              if (confirmPhoneError) setConfirmPhoneError(null);
-                            }}
-                            onBlur={() => {
-                              const clean = normalizePhoneInput(phone);
-                              const cleanConfirm = normalizePhoneInput(confirmPhone);
-                              if (!cleanConfirm) {
-                                setConfirmPhoneError('Please confirm your mobile number.');
-                              } else if (clean && cleanConfirm !== clean) {
-                                setConfirmPhoneError('Mobile numbers do not match.');
-                              }
-                            }}
-                            className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none ${
-                              confirmPhoneError ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
-                            }`}
-                          />
-                          {confirmPhoneError && (
-                            <p className="text-[11px] text-red-600 font-semibold mt-1">
-                              {confirmPhoneError}
-                            </p>
-                          )}
-                          <p className="text-[10px] text-stone-400 mt-1">
-                            Saved permanently to your account on your first order.
-                          </p>
-                        </div>
-                      </>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-stone-700">
+                        Mobile Number {fulfillmentType === 'delivery' ? <span className="text-red-500">*</span> : <span className="text-stone-400 font-normal">(optional)</span>}
+                      </label>
+                      {savedPhone && (
+                        <span className="text-[10px] text-amber-700 font-medium bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/60">
+                          Saved: {savedPhone}
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="tel"
+                      required={fulfillmentType === 'delivery'}
+                      placeholder="0917XXXXXXX or +63917XXXXXXX"
+                      value={phone}
+                      onChange={(e) => {
+                        setPhone(e.target.value);
+                        if (phoneError) setPhoneError(null);
+                      }}
+                      onBlur={() => {
+                        const clean = normalizePhoneInput(phone);
+                        if (fulfillmentType === 'delivery' && !clean) {
+                          setPhoneError('Mobile number is required for delivery.');
+                        } else if (clean && !isPhoneFormatValid(phone)) {
+                          setPhoneError('Mobile number must be a valid Philippine number (e.g. 09XXXXXXXXX).');
+                        }
+                      }}
+                      className={`w-full px-3 py-2 border rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none ${
+                        phoneError ? 'border-red-500 bg-red-50/40' : 'border-stone-300'
+                      }`}
+                    />
+                    {phoneError && (
+                      <p className="text-[11px] text-red-600 font-semibold mt-1">{phoneError}</p>
                     )}
+                    <label className="mt-2 flex items-center gap-2 text-xs text-stone-600 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={saveAsDefaultPhone}
+                        onChange={(e) => setSaveAsDefaultPhone(e.target.checked)}
+                        className="rounded border-stone-300 text-[#800000] focus:ring-[#800000]"
+                      />
+                      <span>Save as my default number</span>
+                    </label>
+                    <p className="text-[10px] text-stone-400 mt-1">
+                      This order will use the number above. Past orders will keep their original numbers.
+                    </p>
+                  </div>
 
                   {fulfillmentType === 'delivery' && (
                     <>

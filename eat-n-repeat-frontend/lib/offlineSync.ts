@@ -154,6 +154,11 @@ if (typeof window !== 'undefined') {
 
 export async function saveOfflineOrder(order: Omit<OfflineOrder, 'syncStatus' | 'timestamp'>) {
   if (!dbPromise) return;
+  // Delivery is ONLINE ONLY: never save or queue delivery orders offline!
+  if (order.type === 'delivery') {
+    console.warn('[OFFLINE] Delivery orders are online-only and cannot be queued offline.');
+    return;
+  }
   const db = await dbPromise;
   await db.put('offline_orders', {
     ...order,
@@ -166,9 +171,9 @@ export async function getPendingOfflineOrders(): Promise<OfflineOrder[]> {
   if (!dbPromise) return [];
   const db = await dbPromise;
   const all = await db.getAllFromIndex('offline_orders', 'by-status', 'pending');
-  // Panel recommendation: Customer offline orders MUST NEVER sync.
+  // Panel recommendation: Customer offline orders and Delivery orders MUST NEVER sync.
   // Only walk-in POS orders (POS- prefix) sync to the online backend.
-  return all.filter((o) => o.id.startsWith('POS-') && o.notes !== 'cart-offline');
+  return all.filter((o) => o.id.startsWith('POS-') && o.notes !== 'cart-offline' && o.type !== 'delivery');
 }
 
 /**
@@ -370,10 +375,13 @@ export function journalPayment(p: { orderId: string; method: string; cashReceive
   } catch { /* journaling must never break a sale */ }
 }
 
-// ── STATUS CHANGES (staff updates while offline) ──────
-
 export async function saveOfflineStatusChange(change: Omit<OfflineStatusChange, 'syncStatus' | 'timestamp' | 'updatedAt'> & { updatedAt?: string }) {
   if (!dbPromise) return;
+  // Delivery is ONLINE ONLY: delivery status transitions cannot be queued offline
+  if (change.status === 'out_for_delivery' || change.status === 'delivered') {
+    console.warn('[OFFLINE] Delivery status changes are online-only and cannot be queued offline.');
+    return;
+  }
   const db = await dbPromise;
   await db.put('offline_status_changes', {
     ...change,

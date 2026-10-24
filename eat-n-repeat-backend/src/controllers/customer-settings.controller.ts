@@ -56,9 +56,10 @@ export class CustomerSettingsController {
       });
 
       res.json({ success: true, message: "Settings updated successfully" });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating settings:", error);
-      res.status(500).json({ error: "Internal server error" });
+      const status = error.status || error.statusCode || 400;
+      res.status(status).json({ error: error.message || "Internal server error" });
     }
   }
 

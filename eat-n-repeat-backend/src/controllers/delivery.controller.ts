@@ -97,6 +97,50 @@ export class DeliveryController {
       return res.status(500).json({ message: "Failed to cancel order." });
     }
   }
+
+  async submitProof(req: AuthenticatedRequest, res: Response) {
+    const { id } = req.params;
+    const { photo, signature, note } = req.body;
+    if (!photo || typeof photo !== "string" || !photo.trim()) {
+      return res.status(400).json({ message: "Delivery photo is required as proof of delivery." });
+    }
+    if (!signature || typeof signature !== "string" || !signature.trim()) {
+      return res.status(400).json({ message: "Customer signature is required as proof of delivery." });
+    }
+
+    try {
+      const submittedBy = (req as any).auth?.userId || "Staff";
+      const order = await this.service.completeDeliveryWithProof(id as string, {
+        photo: photo.trim(),
+        signature: signature.trim(),
+        note: typeof note === "string" ? note.trim() : null,
+        submittedBy,
+      });
+      return res.json({ success: true, order });
+    } catch (error: any) {
+      if (error.status === 404) return res.status(404).json({ message: error.message });
+      if (error.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error submitting proof of delivery:", error);
+      return res.status(500).json({ message: "Server error" });
+    }
+  }
+
+  async updatePhone(req: AuthenticatedRequest, res: Response) {
+    const { id } = req.params;
+    const { phone } = req.body;
+    if (!phone || typeof phone !== "string" || !phone.trim()) {
+      return res.status(400).json({ message: "A valid phone number is required." });
+    }
+    try {
+      const order = await this.service.updateOrderPhone(id as string, phone.trim());
+      return res.json({ success: true, order });
+    } catch (error: any) {
+      if (error.status === 404) return res.status(404).json({ message: error.message });
+      if (error.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error updating delivery order phone:", error);
+      return res.status(500).json({ message: "Server error" });
+    }
+  }
 }
 
 export const deliveryController = new DeliveryController();

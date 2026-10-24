@@ -49,6 +49,13 @@ export type RecentOrder = {
   xenditReference?: string;
   xenditInvoiceId?: string;
   paidAt?: string;
+  deliveryPerson?: string;
+  deliveredAt?: string;
+  proofOfDeliveryPhoto?: string | null;
+  proofOfDeliverySignature?: string | null;
+  proofOfDeliveryNote?: string | null;
+  proofOfDeliverySubmittedAt?: string | null;
+  proofOfDeliverySubmittedBy?: string | null;
   archived: boolean;
   archivedAt?: string;
 };
@@ -487,6 +494,12 @@ export type DeliveryOrder = {
   status: DeliveryStatus;
   orderedAt: string;
   deliveredAt?: string;
+  deliveryPerson?: string;
+  proofOfDeliveryPhoto?: string | null;
+  proofOfDeliverySignature?: string | null;
+  proofOfDeliveryNote?: string | null;
+  proofOfDeliverySubmittedAt?: string | null;
+  proofOfDeliverySubmittedBy?: string | null;
   notes?: string;
   archived: boolean;
   archivedAt?: string;

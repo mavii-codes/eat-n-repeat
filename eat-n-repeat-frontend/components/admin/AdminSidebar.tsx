@@ -12,6 +12,8 @@ import {
 import { Logo } from "@/components/brand/Logo";
 import { useAuth } from "@/context/AuthContext";
 import { useOpenFlagCount } from "@/components/admin/users/use-open-flag-count";
+import { useNetworkStatus } from "@/context/NetworkStatusContext";
+import { isLocalBackend, isDevOnlinePortal } from "@/lib/config";
 
 const navGroups: { label: string; items: AdminNavItemData[] }[] = [
   {
@@ -328,6 +330,15 @@ export function AdminSidebar() {
     };
   }, [pathname]);
 
+  const { isOffline } = useNetworkStatus();
+  const isLocal = isLocalBackend() && !isDevOnlinePortal();
+  const hideDelivery = isLocal || isOffline;
+
+  const filteredNavGroups = navGroups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !(hideDelivery && item.href.startsWith("/admin/delivery"))),
+  }));
+
   return (
     <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
       <div className="border-b border-white/8 px-6 py-6">
@@ -339,7 +350,7 @@ export function AdminSidebar() {
       </div>
 
       <nav className="flex-1 space-y-6 px-4 py-6">
-        {navGroups.map((group) => (
+        {filteredNavGroups.map((group) => (
           <div key={group.label}>
             <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
               {group.label}

@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Search, WifiOff } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminPanel } from "@/components/admin/AdminForm";
 import { DeliveryOrdersTable } from "@/components/admin/DeliveryOrdersTable";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
 import { useAdminData } from "@/context/AdminDataContext";
+import { useNetworkStatus } from "@/context/NetworkStatusContext";
+import { isLocalBackend, isDevOnlinePortal } from "@/lib/config";
 import {
   activeDeliveryStatuses,
   historyDeliveryStatuses,
@@ -25,6 +27,10 @@ export default function DeliveryPage() {
     getDeliveryHistory,
     refreshBackendOrders,
   } = useAdminData();
+
+  const { isOffline } = useNetworkStatus();
+  const isLocal = isLocalBackend() && !isDevOnlinePortal();
+  const isDeliveryDisabled = isOffline || isLocal;
 
   // Poll shared orders from backend on mount and every 10s so delivery status
   // updates made by Staff on other devices/tabs appear automatically.
@@ -89,6 +95,18 @@ export default function DeliveryPage() {
         title="Delivery Orders"
         subtitle="View all delivery orders, monitor live status, and browse delivery history."
       />
+
+      {isDeliveryDisabled && (
+        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-sm">
+          <WifiOff className="h-5 w-5 shrink-0 text-amber-600" />
+          <div>
+            <p className="font-semibold text-sm">Delivery is available online only</p>
+            <p className="text-xs text-amber-700">
+              Delivery tracking, assignment, status updates, and proof of delivery require an active internet connection. All delivery actions are disabled in offline / local mode.
+            </p>
+          </div>
+        </div>
+      )}
 
       <section className="mb-5 grid gap-5 sm:grid-cols-3">
         {[
@@ -177,6 +195,7 @@ export default function DeliveryPage() {
           showStatusControl={tab === "active"}
           onStatusChange={updateDeliveryStatus}
           onChat={(order) => handleOpenChat(order.customerName, order.id, order.orderNumber)}
+          disabled={isDeliveryDisabled}
           onArchive={
             tab === "history"
               ? (order) => {

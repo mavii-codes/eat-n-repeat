@@ -78,18 +78,24 @@ export default function AccountSettingsPage() {
     if (!userId) return;
     setSaving(true);
     try {
-      await fetch(`${API_BASE}/customer-settings`, {
+      const res = await fetch(`${API_BASE}/customer-settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
         body: JSON.stringify({
           name: profile.name,
+          phone: profile.phone || null,
           avatar_url: profile.avatar_url,
           notification_preferences: profile.notification_preferences
         })
       });
-      alert('Account information saved successfully!');
-    } catch (e) {
-      alert('Failed to save account information.');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || data.message || 'Failed to save account information.');
+      } else {
+        alert('Account information saved successfully!');
+      }
+    } catch (e: any) {
+      alert(e.message || 'Failed to save account information.');
     } finally {
       setSaving(false);
     }
@@ -161,11 +167,11 @@ export default function AccountSettingsPage() {
             <input
               type="tel"
               value={profile.phone}
-              disabled
-              placeholder="Saved at your first checkout"
-              className="w-full px-4 py-3 rounded-xl border border-stone-100 bg-stone-50 text-stone-500 text-sm cursor-not-allowed"
+              onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+              placeholder="e.g. 09171234567 or +639171234567"
+              className="w-full px-4 py-3 rounded-xl border border-stone-200 text-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all outline-none"
             />
-            <p className="text-[11px] text-stone-400 mt-1.5">Your mobile number is permanent once saved. Only an admin can change it — please contact the café if it needs updating.</p>
+            <p className="text-[11px] text-stone-400 mt-1.5">Your default mobile number used for deliveries and orders (Philippine mobile format, e.g. 09XXXXXXXXX).</p>
           </div>
 
           <div className="pt-4 border-t border-stone-100">

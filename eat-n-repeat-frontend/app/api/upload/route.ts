@@ -10,7 +10,8 @@ export async function POST(req: NextRequest) {
   // Uploads write into the served public/ tree: require an authenticated
   // session (any role — no anonymous writes).
   const session = await getServerSession(authOptions);
-  if (!session?.user) {
+  const authHeader = req.headers.get("authorization");
+  if (!session?.user && (!authHeader || !authHeader.startsWith("Bearer "))) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
   try {

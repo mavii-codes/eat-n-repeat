@@ -5,13 +5,17 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
-import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Flag, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu } from "lucide-react";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Flag, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu, Camera, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
+import { StaffExpensesTab } from "@/components/staff/StaffExpensesTab";
 import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
+import { ProofOfDeliveryModal } from "@/components/admin/ProofOfDeliveryModal";
+import { useNetworkStatus } from "@/context/NetworkStatusContext";
+import { isLocalBackend, isDevOnlinePortal } from "@/lib/config";
 import {
   AdminButton,
   AdminField,
@@ -52,7 +56,7 @@ function getPickupLine(order: any): string | null {
 }
 import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
 
-type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
+type StaffTab = "dashboard" | "pos" | "orders" | "expenses" | "menu" | "inventory" | "delivery" | "archive" | "profile";
 
 // Never render "₱NaN": order totals can be missing on legacy/partial rows,
 // so fall back through subtotal+fee and finally 0.
@@ -330,6 +334,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     addMenuItem,
     updateMenuItem,
     updateDeliveryStatus,
+    submitProofOfDelivery,
     getMenuCategoryName,
     getStockCategoryName,
     staffAccounts,
@@ -360,6 +365,11 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   const [deliveryHistorySearch, setDeliveryHistorySearch] = useState("");
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
+  const { isOffline } = useNetworkStatus();
+  const isLocal = isLocalBackend() && !isDevOnlinePortal();
+  const isDeliveryBlocked = isLocal || isOffline;
+  const [proofOrder, setProofOrder] = useState<DeliveryOrder | null>(null);
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
 
   // Server-paginated history (20/page). Null = offline/unauthenticated, in
   // which case the local lists below are used exactly as before.
@@ -677,6 +687,17 @@ function OrderTableScroll({ className, children }: { className?: string; childre
         ),
       },
       {
+        id: "expenses",
+        label: "Expenses",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+            <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+            <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+            <path d="M18 12a2 2 0 0 0 0 4h4v-4z" />
+          </svg>
+        ),
+      },
+      {
         id: "menu",
         label: "Menu Items",
         icon: (
@@ -696,18 +717,22 @@ function OrderTableScroll({ className, children }: { className?: string; childre
           </svg>
         ),
       },
-      {
-        id: "delivery",
-        label: "Delivery Orders",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-            <rect x="1" y="3" width="15" height="13" rx="1" />
-            <path d="M16 8h4l3 4v5h-7V8z" />
-            <circle cx="5.5" cy="18.5" r="2.5" />
-            <circle cx="18.5" cy="18.5" r="2.5" />
-          </svg>
-        ),
-      },
+      ...(!isDeliveryBlocked
+        ? [
+            {
+              id: "delivery" as StaffTab,
+              label: "Delivery Orders",
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                  <rect x="1" y="3" width="15" height="13" rx="1" />
+                  <path d="M16 8h4l3 4v5h-7V8z" />
+                  <circle cx="5.5" cy="18.5" r="2.5" />
+                  <circle cx="18.5" cy="18.5" r="2.5" />
+                </svg>
+              ),
+            },
+          ]
+        : []),
       {
         id: "archive",
         label: "Archived Items",
@@ -1748,6 +1773,11 @@ function OrderTableScroll({ className, children }: { className?: string; childre
           );
         })()}
 
+        {/* TAB 4: EXPENSES */}
+        {activeTab === "expenses" && (
+          <StaffExpensesTab staffName={user?.name || "Staff Member"} />
+        )}
+
         {activeTab === "menu" && (() => {
           // Process data
           const activeMenuItems = menuItems.filter(m => !m.archived);
@@ -2103,6 +2133,19 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
 {/* TAB 5: DELIVERY ORDERS */}
         {activeTab === "delivery" && (
+          isDeliveryBlocked ? (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-900 shadow-sm">
+                <WifiOff className="h-6 w-6 shrink-0 text-amber-600" />
+                <div>
+                  <h3 className="font-semibold text-base">Delivery is available online only</h3>
+                  <p className="text-sm text-amber-700 mt-0.5">
+                    Delivery orders, dispatching, live tracking, and proof of delivery require an active internet connection. All delivery operations are disabled in offline / local mode.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
           <div className="space-y-6">
             <div>
               <span className="inline-flex rounded-full bg-accent-light px-2.5 py-0.5 text-xs font-semibold capitalize text-accent border border-accent/10">Deliveries</span>
@@ -2206,7 +2249,14 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                               </button>
                               <AdminSelect
                                 value={order.status}
-                                onChange={(e) => updateDeliveryStatus(order.id, e.target.value as DeliveryStatus)}
+                                onChange={(e) => {
+                                  const nextStatus = e.target.value as DeliveryStatus;
+                                  if (nextStatus === "delivered") {
+                                    setProofOrder(order);
+                                  } else {
+                                    updateDeliveryStatus(order.id, nextStatus);
+                                  }
+                                }}
                                 className="!py-1 !text-xs max-w-[112px] inline-block"
                               >
                                 <option value="pending">Pending</option>
@@ -2322,6 +2372,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                 );
               })()}
           </div>
+          )
         )}
 
         {/* TAB 6: PROFILE */}
@@ -2657,6 +2708,78 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                     )}
                   </div>
                 )}
+                {selectedOrderDetails.orderType === 'delivery' && (selectedOrderDetails.proofOfDeliveryPhoto || selectedOrderDetails.proofOfDeliverySignature || selectedOrderDetails.proofOfDeliverySubmittedAt) && (
+                  <div className="mt-5 pt-4 border-t border-accent/5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-800">Proof of Delivery Verified</h4>
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-stone-500">Delivered At:</span>{" "}
+                          <span className="font-semibold text-stone-800">
+                            {formatPhDateTime(selectedOrderDetails.deliveredAt || selectedOrderDetails.proofOfDeliverySubmittedAt) || "—"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-stone-500">Delivered By:</span>{" "}
+                          <span className="font-semibold text-stone-800">
+                            {selectedOrderDetails.proofOfDeliverySubmittedBy || selectedOrderDetails.deliveryPerson || "Staff"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {selectedOrderDetails.proofOfDeliveryNote && (
+                        <div className="text-xs">
+                          <span className="text-stone-500">Delivery Note:</span>
+                          <p className="mt-0.5 rounded bg-white p-2 text-stone-700 border border-emerald-100/60">
+                            {selectedOrderDetails.proofOfDeliveryNote}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-emerald-100">
+                        {selectedOrderDetails.proofOfDeliveryPhoto ? (
+                          <div>
+                            <p className="text-[11px] font-semibold text-stone-600 mb-1 flex items-center gap-1">
+                              <Camera className="h-3 w-3 text-emerald-600" /> Delivery Photo
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewPhotoUrl(selectedOrderDetails.proofOfDeliveryPhoto)}
+                              className="group relative block w-full aspect-video rounded-lg overflow-hidden border border-stone-200 bg-stone-100 hover:ring-2 hover:ring-[#800000]"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={selectedOrderDetails.proofOfDeliveryPhoto}
+                                alt="Delivery Proof"
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white text-[10px] font-semibold">
+                                View Full Photo
+                              </span>
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {selectedOrderDetails.proofOfDeliverySignature ? (
+                          <div>
+                            <p className="text-[11px] font-semibold text-stone-600 mb-1">Customer Signature</p>
+                            <div className="w-full aspect-video rounded-lg overflow-hidden border border-stone-200 bg-white p-1">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={selectedOrderDetails.proofOfDeliverySignature}
+                                alt="Customer Signature"
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {getPickupLine(selectedOrderDetails) && (
                   <div className="mt-5 pt-4 border-t border-accent/5">
                     <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><ShoppingBag className="h-3 w-3 text-accent" /> Pick-Up / Take-Out</p>
@@ -2786,6 +2909,46 @@ function OrderTableScroll({ className, children }: { className?: string; childre
         target={flagTarget}
         onClose={() => setFlagTarget(null)}
       />
+
+      {proofOrder && (
+        <ProofOfDeliveryModal
+          open={Boolean(proofOrder)}
+          onClose={() => setProofOrder(null)}
+          order={proofOrder}
+          onSubmit={async (proof) => {
+            const res = await submitProofOfDelivery(proofOrder.id, proof);
+            if (!res.success) {
+              throw new Error(res.message || "Failed to submit proof");
+            }
+            setProofOrder(null);
+            refreshBackendOrders();
+          }}
+        />
+      )}
+
+      {/* Expanded Photo Preview Modal */}
+      {previewPhotoUrl && (
+        <div
+          className="fixed inset-0 z-60 bg-black/80 flex items-center justify-center p-4 cursor-pointer"
+          onClick={() => setPreviewPhotoUrl(null)}
+        >
+          <div className="relative max-w-3xl max-h-[90vh]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewPhotoUrl}
+              alt="Expanded Proof"
+              className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl"
+            />
+            <button
+              type="button"
+              onClick={() => setPreviewPhotoUrl(null)}
+              className="absolute top-3 right-3 rounded-full bg-black/60 text-white p-2 hover:bg-black"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

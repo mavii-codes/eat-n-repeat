@@ -1,16 +1,16 @@
 import { Router } from "express";
-import { requireRole } from "@/middleware/requireRole.middleware";
+import { requireRole, STAFF_ROLES } from "@/middleware/requireRole.middleware";
 import { expensesController } from "@/controllers/expenses.controller";
 
 const router = Router();
 
-router.get("/", requireRole("admin"), (req, res) =>
+router.get("/", requireRole(...STAFF_ROLES), (req, res) =>
   expensesController.listExpenses(req, res),
 );
-router.get("/summary", requireRole("admin"), (req, res) =>
+router.get("/summary", requireRole(...STAFF_ROLES), (req, res) =>
   expensesController.summary(req, res),
 );
-router.post("/", requireRole("admin"), (req, res) =>
+router.post("/", requireRole(...STAFF_ROLES), (req, res) =>
   expensesController.createExpense(req, res),
 );
 router.post("/:id/void", requireRole("admin"), (req, res) =>

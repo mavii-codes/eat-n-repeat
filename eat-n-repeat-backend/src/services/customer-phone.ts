@@ -8,7 +8,13 @@
  */
 
 export function normalizePhoneNumber(raw: unknown): string {
-  return String(raw ?? "").replace(/[\s-]/g, "").trim();
+  let s = String(raw ?? "").replace(/[\s\-()]/g, "").trim();
+  if (s.startsWith("+639")) {
+    s = "0" + s.slice(3);
+  } else if (s.startsWith("639")) {
+    s = "0" + s.slice(2);
+  }
+  return s;
 }
 
 export function isValidPhoneNumber(raw: unknown): boolean {
@@ -16,5 +22,5 @@ export function isValidPhoneNumber(raw: unknown): boolean {
 }
 
 export function phoneFormatMessage(): string {
-  return "Mobile number must be 11 digits starting with 09.";
+  return "Mobile number must be a valid Philippine mobile number (e.g. 09XXXXXXXXX or +639XXXXXXXXX).";
 }

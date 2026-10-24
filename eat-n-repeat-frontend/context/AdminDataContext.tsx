@@ -390,6 +390,12 @@ type BackendOrderRow = {
   pickupAt?: string | null;
   createdAt?: string | null;
   deliveredAt?: string | null;
+  deliveryPerson?: string | null;
+  proofOfDeliveryPhoto?: string | null;
+  proofOfDeliverySignature?: string | null;
+  proofOfDeliveryNote?: string | null;
+  proofOfDeliverySubmittedAt?: string | null;
+  proofOfDeliverySubmittedBy?: string | null;
   orderMode?: string | null;
   payments?: { status?: string | null; paymentMethod?: string | null }[] | null;
 };
@@ -502,6 +508,12 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
         deliveryFee: Number(row.deliveryFee) || 0,
         total: Number.isFinite(total) ? total : 0,
         status: mapDeliveryStatus(row.status),
+        deliveryPerson: row.deliveryPerson ?? undefined,
+        proofOfDeliveryPhoto: row.proofOfDeliveryPhoto ?? null,
+        proofOfDeliverySignature: row.proofOfDeliverySignature ?? null,
+        proofOfDeliveryNote: row.proofOfDeliveryNote ?? null,
+        proofOfDeliverySubmittedAt: row.proofOfDeliverySubmittedAt ?? null,
+        proofOfDeliverySubmittedBy: row.proofOfDeliverySubmittedBy ?? null,
         notes: typeof row.notes === "string" ? row.notes : undefined,
         orderedAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : new Date().toISOString(),
         deliveredAt: row.deliveredAt ?? undefined,
@@ -521,6 +533,13 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
         serviceAreaId: row.serviceAreaId ?? undefined,
         pickupName: row.pickupName ?? undefined,
         pickupAt: row.pickupAt ?? undefined,
+        deliveryPerson: row.deliveryPerson ?? undefined,
+        deliveredAt: row.deliveredAt ?? undefined,
+        proofOfDeliveryPhoto: row.proofOfDeliveryPhoto ?? null,
+        proofOfDeliverySignature: row.proofOfDeliverySignature ?? null,
+        proofOfDeliveryNote: row.proofOfDeliveryNote ?? null,
+        proofOfDeliverySubmittedAt: row.proofOfDeliverySubmittedAt ?? null,
+        proofOfDeliverySubmittedBy: row.proofOfDeliverySubmittedBy ?? null,
         time: timeLabel,
         orderedAt: createdIso || undefined,
         items,
@@ -729,6 +748,14 @@ type AdminDataContextValue = AdminDataState & {
   getMenuItemsByCategory: (categoryId: string) => MenuItem[];
   getStockItemsByCategory: (categoryId: string) => StockItem[];
   updateDeliveryStatus: (id: string, status: DeliveryStatus) => void;
+  submitProofOfDelivery: (
+    id: string,
+    proof: { photo: string; signature: string; note?: string | null }
+  ) => Promise<{ success: boolean; message?: string }>;
+  updateDeliveryOrderPhone: (
+    id: string,
+    phone: string
+  ) => Promise<{ success: boolean; message?: string }>;
   addDeliveryOrder: (input: DeliveryOrderInput) => void;
   deleteDeliveryOrder: (id: string) => void;
   archiveDeliveryOrder: (id: string) => void;
@@ -2407,15 +2434,13 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         const offline =
           networkError || (typeof navigator !== "undefined" && !navigator.onLine);
         if (offline && prevStatus !== undefined) {
-          try {
-            const { journalStatusChange } = await import("@/lib/offlineSync");
-            journalStatusChange({ orderId: id, fallbackIdentifier: row?.orderNumber ?? null, status });
-          } catch {
-            // Journaling must never break the UI.
-          }
-          console.info(
-            `[order-status] offline — queued "${status}" for ${id}; replays on reconnect under server priority rules.`,
-          );
+          setData((prev) => ({
+            ...prev,
+            deliveryOrders: prev.deliveryOrders.map((order) =>
+              order.id === id ? { ...order, status: prevStatus } : order,
+            ),
+          }));
+          notifyStaffSyncFailed("Delivery actions are available online only. Internet connection required.");
           return;
         }
         if (prevStatus === undefined) return;
@@ -2440,6 +2465,86 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       });
     },
     [patchBackendOrderStatus, refreshBackendOrders],
+  );
+
+  const submitProofOfDelivery = useCallback(
+    async (
+      id: string,
+      proof: { photo: string; signature: string; note?: string | null }
+    ): Promise<{ success: boolean; message?: string }> => {
+      const { getApiUrl, isLocalBackend, isDevOnlinePortal } = await import("@/lib/config");
+      if ((isLocalBackend() && !isDevOnlinePortal()) || (typeof navigator !== "undefined" && !navigator.onLine)) {
+        return { success: false, message: "Delivery is available online only. Internet connection required." };
+      }
+      try {
+        const token = getStaffOrAdminToken();
+        const res = await fetch(`${getApiUrl()}/api/delivery/orders/${id}/proof-of-delivery`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(proof),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setData((prev) => ({
+            ...prev,
+            deliveryOrders: prev.deliveryOrders.map((order) =>
+              order.id === id
+                ? {
+                    ...order,
+                    status: "delivered",
+                    deliveredAt: new Date().toISOString(),
+                    proofOfDeliveryPhoto: proof.photo,
+                    proofOfDeliverySignature: proof.signature,
+                    proofOfDeliveryNote: proof.note ?? null,
+                    proofOfDeliverySubmittedAt: new Date().toISOString(),
+                  }
+                : order
+            ),
+          }));
+          refreshBackendOrders();
+          return { success: true };
+        }
+        return { success: false, message: data.message || "Failed to submit proof of delivery." };
+      } catch (err: any) {
+        return { success: false, message: err.message || "Network error. Internet connection required." };
+      }
+    },
+    [refreshBackendOrders],
+  );
+
+  const updateDeliveryOrderPhone = useCallback(
+    async (id: string, phone: string): Promise<{ success: boolean; message?: string }> => {
+      const { getApiUrl } = await import("@/lib/config");
+      try {
+        const token = getStaffOrAdminToken();
+        const res = await fetch(`${getApiUrl()}/api/delivery/orders/${id}/phone`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ phone }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setData((prev) => ({
+            ...prev,
+            deliveryOrders: prev.deliveryOrders.map((order) =>
+              order.id === id ? { ...order, phone } : order
+            ),
+          }));
+          refreshBackendOrders();
+          return { success: true };
+        }
+        return { success: false, message: data.message || "Failed to update phone number." };
+      } catch (err: any) {
+        return { success: false, message: err.message || "Network error." };
+      }
+    },
+    [refreshBackendOrders],
   );
 
   const addDeliveryOrder = useCallback((input: DeliveryOrderInput) => {
@@ -3155,6 +3260,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getMenuItemsByCategory,
       getStockItemsByCategory,
       updateDeliveryStatus,
+      submitProofOfDelivery,
+      updateDeliveryOrderPhone,
       addDeliveryOrder,
       deleteDeliveryOrder,
       archiveDeliveryOrder,
@@ -3240,6 +3347,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       getMenuItemsByCategory,
       getStockItemsByCategory,
       updateDeliveryStatus,
+      submitProofOfDelivery,
+      updateDeliveryOrderPhone,
       addDeliveryOrder,
       deleteDeliveryOrder,
       archiveDeliveryOrder,

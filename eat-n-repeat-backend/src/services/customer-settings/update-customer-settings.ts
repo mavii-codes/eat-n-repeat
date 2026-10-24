@@ -1,4 +1,13 @@
 import { customerSettingsRepository } from "@/repositories/customer-settings.repository";
+import { normalizePhoneNumber, isValidPhoneNumber, phoneFormatMessage } from "@/services/customer-phone";
+
+export class CustomerSettingsError extends Error {
+  status: number;
+  constructor(message: string, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
 
 export class UpdateCustomerSettingsService {
   async execute(
@@ -13,10 +22,19 @@ export class UpdateCustomerSettingsService {
     const updateData: Record<string, unknown> = {};
 
     if (data.name !== undefined) updateData.name = data.name;
-    // Phase 3: the mobile number is permanent once saved (first checkout).
-    // No customer-facing endpoint may write it — `phone` is always ignored
-    // here, even when supplied. Admin-only changes go through the admin
-    // customers endpoint with an audit entry.
+
+    if (data.phone !== undefined) {
+      if (!data.phone || data.phone.trim() === "") {
+        updateData.phone = null;
+      } else {
+        const normalized = normalizePhoneNumber(data.phone);
+        if (!isValidPhoneNumber(normalized)) {
+          throw new CustomerSettingsError(phoneFormatMessage(), 400);
+        }
+        updateData.phone = normalized;
+      }
+    }
+
     if (data.avatarUrl !== undefined) updateData.avatarUrl = data.avatarUrl;
     if (data.notificationPreferences !== undefined) updateData.notificationPreferences = data.notificationPreferences as any;
 
