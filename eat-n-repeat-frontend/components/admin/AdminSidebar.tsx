@@ -1,19 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Flag, History, LayoutDashboard, PackagePlus, ScrollText, SlidersHorizontal, User, Users } from "lucide-react";
-import {
-  AdminNavItem,
-  isNavItemActive,
-  type AdminNavChild,
-  type AdminNavItemData,
-} from "@/components/admin/AdminNavItem";
 import { Logo } from "@/components/brand/Logo";
 import { useAuth } from "@/context/AuthContext";
-import { useOpenFlagCount } from "@/components/admin/users/use-open-flag-count";
 
-const navGroups: { label: string; items: AdminNavItemData[] }[] = [
+const navGroups = [
   {
     label: "Overview",
     items: [
@@ -58,46 +50,11 @@ const navGroups: { label: string; items: AdminNavItemData[] }[] = [
           </svg>
         ),
       },
-      {
-        href: "/admin/expenses",
-        label: "Expenses",
-        description: "Paid-outs & Expenses",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <rect x="5" y="2.5" width="14" height="19" rx="1.5" />
-            <path d="M8.5 8h7M8.5 12h7M8.5 16h4" />
-          </svg>
-        ),
-      },
-      {
-        href: "/admin/promos",
-        label: "Promo Codes",
-        description: "Discounts & vouchers",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <path d="M3 9V7a2 2 0 0 1 2-2h5a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1h5a2 2 0 0 1 2 2v2a3 3 0 0 0 0 6v2a2 2 0 0 1-2 2h-5a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1H5a2 2 0 0 1-2-2v-2a3 3 0 0 0 0-6z" />
-            <path d="M9.5 9.5l5 5M9.75 9.75h.01M14.25 14.25h.01" />
-          </svg>
-        ),
-      },
     ],
   },
   {
     label: "Operations",
     items: [
-      {
-        href: "/admin/pos",
-        label: "POS Cashier",
-        description: "Cash register & Paid Today",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <path d="M7 10V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v5" />
-            <rect x="4" y="10" width="16" height="11" rx="2" />
-            <path d="M8 14h8" />
-            <path d="M8 17.5h.01M12 17.5h.01M16 17.5h.01" />
-          </svg>
-        ),
-      },
       {
         href: "/admin/menu",
         label: "Menu Items",
@@ -129,41 +86,16 @@ const navGroups: { label: string; items: AdminNavItemData[] }[] = [
         ),
       },
       {
-        href: "/admin/inventory",
-        label: "Inventory",
-        description: "Stock value & movements",
+        href: "/admin/stock",
+        label: "Stock / Inventory",
+        description: "Manage inventory",
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <rect x="8" y="2" width="8" height="4" rx="1" />
-            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-            <path d="M9 12h6M9 16h4" />
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+            <line x1="12" y1="22.08" x2="12" y2="12" />
           </svg>
         ),
-        children: [
-          {
-            href: "/admin/inventory",
-            label: "Inventory Dashboard",
-            // Exact match — a prefix match would light this child on every
-            // /admin/inventory/* sub-route.
-            exact: true,
-            icon: <LayoutDashboard className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-          {
-            href: "/admin/inventory/stock-in",
-            label: "Stock In",
-            icon: <PackagePlus className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-          {
-            href: "/admin/inventory/adjust",
-            label: "Stock Adjustment",
-            icon: <SlidersHorizontal className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-          {
-            href: "/admin/inventory/history",
-            label: "Inventory History",
-            icon: <History className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-        ],
       },
       {
         href: "/admin/delivery",
@@ -215,6 +147,18 @@ const navGroups: { label: string; items: AdminNavItemData[] }[] = [
         ),
       },
       {
+        href: "/admin/staff",
+        label: "Staff Accounts",
+        description: "Team management",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+        ),
+      },
+      {
         href: "/admin/reviews",
         label: "Customer Reviews",
         description: "Manage customer feedback",
@@ -225,45 +169,6 @@ const navGroups: { label: string; items: AdminNavItemData[] }[] = [
         ),
       },
 
-    ],
-  },
-  {
-    label: "Administration",
-    items: [
-      {
-        href: "/admin/users",
-        label: "User Management",
-        description: "Staff, customers & activity",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden>
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M19 8.5l2 2 3.5-3.5" />
-          </svg>
-        ),
-        children: [
-          {
-            href: "/admin/users/staff",
-            label: "Staff",
-            icon: <Users className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-          {
-            href: "/admin/users/customers",
-            label: "Customers",
-            icon: <User className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-          {
-            href: "/admin/users/flagged",
-            label: "Flagged",
-            icon: <Flag className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-          {
-            href: "/admin/users/activity",
-            label: "Activity log",
-            icon: <ScrollText className="h-4 w-4" />,
-          } satisfies AdminNavChild,
-        ],
-      },
     ],
   },
   {
@@ -284,49 +189,16 @@ const navGroups: { label: string; items: AdminNavItemData[] }[] = [
   },
 ];
 
+function isActive(pathname: string, href: string) {
+  if (href === "/admin") return pathname === "/admin";
+  if (href === "/admin/delivery") return pathname === "/admin/delivery";
+  if (href === "/admin/settings") return pathname === "/admin/settings";
+  return pathname.startsWith(href);
+}
+
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  // Open customer-flags count for the User Management badge. The hook itself
-  // never polls for non-admin sessions and renders nothing at 0.
-  const openFlagCount = useOpenFlagCount();
-
-  // Inventory submenu: initialized open when already inside the section, and
-  // re-opened on every navigation into /admin/inventory* — so it stays open
-  // while hopping between dashboard / stock-in / adjust / history, while the
-  // chevron still allows a manual close (until the next inbound navigation).
-  const [inventoryOpen, setInventoryOpen] = useState(() =>
-    isNavItemActive(pathname, "/admin/inventory")
-  );
-  useEffect(() => {
-    // Deferred by a timer tick (like the history page's debounced load) so
-    // the open state syncs on navigation without a cascading sync render.
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      if (!cancelled) setInventoryOpen(pathname.startsWith("/admin/inventory"));
-    }, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [pathname]);
-
-  // User Management submenu: the same expand/keep-open contract as Inventory,
-  // for /admin/users/staff /customers /flagged /activity.
-  const [usersOpen, setUsersOpen] = useState(() =>
-    isNavItemActive(pathname, "/admin/users")
-  );
-  useEffect(() => {
-    // Same deferred timer tick as the Inventory effect above.
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      if (!cancelled) setUsersOpen(pathname.startsWith("/admin/users"));
-    }, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [pathname]);
 
   return (
     <aside className="admin-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col overflow-y-auto text-white">
@@ -346,49 +218,30 @@ export function AdminSidebar() {
             </p>
             <div className="space-y-1">
               {group.items.map((item) => {
-                // Each expandable group carries its own open state; the
-                // Flagged child shares the live open-flag count with the
-                // group badge (patches the static nav data at render time).
-                const children =
-                  item.href === "/admin/users"
-                    ? item.children?.map((child) =>
-                        child.href === "/admin/users/flagged"
-                          ? { ...child, badge: openFlagCount ?? undefined }
-                          : child,
-                      )
-                    : item.children;
-                const groupOpen =
-                  item.href === "/admin/inventory"
-                    ? inventoryOpen
-                    : item.href === "/admin/users"
-                      ? usersOpen
-                      : undefined;
-                const onToggleGroup =
-                  item.href === "/admin/inventory"
-                    ? () => setInventoryOpen((v) => !v)
-                    : item.href === "/admin/users"
-                      ? () => setUsersOpen((v) => !v)
-                      : undefined;
+                const active = isActive(pathname, item.href);
+
                 return (
-                <AdminNavItem
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  description={item.description}
-                  icon={item.icon}
-                  pathname={pathname}
-                  badge={
-                    item.href === "/admin/users"
-                      ? openFlagCount ?? undefined
-                      : undefined
-                  }
-                  open={item.children ? groupOpen : undefined}
-                  onToggleOpen={
-                    item.children ? onToggleGroup : undefined
-                  }
-                >
-                  {children}
-                </AdminNavItem>
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`admin-nav-item flex items-center gap-3 rounded-xl px-3 py-3 ${
+                      active ? "admin-nav-item-active text-white" : "text-white/70"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                        active ? "bg-accent text-white" : "bg-white/8 text-white/80"
+                      }`}
+                    >
+                      {item.icon}
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold">{item.label}</span>
+                      <span className="block text-xs text-white/45">
+                        {item.description}
+                      </span>
+                    </span>
+                  </Link>
                 );
               })}
             </div>

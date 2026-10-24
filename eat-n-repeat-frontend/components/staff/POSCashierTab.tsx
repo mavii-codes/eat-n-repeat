@@ -7,23 +7,9 @@ import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { useNetworkStatus } from "@/context/NetworkStatusContext";
 import { useIsLocalBackend } from "@/lib/config";
 import { StartShiftModal, EndShiftModal } from "@/components/staff/CashModals";
-import { ExpenseModal, type DrawerExpenseResult } from "@/components/staff/ExpenseModal";
-import { staffCard } from "@/components/staff/StaffPanel";
 import toast from "react-hot-toast";
-import type { ExpenseItem, MenuItem } from "@/lib/admin/types";
-import { expenseRowsNet, isExpenseReversal } from "@/lib/admin/expense-utils";
+import type { MenuItem } from "@/lib/admin/types";
 import { getApiUrl } from "@/lib/config";
-import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
-import { parse2 } from "@/lib/customer/promo-format";
-import { formatPhTime } from "@/lib/admin/delivery-utils";
-import { POSReceiptModal } from "@/components/staff/POSReceiptModal";
-import type { POSReceiptDialogMode } from "@/components/staff/POSReceiptModal";
-import type {
-  CheckoutResponse,
-  POSReceipt,
-  PosSaleRow,
-  PosSalesSummary,
-} from "@/components/staff/pos-receipt-types";
 import {
   Search,
   Plus,
@@ -41,8 +27,7 @@ import {
   User,
   Truck,
   FileText,
-  Receipt,
-  RefreshCw,
+  CircleDollarSign,
 } from "lucide-react";
 
 /* ──────────────────────────────────────────────
@@ -88,9 +73,6 @@ type CartItem = {
   notes: string;
 };
 
-/** Right-panel tabs: the live order form vs. today's completed sales. */
-type PosPanelTab = "current" | "paid";
-
 /* ──────────────────────────────────────────────
    Component
    ────────────────────────────────────────────── */
@@ -102,7 +84,6 @@ export function POSCashierTab() {
     menuCategories,
     activeCashShift,
     fetchActiveCashShift,
-    createShiftExpense,
     addStoreOrder,
     getMenuCategoryName,
   } = useAdminData();
@@ -113,41 +94,6 @@ export function POSCashierTab() {
   // ─── Shift State ───
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
   const [endShiftModalOpen, setEndShiftModalOpen] = useState(false);
-  const [expenseModalOpen, setExpenseModalOpen] = useState(false);
-  // Offline shift override: while the device is offline, shift start/close
-  // journal ops and this optimistic value stands in for the server row.
-  // Cleared on successful drain (server becomes source of truth again).
-  const [offlineShiftOverride, setOfflineShiftOverride] = useState<null | { cleared: true } | Record<string, any>>(null);
-  const activeShift = offlineShiftOverride === null
-    ? activeCashShift
-    : (offlineShiftOverride as any).cleared === true
-      ? null
-      : (offlineShiftOverride as Record<string, any>);
-
-  useEffect(() => {
-    const onSynced = () => {
-      setOfflineShiftOverride(null);
-      fetchActiveCashShift();
-    };
-    window.addEventListener("eat-n-repeat:offline-synced", onSynced);
-    return () => window.removeEventListener("eat-n-repeat:offline-synced", onSynced);
-  }, [fetchActiveCashShift]);
-
-  // Authenticated staff identity for offline journals (AuthContext session
-  // first, staff JWT subject as fallback — never a manual entry).
-  const getStaffIdentity = useCallback((): { id: string; name: string } | null => {
-    if (user?.id) return { id: user.id, name: user?.name || "Staff" };
-    try {
-      const token = getStaffOrAdminToken();
-      if (token) {
-        const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
-        if (typeof payload?.sub === "string") {
-          return { id: payload.sub, name: typeof payload?.name === "string" ? payload.name : "Staff" };
-        }
-      }
-    } catch { /* token unreadable */ }
-    return null;
-  }, [user]);
 
   // ─── Menu / Filter State ───
   const [searchTerm, setSearchTerm] = useState("");
@@ -167,44 +113,12 @@ export function POSCashierTab() {
   // ─── Processing State ───
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // ─── Right Panel Tabs & Receipt State ───
-  const [activeTab, setActiveTab] = useState<PosPanelTab>("current");
-  const [receipt, setReceipt] = useState<POSReceipt | null>(null);
-  // Which dialog is showing: "receipt" = post-checkout confirmation;
-  // "details" = reopened from Paid Today (no cart side effects).
-  const [receiptDialogMode, setReceiptDialogMode] =
-    useState<POSReceiptDialogMode>("receipt");
-
-  // ─── Promo State (counter sales) ───
-  // Same contract as the customer cart: only the raw code is validated
-  // (channel "pos", anonymous walk-in) and only the code is sent at
-  // checkout — the server computes every peso of the discount.
-  const [promoCode, setPromoCode] = useState("");
-  const [promoValidating, setPromoValidating] = useState(false);
-  const [promoAppliedCode, setPromoAppliedCode] = useState<string | null>(null);
-  const [promoPreview, setPromoPreview] = useState<string | null>(null); // "30.00"
-  const [promoMessage, setPromoMessage] = useState<string | null>(null);
-
-  // ─── Paid Today State ───
-  const [posSales, setPosSales] = useState<PosSaleRow[]>([]);
-  const [posSalesSummary, setPosSalesSummary] = useState<PosSalesSummary | null>(null);
-  const [posSalesLoading, setPosSalesLoading] = useState(false);
-  const [posSalesError, setPosSalesError] = useState<string | null>(null);
-
   // ─── Image Fallback ───
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
   // ─── Refs ───
   const cashInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  // Synchronous double-submit guard: two clicks in the same tick both see
-  // isProcessing === false, so a ref (checked + set in the same synchronous
-  // pass) is the only reliable lock. Held until the receipt modal closes.
-  const checkoutInFlightRef = useRef(false);
-  // Monotonic id per Paid Today fetch: only the newest request may touch
-  // sales state, so slow/stale responses can never overwrite fresh data
-  // or flash a stale error.
-  const posSalesRequestIdRef = useRef(0);
 
   // ─── Derived data ───
   const activeCategories = useMemo(
@@ -234,12 +148,7 @@ export function POSCashierTab() {
     [cart]
   );
   const tax = 0; // standard cafe pricing — no tax
-  // Server-quoted promo discount (clamped by the server at checkout).
-  const promoDiscountAmount = Math.min(
-    promoPreview != null ? parse2(promoPreview) : 0,
-    subtotal,
-  );
-  const total = Math.max(0, subtotal + tax - promoDiscountAmount);
+  const total = subtotal + tax;
   const tenderedNum = parseFloat(cashTendered) || 0;
   const change = tenderedNum - total;
 
@@ -255,57 +164,9 @@ export function POSCashierTab() {
   }, [cart, paymentMethod, tenderedNum, total, cashTendered, gcashConfirmed]);
 
   // ─── Shift sales tracking (from backend) ───
-  const shiftFloat = activeShift ? Number(activeShift.starting_float) : 0;
-  const shiftExpected = activeShift ? Number(activeShift.expected_cash) : 0;
-  const shiftCashSales = activeShift ? shiftExpected - shiftFloat : 0;
-  // Drawer expenses: /shift/current provides the row array; compute the
-  // net locally (expense − reversal, voided rows skipped).
-  const shiftExpenseRows: ExpenseItem[] =
-    activeShift && Array.isArray(activeShift.expenses)
-      ? (activeShift.expenses as ExpenseItem[])
-      : [];
-  const shiftExpensesNet = expenseRowsNet(shiftExpenseRows);
-
-  // Drawer paid-out handler: the ctx helper posts and refetches the active
-  // shift; the modal owns validation and the toasts.
-  const handleShiftExpense = useCallback(
-    async (input: {
-      amount: number;
-      category: string;
-      reason: string;
-      note?: string;
-    }): Promise<DrawerExpenseResult> => {
-      if (!activeShift?.id) {
-        return { ok: false, message: "No open shift found.", shift: null };
-      }
-      const result = await createShiftExpense(String(activeShift.id), input);
-      if (result.ok) {
-        setOfflineShiftOverride((prev) => {
-          const base = (prev && !(prev as any).cleared ? prev : activeShift) as any;
-          if (base) {
-            const prevExpected = Number(base.expected_cash) || 0;
-            const newExpected = Math.max(0, prevExpected - input.amount);
-            const existingExpenses = Array.isArray(base.expenses) ? base.expenses : [];
-            const newExpenseItem = {
-              id: result.expense?.id || `exp-${Date.now()}`,
-              category: input.category,
-              amount: input.amount,
-              reason: input.reason,
-              created_at: new Date().toISOString(),
-            };
-            return {
-              ...base,
-              expected_cash: newExpected,
-              expenses: [...existingExpenses, newExpenseItem],
-            };
-          }
-          return prev;
-        });
-      }
-      return { ok: result.ok, message: result.message, shift: result.shift };
-    },
-    [activeShift, createShiftExpense]
-  );
+  const shiftFloat = activeCashShift ? Number(activeCashShift.starting_float) : 0;
+  const shiftExpected = activeCashShift ? Number(activeCashShift.expected_cash) : 0;
+  const shiftCashSales = activeCashShift ? shiftExpected - shiftFloat : 0;
 
   // ─── Force GCash off when offline ───
   useEffect(() => {
@@ -314,83 +175,6 @@ export function POSCashierTab() {
       toast.error("GCash is unavailable offline. Switched to cash.");
     }
   }, [isOffline, paymentMethod]);
-
-  /* ──────────────────────────────────────────────
-     Promo (counter sales)
-     ────────────────────────────────────────────── */
-
-  const clearPromo = useCallback(() => {
-    setPromoAppliedCode(null);
-    setPromoPreview(null);
-    setPromoMessage(null);
-    setPromoCode("");
-  }, []);
-
-  const applyPromo = useCallback(
-    async (rawCode: string) => {
-      const code = rawCode.trim();
-      if (!code || promoValidating || isOffline) return;
-      setPromoValidating(true);
-      setPromoMessage(null);
-      try {
-        const res = await fetch(`${getApiUrl()}/api/promos/validate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, subtotal, channel: "pos" }),
-        });
-        const data = await res.json().catch(() => null);
-        if (data?.ok) {
-          setPromoAppliedCode(String(data.code));
-          setPromoPreview(String(data.discount ?? "0.00"));
-          setPromoMessage(null);
-        } else {
-          setPromoAppliedCode(null);
-          setPromoPreview(null);
-          // Server copy verbatim (incl. the POS walk-in copy).
-          setPromoMessage(data?.message ?? "This code isn't valid");
-        }
-      } catch {
-        setPromoAppliedCode(null);
-        setPromoPreview(null);
-        setPromoMessage("Can't reach the server to check this code.");
-      } finally {
-        setPromoValidating(false);
-      }
-    },
-    [promoValidating, isOffline, subtotal]
-  );
-
-  // Keep the counter quote truthful as the order changes.
-  useEffect(() => {
-    if (!promoAppliedCode) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${getApiUrl()}/api/promos/validate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: promoAppliedCode, subtotal, channel: "pos" }),
-        });
-        const data = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (data?.ok) {
-          setPromoPreview(String(data.discount ?? "0.00"));
-        } else {
-          setPromoAppliedCode(null);
-          setPromoPreview(null);
-          setPromoMessage(data?.message ?? "This code isn't valid");
-        }
-      } catch {
-        if (cancelled) return;
-        setPromoAppliedCode(null);
-        setPromoPreview(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promoAppliedCode, subtotal]);
 
   /* ──────────────────────────────────────────────
      Cart Handlers
@@ -452,162 +236,40 @@ export function POSCashierTab() {
   }, [cart.length, cartCount, confirm, clearCart]);
 
   /* ──────────────────────────────────────────────
-     Paid Today — today's completed POS sales
-     ────────────────────────────────────────────── */
-
-  const fetchPosSales = useCallback(async () => {
-    const requestId = ++posSalesRequestIdRef.current;
-    setPosSalesLoading(true);
-    try {
-      const token = getStaffOrAdminToken();
-      const res = await fetch(`${getApiUrl()}/api/cash/pos-sales/today`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-      // Superseded by a newer fetch — ignore this response entirely.
-      if (requestId !== posSalesRequestIdRef.current) return;
-
-      if (res.ok) {
-        let data: Partial<{
-          success: boolean;
-          summary: PosSalesSummary;
-          sales: PosSaleRow[];
-        }> | null = null;
-        let parseFailed = false;
-        try {
-          data = (await res.json()) as Partial<{
-            success: boolean;
-            summary: PosSalesSummary;
-            sales: PosSaleRow[];
-          }>;
-        } catch {
-          parseFailed = true;
-        }
-        if (requestId !== posSalesRequestIdRef.current) return;
-
-        if (!parseFailed && data?.success) {
-          // Success — even a 0-sale day is a success and clears any error.
-          setPosSales(Array.isArray(data.sales) ? data.sales : []);
-          setPosSalesSummary(data.summary ?? null);
-          setPosSalesError(null);
-          return;
-        }
-        // Non-ok body / parse failure: a true failure. The existing list is
-        // intentionally left untouched so a stale refresh keeps old data.
-        setPosSalesError("Couldn't load today's sales right now.");
-      } else {
-        setPosSalesError("Couldn't load today's sales right now.");
-      }
-    } catch {
-      // Network/timeout failure — same policy: keep old data, show error
-      // only if this request is still the newest one.
-      if (requestId === posSalesRequestIdRef.current) {
-        setPosSalesError("Couldn't load today's sales. Check your connection.");
-      }
-    } finally {
-      if (requestId === posSalesRequestIdRef.current) {
-        setPosSalesLoading(false);
-      }
-    }
-  }, []);
-
-  // Fetch on tab activation; also re-fetched after every successful
-  // checkout so the list is fresh without a manual refresh.
-  useEffect(() => {
-    if (activeTab === "paid") fetchPosSales();
-  }, [activeTab, fetchPosSales]);
-
-  // Open the shared receipt dialog in details mode (no cart side effects).
-  const handleViewDetails = useCallback((sale: PosSaleRow) => {
-    setReceiptDialogMode("details");
-    setReceipt(sale);
-  }, []);
-
-  // Shared close path: the post-checkout confirmation clears the cart and
-  // returns to the Current Order tab; details just close back onto Paid Today.
-  const handleReceiptClose = useCallback(() => {
-    const wasPostCheckout = receiptDialogMode === "receipt";
-    setReceipt(null);
-    setReceiptDialogMode("receipt");
-    // Release the double-submit guard only now (post-checkout flow).
-    checkoutInFlightRef.current = false;
-    if (wasPostCheckout) {
-      clearCart();
-      // The consumed sale should not leak its code into the next order.
-      clearPromo();
-      setActiveTab("current");
-    }
-  }, [receiptDialogMode, clearCart, clearPromo]);
-
-  /* ──────────────────────────────────────────────
      Shift Handlers
      ────────────────────────────────────────────── */
 
   const handleStartShift = useCallback(
-    async () => {
+    async (float: number) => {
       try {
-        const token = getStaffOrAdminToken();
+        const token = localStorage.getItem("eat-n-repeat-staff-token");
         const res = await fetch(`${getApiUrl()}/api/cash/shift/start`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          signal: AbortSignal.timeout(10000),
+          body: JSON.stringify({ startingFloat: float }),
         });
         const data = await res.json();
         if (data.success) {
-          toast.success("Shift started with pre-configured float");
+          toast.success(`Shift started with ₱${float.toFixed(2)} float`);
           setShiftModalOpen(false);
-          setOfflineShiftOverride(null);
           fetchActiveCashShift();
         } else {
           toast.error(data.message || "Failed to start shift");
         }
       } catch (e) {
-        // Offline: journal the start with a client-generated id and stand
-        // up an optimistic local shift so POS keeps working. The drain
-        // creates it server-side (idempotent) and later closes attribute.
-        try {
-          const identity = getStaffIdentity();
-          if (!identity) {
-            toast.error("Please sign in as staff to start a shift.");
-            return;
-          }
-          if (activeShift) {
-            toast.error("You already have an open shift.");
-            return;
-          }
-          const { journalShiftOp } = await import("@/lib/offlineSync");
-          const shiftId = `shift-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
-          journalShiftOp({ shiftId, kind: "start", staffId: identity.id, startingFloat: 0 });
-          setOfflineShiftOverride({
-            id: shiftId,
-            staff_id: identity.id,
-            staff_name: identity.name,
-            starting_float: 0, // Will be set from server config
-            expected_cash: 0,
-            cash_sales: 0,
-            gcash_sales: 0,
-            status: "open",
-            start_time: new Date().toISOString(),
-          });
-          setShiftModalOpen(false);
-          toast.success("Shift started offline — will sync when reconnected.");
-        } catch {
-          toast.error("Network error starting shift");
-        }
+        toast.error("Network error starting shift");
       }
     },
-    [fetchActiveCashShift, activeShift, getStaffIdentity]
+    [fetchActiveCashShift]
   );
 
   const handleEndShift = useCallback(
-    async (actualCash: number, notes?: string) => {
+    async (actualCash: number) => {
       try {
-        const token = getStaffOrAdminToken();
+        const token = localStorage.getItem("eat-n-repeat-staff-token");
         const res = await fetch(`${getApiUrl()}/api/cash/shift/end`, {
           method: "POST",
           headers: {
@@ -615,47 +277,23 @@ export function POSCashierTab() {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
-            shiftId: activeShift?.id,
+            shiftId: activeCashShift?.id,
             actualCash,
-            ...(notes?.trim() ? { notes: notes.trim() } : {}),
           }),
-          signal: AbortSignal.timeout(10000),
         });
         const data = await res.json();
         if (data.success) {
           toast.success("Shift ended successfully");
           setEndShiftModalOpen(false);
-          setOfflineShiftOverride(null);
           fetchActiveCashShift();
         } else {
           toast.error(data.message || "Failed to end shift");
         }
       } catch (e) {
-        // Offline: journal the close against the (possibly offline-created)
-        // shift id; the drain applies it last with server-side variance.
-        try {
-          if (!activeShift) {
-            toast.error("No active shift to close.");
-            return;
-          }
-          const identity = getStaffIdentity();
-          const { journalShiftOp } = await import("@/lib/offlineSync");
-          journalShiftOp({
-            shiftId: String(activeShift.id),
-            kind: "close",
-            staffId: identity?.id ?? "",
-            actualCash,
-            notes: notes?.trim() || null,
-          });
-          setOfflineShiftOverride({ cleared: true });
-          setEndShiftModalOpen(false);
-          toast.success("Shift closed offline — will sync when reconnected.");
-        } catch {
-          toast.error("Network error ending shift");
-        }
+        toast.error("Network error ending shift");
       }
     },
-    [activeShift, fetchActiveCashShift, getStaffIdentity]
+    [activeCashShift, fetchActiveCashShift]
   );
 
   /* ──────────────────────────────────────────────
@@ -675,25 +313,11 @@ export function POSCashierTab() {
 
   const handleCompleteOrder = useCallback(async () => {
     if (!isPaymentValid || isProcessing) return;
-    // Synchronous double-click guard: a rapid second click lands in the
-    // same tick before isProcessing re-renders, so only a ref can stop
-    // the second request. Held until the receipt modal closes.
-    if (checkoutInFlightRef.current) return;
-    checkoutInFlightRef.current = true;
 
     setIsProcessing(true);
-    // Client-generated number, sent with the payload AND reused for any
-    // offline journal entry: the server honors staff-provided numbers and
-    // returns the existing order on retry, so a timeout can never mint a
-    // duplicate sale.
-    const posOrderNumber = `POS-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
-    // When the receipt modal opens, the guard stays held until it closes;
-    // every other exit path releases it in `finally` below.
-    let keepLockForReceipt = false;
     try {
-      const token = getStaffOrAdminToken();
+      const token = localStorage.getItem("eat-n-repeat-staff-token");
       const orderDetails = {
-        orderNumber: posOrderNumber,
         customerName: customerName.trim() || "Walk-in Customer",
         items: cart.map((ci) => ({
           menuItemId: ci.item.id,
@@ -703,9 +327,6 @@ export function POSCashierTab() {
           notes: ci.notes || undefined,
         })),
         subtotal,
-        // Promo: the raw code string only. The server resolves it against
-        // pos channel rules (anonymous walk-in) and computes the discount.
-        ...(promoAppliedCode ? { promoCode: promoAppliedCode } : {}),
         notes: orderType === "delivery" ? "Delivery order" : orderType.toUpperCase(),
         type: orderType,
       };
@@ -720,34 +341,18 @@ export function POSCashierTab() {
         paymentPayload.cashReceived = tenderedNum;
       }
 
-      // Belt and suspenders with AbortSignal: an explicit race guarantees
-      // this await settles even if the network stack stalls the abort
-      // (e.g. throttled background tab), so the button can never stick.
-      const CHECKOUT_TIMEOUT_MS = 25000;
-      let timeoutId: ReturnType<typeof setTimeout> | null = null;
-      const res = await Promise.race([
-        fetch(`${getApiUrl()}/api/payments/checkout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(paymentPayload),
-          // Fail fast instead of freezing on a dead route.
-          signal: AbortSignal.timeout(15000),
-        }),
-        new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            const err: any = new Error("Checkout timed out. Please check the orders list before retrying.");
-            err.name = "TimeoutError";
-            reject(err);
-          }, CHECKOUT_TIMEOUT_MS);
-        }),
-      ]).finally(() => {
-        if (timeoutId) clearTimeout(timeoutId);
+      const res = await fetch(`${getApiUrl()}/api/payments/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(paymentPayload),
+        // Fail fast instead of freezing on a dead route.
+        signal: AbortSignal.timeout(15000),
       });
 
-      const data = (await res.json()) as CheckoutResponse;
+      const data = await res.json();
 
       // Handle 503 ONLINE_ORDERING_UNAVAILABLE for online orders
       if (res.status === 503 && data.error === "ONLINE_ORDERING_UNAVAILABLE") {
@@ -756,7 +361,7 @@ export function POSCashierTab() {
       }
 
       if (data.success || data.orderId) {
-        const orderNum = String(data.orderNumber || data.orderId || "");
+        const orderNum = data.orderNumber || data.orderId;
 
         // Only add to local store if the order actually succeeded
         addStoreOrder({
@@ -780,165 +385,42 @@ export function POSCashierTab() {
         // NOTE: no journalOrder here — the server just accepted this order.
         // Journaling a successful POS sale would queue it for offline replay
         // and insert a second (customer-less) row with the same order number.
-        // Network-failure cash sales ARE journaled in the catch below.
+        // (This tab has no offline-sale journal path; network failures surface
+        // via the toast in the catch below and journal nothing.)
 
-        const serverReceipt = data.receipt ?? null;
-        if (serverReceipt) {
-          // Receipt modal replaces the success toast. The cart is kept
-          // until the receipt closes, then cleared + back to Current Order.
-          setReceiptDialogMode("receipt");
-          setReceipt(serverReceipt);
-          keepLockForReceipt = true;
-          // Refresh Paid Today in the background so the list is already
-          // fresh whenever the cashier switches tabs.
-          fetchPosSales();
-        } else {
-          // Unexpected: no receipt in the response — legacy fallback
-          // (success toast + immediate clear), never an empty modal.
-          toast.success(
-            (t) => (
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span className="font-bold text-stone-900">Order #{orderNum}</span>
-                </div>
-                <p className="text-xs text-stone-600">
-                  Total: ₱{total.toFixed(2)} • {paymentMethod === "cash" ? "Cash" : "GCash"}
-                </p>
-                {paymentMethod === "cash" && change > 0 && (
-                  <p className="text-xs text-emerald-700 font-semibold">
-                    Change: ₱{change.toFixed(2)}
-                  </p>
-                )}
+        // Show receipt toast
+        toast.success(
+          (t) => (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span className="font-bold text-stone-900">Order #{orderNum}</span>
               </div>
-            ),
-            { duration: 4000 }
-          );
+              <p className="text-xs text-stone-600">
+                Total: ₱{total.toFixed(2)} • {paymentMethod === "cash" ? "Cash" : "GCash"}
+              </p>
+              {paymentMethod === "cash" && change > 0 && (
+                <p className="text-xs text-emerald-700 font-semibold">
+                  Change: ₱{change.toFixed(2)}
+                </p>
+              )}
+            </div>
+          ),
+          { duration: 4000 }
+        );
 
-          // Reset
-          clearCart();
-          clearPromo();
-          setCashTendered("");
-          setGcashConfirmed(false);
-          setCustomerName("");
-          fetchPosSales();
-        }
+        // Reset
+        clearCart();
+        setCashTendered("");
+        setGcashConfirmed(false);
+        setCustomerName("");
         fetchActiveCashShift();
       } else {
         toast.error(data.message || "Failed to process order");
       }
-    } catch (e: any) {
-      // Offline cash sales are captured locally and replayed by the sync
-      // drain (INSERT IGNORE + order-number guard => no duplicates).
-      // GCash is never journaled: an online payment that failed cannot be
-      // assumed collected. Non-network errors keep the old behavior.
-      // TimeoutError counts as a network failure: the server may still have
-      // saved the order, but the journal reuses posOrderNumber so the drain
-      // guard (and the server's own duplicate-return) converge to one row.
-      const msg = typeof e?.message === 'string' ? e.message : '';
-      const offlineBrowser =
-        typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && !navigator.onLine;
-      const isNetworkFailure =
-        offlineBrowser ||
-        e instanceof TypeError ||
-        e?.name === 'TimeoutError' ||
-        msg.includes('Failed to fetch') ||
-        msg.includes('NetworkError') ||
-        msg.includes('Load failed') ||
-        msg.includes('timed out');
-      if (isNetworkFailure && paymentMethod === 'cash') {
-        try {
-          const { journalOrder, journalPayment, journalStockTransaction } = await import('@/lib/offlineSync');
-          const offlineId = posOrderNumber;
-          const itemsSummary = cart
-            .map((ci) => `${ci.item.name} (${ci.qty}x)`)
-            .join(", ");
-          // Offline sales keep NO promo: codes can only be validated by the
-          // café server, so the replayed total is the plain (undiscounted)
-          // amount and the code is cleared with the cart.
-          const offlineTotal = Math.max(0, subtotal + tax);
-          journalOrder({
-            id: offlineId,
-            time: new Date().toISOString(),
-            items: itemsSummary,
-            total: offlineTotal,
-            status: 'completed',
-            paid: true,
-            notes: `${orderType.toUpperCase()} - ${customerName || "Walk-in"}`,
-            address: null,
-            customerNotes: null,
-            // Preserve fulfillment type so the replayed row keeps it
-            // (dine-in/pickup/delivery) instead of defaulting to dine-in.
-            type: orderType,
-          });
-          // Wire offline stock deduction for tracked inventory items (D3)
-          for (const ci of cart) {
-            if (ci.item.stockItemId) {
-              journalStockTransaction({
-                id: `ost-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-                stockItemId: ci.item.stockItemId,
-                quantityDeducted: ci.qty,
-                orderId: offlineId,
-                staffId: user?.id || "offline-staff",
-              });
-            }
-          }
-          // Queue the collection too so the drain records the PAID payment
-          // and attributes the drawer (originating staff first).
-          try {
-            const staffToken = getStaffOrAdminToken();
-            let staffId: string | null = null;
-            if (user?.id) staffId = user.id;
-            else if (staffToken) {
-              try {
-                const payload = JSON.parse(atob(staffToken.split(".")[1] ?? ""));
-                if (typeof payload?.sub === "string") staffId = payload.sub;
-              } catch { /* token unreadable — drain falls back to operator */ }
-            }
-            journalPayment({ orderId: offlineId, method: 'Cash', cashReceived: tenderedNum, staffId });
-          } catch { /* payment queue is best-effort; the order journal stands */ }
-          addStoreOrder({
-            orderId: offlineId,
-            time: new Date().toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            orderedAt: new Date().toISOString(),
-            items: itemsSummary,
-            total: offlineTotal,
-            status: "completed",
-            paid: true,
-            notes: `${orderType.toUpperCase()} - ${customerName || "Walk-in"}`,
-            orderType,
-          });
-          // Keep the offline X-read honest: this drawer cash is real, so
-          // the optimistic shift total grows with it until the drain lands.
-          setOfflineShiftOverride((prev) => {
-            const base = prev && !(prev as any).cleared ? prev : activeShift;
-            if (base) {
-              return {
-                ...(base as Record<string, any>),
-                expected_cash: Number((base as any).expected_cash || 0) + offlineTotal,
-              };
-            }
-            return prev;
-          });
-        } catch {
-          // Journaling must never break the sale.
-        }
-        toast.success("Saved offline — will sync when reconnected.", { duration: 4000 });
-        clearCart();
-        clearPromo();
-        setCashTendered("");
-        setGcashConfirmed(false);
-        setCustomerName("");
-      } else {
-        toast.error("Network error processing order");
-      }
+    } catch (e) {
+      toast.error("Network error processing order");
     } finally {
-      // Release the double-submit guard unless the receipt modal took
-      // over the lock — that is released when the receipt closes.
-      if (!keepLockForReceipt) checkoutInFlightRef.current = false;
       setIsProcessing(false);
     }
   }, [
@@ -952,12 +434,9 @@ export function POSCashierTab() {
     total,
     tenderedNum,
     change,
-    promoAppliedCode,
     addStoreOrder,
     clearCart,
-    clearPromo,
     fetchActiveCashShift,
-    fetchPosSales,
   ]);
 
   // Auto-focus cash input when payment section appears
@@ -972,7 +451,7 @@ export function POSCashierTab() {
      No Shift Screen
      ────────────────────────────────────────────── */
 
-  if (!activeShift) {
+  if (!activeCashShift) {
     return (
       <>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
@@ -996,7 +475,6 @@ export function POSCashierTab() {
         <StartShiftModal
           open={shiftModalOpen}
           onStart={handleStartShift}
-          onClose={() => setShiftModalOpen(false)}
         />
       </>
     );
@@ -1012,8 +490,8 @@ export function POSCashierTab() {
         {/* ═══════════════════════════════════════════
             1. SHIFT HEADER
            ═══════════════════════════════════════════ */}
-        <div className={staffCard}>
-          <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             {/* Shift status + stats */}
             <div className="flex items-center gap-3 flex-wrap">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700 border border-emerald-200 uppercase tracking-wider">
@@ -1043,39 +521,22 @@ export function POSCashierTab() {
                 </div>
                 <div className="w-px h-4 bg-stone-200" />
                 <div className="flex items-center gap-1.5">
-                  <span className="text-stone-400 font-semibold">Expenses:</span>
-                  <span className="font-bold text-stone-700">
-                    ₱{shiftExpensesNet.toFixed(2)}
-                  </span>
-                </div>
-                <div className="w-px h-4 bg-stone-200" />
-                <div className="flex items-center gap-1.5">
                   <span className="text-stone-400 font-semibold">Staff:</span>
                   <span className="font-bold text-stone-800">
-                    {activeShift.staff_name || user?.name}
+                    {activeCashShift.staff_name || user?.name}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* End shift + expense controls */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setExpenseModalOpen(true)}
-                title="Record a drawer paid-out"
-                className="px-4 py-2.5 bg-white border border-stone-200 text-stone-700 text-xs font-bold rounded-xl hover:bg-stone-50 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
-              >
-                <Banknote className="w-3.5 h-3.5" />
-                Add Expense
-              </button>
-              <button
-                onClick={() => setEndShiftModalOpen(true)}
-                className="px-5 py-2.5 bg-stone-900 text-white text-xs font-bold rounded-xl hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
-              >
-                <Clock className="w-3.5 h-3.5" />
-                End Shift
-              </button>
-            </div>
+            {/* End shift button */}
+            <button
+              onClick={() => setEndShiftModalOpen(true)}
+              className="px-5 py-2.5 bg-stone-900 text-white text-xs font-bold rounded-xl hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              End Shift
+            </button>
           </div>
         </div>
 
@@ -1087,7 +548,7 @@ export function POSCashierTab() {
           {/* ─── LEFT: Menu Grid (7 cols) ─── */}
           <div className="lg:col-span-7 space-y-3">
             {/* Toolbar: Search + Category Pills */}
-            <div className={`${staffCard} p-4 space-y-3`}>
+            <div className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm space-y-3">
               {/* Search Bar */}
               <div className="relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
@@ -1225,49 +686,20 @@ export function POSCashierTab() {
 
           {/* ─── RIGHT: Cart & Payment Panel (5 cols) ─── */}
           <div className="lg:col-span-5">
-            <div className={`${staffCard} p-5 space-y-4 sticky top-6`}>
+            <div className="rounded-3xl border border-stone-200/80 bg-white p-5 shadow-sm space-y-4 sticky top-6">
 
-              {/* Panel Header — Tabs (switching never mutates the cart) */}
-              <div className="flex items-center border-b border-stone-100 pb-3">
-                <div className="flex items-center gap-1 bg-stone-100 rounded-xl p-1 w-full">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("current")}
-                    className={`flex-1 min-w-0 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      activeTab === "current"
-                        ? "bg-white text-[#63131d] shadow-sm"
-                        : "text-stone-500 hover:text-stone-700"
-                    }`}
-                  >
-                    <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">Current Order</span>
-                    <span
-                      className={`shrink-0 h-5 min-w-5 px-1.5 rounded-full text-[10px] font-black inline-flex items-center justify-center ${
-                        activeTab === "current"
-                          ? "bg-[#63131d] text-white"
-                          : "bg-stone-200 text-stone-600"
-                      }`}
-                    >
-                      {cartCount}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("paid")}
-                    className={`flex-1 min-w-0 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      activeTab === "paid"
-                        ? "bg-white text-[#63131d] shadow-sm"
-                        : "text-stone-500 hover:text-stone-700"
-                    }`}
-                  >
-                    <Receipt className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">Paid Today</span>
-                  </button>
+              {/* Panel Header */}
+              <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+                <div>
+                  <h3 className="font-serif text-xl font-bold text-[#63131d]">
+                    Current Order
+                  </h3>
                 </div>
+                <span className="px-3 py-1 rounded-full bg-stone-100 text-stone-700 text-xs font-bold border border-stone-200/60">
+                  {cartCount} {cartCount === 1 ? "item" : "items"}
+                </span>
               </div>
 
-              {activeTab === "current" ? (
-              <>
               {/* ─── Order Type Selector ─── */}
               <div className="space-y-2">
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400">
@@ -1409,69 +841,6 @@ export function POSCashierTab() {
                 )}
               </div>
 
-              {/* ─── Promo (counter) ─── */}
-              {cart.length > 0 && (
-                <div className="pt-2 space-y-1.5 border-t border-stone-200/80">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                    Promo Code
-                  </label>
-                  {promoAppliedCode ? (
-                    <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1.5">
-                      <p className="text-[11px] font-black text-emerald-700">
-                        ✓ {promoAppliedCode}
-                        {promoDiscountAmount > 0 ? (
-                          <span className="font-semibold"> — saves ₱{promoDiscountAmount.toFixed(2)}</span>
-                        ) : null}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={clearPromo}
-                        className="text-[10px] font-bold text-stone-500 hover:text-rose-600 underline cursor-pointer"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        placeholder="Enter code"
-                        value={promoCode}
-                        disabled={isOffline}
-                        onChange={(e) => setPromoCode(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            applyPromo(promoCode);
-                          }
-                        }}
-                        className="flex-1 min-w-0 rounded-lg border border-stone-300 bg-white py-2 px-2.5 text-[11px] font-mono uppercase text-stone-800 outline-none focus:ring-1 focus:ring-[#63131d]/20 transition-all disabled:bg-stone-100 disabled:text-stone-400"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => applyPromo(promoCode)}
-                        disabled={promoValidating || isOffline || !promoCode.trim()}
-                        className={`px-3 py-2 rounded-lg text-[10px] font-bold transition-colors cursor-pointer shrink-0 ${
-                          promoValidating || isOffline || !promoCode.trim()
-                            ? "bg-stone-200 text-stone-400 cursor-not-allowed"
-                            : "bg-[#63131d] text-white hover:bg-[#7d1c29]"
-                        }`}
-                      >
-                        {promoValidating ? "…" : "Apply"}
-                      </button>
-                    </div>
-                  )}
-                  {promoMessage && (
-                    <p className="text-[10px] font-semibold text-rose-600">{promoMessage}</p>
-                  )}
-                  {isOffline && !promoAppliedCode && (
-                    <p className="text-[10px] text-stone-400">
-                      Promo codes need the café server — unavailable offline.
-                    </p>
-                  )}
-                </div>
-              )}
-
               {/* ─── Price Summary ─── */}
               <div className="pt-3 border-t border-stone-200/80 space-y-1.5 text-xs font-semibold">
                 <div className="flex justify-between text-stone-500">
@@ -1482,12 +851,6 @@ export function POSCashierTab() {
                   <span>Tax</span>
                   <span>₱0.00</span>
                 </div>
-                {promoAppliedCode && promoDiscountAmount > 0 && (
-                  <div className="flex justify-between text-emerald-600 font-semibold">
-                    <span>Discount · {promoAppliedCode}</span>
-                    <span>-₱{promoDiscountAmount.toFixed(2)}</span>
-                  </div>
-                )}
                 <div className="flex justify-between items-center text-base font-black text-[#63131d] pt-2 border-t border-dashed border-stone-200">
                   <span>TOTAL</span>
                   <span className="text-xl font-black">₱{total.toFixed(2)}</span>
@@ -1652,7 +1015,7 @@ export function POSCashierTab() {
                           </>
                         ) : (
                           <>
-                            <Banknote className="w-4 h-4" />
+                            <CircleDollarSign className="w-4 h-4" />
                             Mark as Paid
                           </>
                         )}
@@ -1691,18 +1054,6 @@ export function POSCashierTab() {
                   Clear Cart
                 </button>
               </div>
-              </>
-              ) : (
-                <PaidTodayPanel
-                  sales={posSales}
-                  summary={posSalesSummary}
-                  loading={posSalesLoading}
-                  error={posSalesError}
-                  onRefresh={fetchPosSales}
-                  onViewDetails={handleViewDetails}
-                  shiftExpenses={shiftExpenseRows}
-                />
-              )}
             </div>
           </div>
         </div>
@@ -1711,290 +1062,13 @@ export function POSCashierTab() {
       {/* ═══════════════════════════════════════════
           MODALS
          ═══════════════════════════════════════════ */}
-      <StartShiftModal
-        open={shiftModalOpen}
-        onStart={handleStartShift}
-        onClose={() => setShiftModalOpen(false)}
-      />
+      <StartShiftModal open={shiftModalOpen} onStart={handleStartShift} />
       <EndShiftModal
         open={endShiftModalOpen}
-        shift={activeShift}
+        shift={activeCashShift}
         onEnd={handleEndShift}
         onClose={() => setEndShiftModalOpen(false)}
       />
-      <ExpenseModal
-        open={expenseModalOpen}
-        shift={activeShift}
-        onSubmit={handleShiftExpense}
-        onClose={() => setExpenseModalOpen(false)}
-      />
-      <POSReceiptModal
-        open={receipt !== null}
-        receipt={receipt}
-        mode={receiptDialogMode}
-        onClose={handleReceiptClose}
-      />
     </>
-  );
-}
-
-/* ──────────────────────────────────────────────
-   Paid Today Panel (right panel, 5/12 width)
-   ────────────────────────────────────────────── */
-
-type PaidTodayPanelProps = {
-  sales: PosSaleRow[];
-  summary: PosSalesSummary | null;
-  loading: boolean;
-  error: string | null;
-  onRefresh: () => void;
-  onViewDetails: (sale: PosSaleRow) => void;
-  /** Drawer expense rows for the active shift (server refetches on write). */
-  shiftExpenses?: ExpenseItem[];
-};
-
-/** ₱ amount with PH thousands separators: 1,234.50 */
-function phpAmount(value: unknown): string {
-  const n = Number(value);
-  return (Number.isFinite(n) ? n : 0).toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function paymentChipClass(method: string | undefined): string {
-  const m = (method || "").toLowerCase();
-  if (m.includes("gcash")) return "bg-blue-50 text-blue-700 border-blue-200";
-  if (m.includes("cash")) return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  return "bg-stone-100 text-stone-600 border-stone-200";
-}
-
-function PaidTodayPanel({
-  sales,
-  summary,
-  loading,
-  error,
-  onRefresh,
-  onViewDetails,
-  shiftExpenses = [],
-}: PaidTodayPanelProps) {
-  const count = summary ? Number(summary.count) || 0 : sales.length;
-  const collected = summary ? Number(summary.totalCollected) || 0 : 0;
-  const expenseNet = expenseRowsNet(shiftExpenses);
-
-  return (
-    <div className="space-y-3">
-      {/* ─── Summary card ─── */}
-      <div className="rounded-2xl bg-gradient-to-br from-[#63131d] via-[#63131d] to-[#4a0e16] p-4 text-white shadow-md">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-white/50">
-            Shift Sales
-          </p>
-          <button
-            type="button"
-            onClick={onRefresh}
-            title="Refresh today's sales"
-            aria-label="Refresh today's sales"
-            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-        <div className="mt-2.5 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-3xl font-black leading-none">{count}</p>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-white/60 mt-1">
-              {count === 1 ? "Sale" : "Sales"} Today
-            </p>
-          </div>
-          <div className="text-right min-w-0">
-            <p className="text-lg font-black leading-none text-emerald-300 truncate">
-              ₱{phpAmount(collected)}
-            </p>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-white/60 mt-1">
-              Total Collected
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── Shift Expenses (drawer paid-outs this shift) ─── */}
-      <div className="rounded-xl bg-white border border-stone-200 shadow-sm overflow-hidden">
-        <div className="px-3.5 py-2.5 border-b border-stone-100 flex items-center justify-between bg-stone-50/60">
-          <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">
-            Shift Expenses
-          </p>
-          <p className={`text-xs font-black ${expenseNet < 0 ? "text-emerald-700" : "text-[#63131d]"}`}>
-            ₱{phpAmount(Math.abs(expenseNet))}{expenseNet < 0 ? " net" : ""}
-          </p>
-        </div>
-        {shiftExpenses.length === 0 ? (
-          <p className="px-3.5 py-3 text-[11px] font-semibold text-stone-400">
-            No expenses paid out this shift.
-          </p>
-        ) : (
-          <div className="max-h-[168px] overflow-y-auto divide-y divide-stone-100">
-            {shiftExpenses.map((row) => {
-              const reversal = isExpenseReversal(row);
-              const voided = row.status === "voided";
-              return (
-                <div key={row.id} className="px-3.5 py-2 flex items-center gap-2 min-w-0">
-                  <span className="text-[10px] font-black text-stone-400 shrink-0">
-                    {formatPhTime(row.createdAt) || "—"}
-                  </span>
-                  <span
-                    className="shrink-0 inline-flex items-center rounded-full border border-stone-200 bg-stone-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-stone-600"
-                    title={voided ? row.voidReason || "Voided" : undefined}
-                  >
-                    {voided ? "Voided · " : ""}{row.category || "—"}
-                  </span>
-                  <p className="flex-1 min-w-0 text-[11px] font-semibold text-stone-700 truncate">
-                    {row.reason || "—"}
-                  </p>
-                  <span
-                    className={`shrink-0 text-[11px] font-black ${
-                      voided
-                        ? "text-stone-400 line-through"
-                        : reversal
-                          ? "text-emerald-700"
-                          : "text-stone-900"
-                    }`}
-                  >
-                    {voided
-                      ? `₱${phpAmount(row.amount)}`
-                      : reversal
-                        ? `+₱${phpAmount(row.amount)} back`
-                        : `₱${phpAmount(row.amount)}`}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ─── Sales list ─── */}
-      <div className="max-h-[calc(100vh-360px)] min-h-[160px] overflow-y-auto space-y-2 pr-1">
-        {loading && sales.length === 0 ? (
-          /* Compact skeleton */
-          [0, 1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="rounded-xl bg-stone-50/70 border border-stone-200/60 p-3 space-y-2 animate-pulse"
-            >
-              <div className="flex justify-between gap-2">
-                <div className="h-3 w-28 bg-stone-200 rounded" />
-                <div className="h-3 w-14 bg-stone-200 rounded" />
-              </div>
-              <div className="h-2.5 w-full bg-stone-200/70 rounded" />
-              <div className="h-2.5 w-1/2 bg-stone-200/70 rounded" />
-            </div>
-          ))
-        ) : error && sales.length === 0 ? (
-          /* Friendly inline retry (list still empty) */
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-center space-y-2.5">
-            <Receipt className="w-6 h-6 text-amber-500 mx-auto" />
-            <p className="text-xs font-bold text-amber-800">{error}</p>
-            <button
-              type="button"
-              onClick={onRefresh}
-              className="px-3.5 py-1.5 rounded-xl bg-[#63131d] hover:bg-[#7d1c29] text-white text-[10px] font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
-            >
-              <RefreshCw className="w-3 h-3" />
-              Try Again
-            </button>
-          </div>
-        ) : sales.length === 0 ? (
-          /* Empty state */
-          <div className="py-10 text-center text-stone-400 space-y-2">
-            <Receipt className="w-10 h-10 text-stone-200 mx-auto" />
-            <p className="text-sm font-semibold text-stone-500">
-              No sales yet today
-            </p>
-            <p className="text-[11px] text-stone-400 max-w-[200px] mx-auto">
-              Completed orders will appear here right after checkout.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* Stale-refresh failure: keep data visible, offer a quiet retry */}
-            {error && (
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="w-full text-left px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Refresh failed — tap to retry
-              </button>
-            )}
-            {sales.map((sale, idx) => (
-              <div
-                key={`${sale.orderNumber}-${idx}`}
-                className="rounded-xl bg-stone-50/70 border border-stone-200/60 p-3 space-y-1.5"
-              >
-                {/* Row head: time + order number + total */}
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[10px] font-black text-stone-400 shrink-0">
-                      {formatPhTime(sale.createdAt) || "—"}
-                    </span>
-                    <span className="text-xs font-bold text-stone-900 truncate">
-                      #{sale.orderNumber}
-                    </span>
-                  </div>
-                  <span className="font-black text-[#63131d] text-xs shrink-0">
-                    ₱{phpAmount(sale.total)}
-                  </span>
-                </div>
-
-                {/* Items summary */}
-                <p className="text-[10px] text-stone-500 font-semibold truncate">
-                  {sale.itemsSummary || "—"}
-                </p>
-
-                {/* Payment info + details */}
-                <div className="flex items-end justify-between gap-2">
-                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${paymentChipClass(sale.paymentMethod)}`}
-                    >
-                      {sale.paymentMethod || "—"}
-                    </span>
-                    {sale.promoCode && (
-                      <span
-                        className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700"
-                      >
-                        {sale.promoCode}
-                        {Number(sale.discount) > 0 ? ` −₱${phpAmount(sale.discount)}` : ""}
-                      </span>
-                    )}
-                    {sale.cashTendered !== null && sale.cashTendered !== undefined && (
-                      <span className="text-[10px] text-stone-400 font-semibold">
-                        Tendered ₱{phpAmount(sale.cashTendered)}
-                      </span>
-                    )}
-                    {sale.change !== null && sale.change !== undefined && (
-                      <span className="text-[10px] text-emerald-700 font-bold">
-                        Change ₱{phpAmount(sale.change)}
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onViewDetails(sale)}
-                    title="View sale details"
-                    className="shrink-0 px-2 py-1 rounded-lg bg-white border border-stone-200 text-[10px] font-bold text-[#63131d] hover:border-[#63131d]/40 hover:bg-stone-50 transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    <Receipt className="w-3 h-3" />
-                    View Details
-                  </button>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
   );
 }

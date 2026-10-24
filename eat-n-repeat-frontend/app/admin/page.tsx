@@ -1,31 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { PhilippinePeso } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { NotificationsPanel } from "@/components/admin/NotificationsPanel";
 import { DashboardRecentOrders } from "@/components/admin/DashboardRecentOrders";
-import { LiveChip } from "@/components/admin/LiveChip";
 import {
   ClipboardIcon,
+  DollarIcon,
   StatCard,
   TrendIcon,
 } from "@/components/admin/StatCard";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
+import { dashboardStats } from "@/lib/admin/mock-data";
 import { useAdminData } from "@/context/AdminDataContext";
-import {
-  formatPctChange,
-  pctChangeToneClassName,
-} from "@/lib/admin/sales-format";
 import type { AdminNotification } from "@/lib/admin/types";
+
+function formatChange(value: number) {
+  const prefix = value >= 0 ? "+" : "";
+  return `${prefix}${value}% from yesterday`;
+}
 
 const quickLinks = [
   { href: "/admin/menu", label: "Menu Items", desc: "Manage menu" },
-  { href: "/admin/inventory", label: "Inventory", desc: "Stock value & movements" },
+  { href: "/admin/stock", label: "Inventory", desc: "Stock control" },
   { href: "/admin/delivery", label: "Delivery", desc: "Orders & status" },
   { href: "/admin/archives", label: "Archives", desc: "Restore archived items" },
   { href: "/admin/reports", label: "Sales Reports", desc: "View sales" },
-  { href: "/admin/users/staff", label: "Staff", desc: "Team accounts" },
+  { href: "/admin/staff", label: "Staff", desc: "Team accounts" },
   { href: "/admin/settings", label: "Settings", desc: "System config" },
 ];
 
@@ -41,49 +42,8 @@ function timeAgo(dateString: string) {
 }
 
 export default function AdminDashboardPage() {
-  const {
-    stockItems,
-    deliveryOrders,
-    refreshBackendOrders,
-    refreshBackendStock,
-    salesFigures,
-    salesEventsVersion,
-    fetchSalesFigures,
-  } = useAdminData();
-
-  // Real, backend-backed revenue bundle. The provider fetches once on mount;
-  // this covers a direct page mount and every debounced SSE bump.
-  useEffect(() => {
-    if (!salesFigures) void fetchSalesFigures();
-  }, [salesFigures, fetchSalesFigures]);
-
-  useEffect(() => {
-    if (salesEventsVersion === 0) return;
-    void fetchSalesFigures();
-  }, [salesEventsVersion, fetchSalesFigures]);
-
-  useEffect(() => {
-    let mounted = true;
-    const refresh = () => {
-      if (mounted && document.visibilityState === "visible") {
-        refreshBackendOrders();
-        refreshBackendStock();
-      }
-    };
-    refresh();
-    const interval = setInterval(refresh, 10000);
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshBackendOrders, refreshBackendStock]);
-
-  const today = salesFigures?.today;
-  const changePct = salesFigures?.changePct ?? null;
+  const stats = dashboardStats;
+  const { stockItems, deliveryOrders } = useAdminData();
   const notifications = useMemo<AdminNotification[]>(() => {
     const lowStock = stockItems
       .filter((item) => item.quantity <= item.lowStockThreshold)
@@ -113,47 +73,31 @@ export default function AdminDashboardPage() {
         badge="Owner Portal"
         title="Admin Dashboard"
         subtitle="Monitor sales, orders, notifications, and jump into management tools."
-        action={<LiveChip />}
       />
 
       <section className="grid gap-5 md:grid-cols-3">
         <StatCard
           title="Today's Revenue"
-          value={`₱${Number(today?.revenue || 0).toLocaleString()}`}
-          subtitle={formatPctChange(changePct)}
-          subtitleClassName={pctChangeToneClassName(changePct)}
-          icon={<PhilippinePeso className="h-5 w-5" />}
+          value={`₱${stats.todaysRevenue.toLocaleString()}`}
+          subtitle={formatChange(stats.revenueChange)}
+          icon={<DollarIcon />}
           tone="wine"
         />
         <StatCard
           title="Orders Today"
-          value={Number(today?.orders || 0).toLocaleString()}
-          subtitle={`${Number(today?.pending || 0)} in progress`}
+          value={stats.ordersToday.toLocaleString()}
+          subtitle={formatChange(stats.ordersChange)}
           icon={<ClipboardIcon />}
           tone="red"
         />
         <StatCard
           title="Completed"
-          value={Number(today?.completed || 0).toLocaleString()}
-          subtitle={`${Number(today?.pending || 0)} pending`}
+          value={stats.completedOrders.toLocaleString()}
+          subtitle={`${stats.pendingOrders} pending`}
           icon={<TrendIcon />}
           tone="rose"
         />
       </section>
-
-      {/* ── Promo discounts today (additive, promo codes) ──
-          Hidden until a discount actually exists, so an unused feature
-          never adds noise. */}
-      {(Number(today?.totalDiscounts) || 0) > 0 && (
-        <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
-          <p className="text-xs font-bold text-emerald-800">
-            Total discounts today: ₱{Number(today?.totalDiscounts).toFixed(2)}
-          </p>
-          <p className="text-[11px] font-semibold text-emerald-700/80 mt-0.5">
-            Gross sales (before discounts): ₱{Number(today?.grossBeforeDiscounts).toFixed(2)}
-          </p>
-        </div>
-      )}
 
       <section className="mt-5 grid gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2">

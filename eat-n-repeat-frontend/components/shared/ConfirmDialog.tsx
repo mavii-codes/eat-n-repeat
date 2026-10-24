@@ -13,29 +13,13 @@ interface ConfirmOptions {
   variant?: ConfirmVariant;
 }
 
-/* Runs async work inside the open dialog. Return a string to hold the dialog
-   open and surface that message verbatim (e.g. a backend 409 like "Close the
-   open shift first."); return null to confirm and close. */
-type ConfirmActionRunner = () => Promise<string | null> | string | null;
-
-interface ConfirmActionOptions extends ConfirmOptions {
-  action: ConfirmActionRunner;
-  /** Button copy while the action is in flight (default "Working…"). */
-  workingLabel?: string;
-}
-
 interface ConfirmState extends ConfirmOptions {
   isOpen: boolean;
   resolve?: (value: boolean) => void;
-  runner?: ConfirmActionRunner;
-  workingLabel?: string;
-  busy?: boolean;
-  actionError?: string | null;
 }
 
 interface ConfirmContextValue {
   confirm: (options: ConfirmOptions) => Promise<boolean>;
-  confirmAction: (options: ConfirmActionOptions) => Promise<boolean>;
 }
 
 const ConfirmContext = createContext<ConfirmContextValue | null>(null);
@@ -51,61 +35,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
     return new Promise((resolve) => {
-      setState({ ...options, isOpen: true, resolve, runner: undefined, busy: false, actionError: null });
-    });
-  }, []);
-
-  const confirmAction = useCallback((options: ConfirmActionOptions): Promise<boolean> => {
-    return new Promise((resolve) => {
-      setState({
-        ...options,
-        isOpen: true,
-        resolve,
-        runner: options.action,
-        workingLabel: options.workingLabel || 'Working…',
-        busy: false,
-        actionError: null,
-      });
+      setState({ ...options, isOpen: true, resolve });
     });
   }, []);
 
   const handleClose = (value: boolean) => {
     state.resolve?.(value);
     setState({ isOpen: false, title: '', message: '' });
-  };
-
-  /* Confirm button handler. Plain confirms resolve instantly; action confirms
-     run the action with the visible spinner, and only close on success. */
-  const handleConfirm = async () => {
-    const { runner } = state;
-    if (!runner || state.busy) {
-      if (!state.busy) handleClose(true);
-      return;
-    }
-    setState((s) => ({ ...s, busy: true, actionError: null }));
-    try {
-      const actionError = await runner();
-      if (actionError) {
-        // Keep the dialog open and show the backend message verbatim.
-        setState((s) => ({ ...s, busy: false, actionError }));
-        return;
-      }
-      state.resolve?.(true);
-      setState({ isOpen: false, title: '', message: '' });
-    } catch (err: any) {
-      setState((s) => ({
-        ...s,
-        busy: false,
-        actionError: err?.message || 'Something went wrong. Try again.',
-      }));
-    }
-  };
-
-  // Cancelling mid-action would leave the call racing with a closed dialog,
-  // so the side is simply locked while the spinner is up.
-  const handleCancel = () => {
-    if (state.busy) return;
-    handleClose(false);
   };
 
   const variantStyles: Record<ConfirmVariant, { icon: ReactNode; confirmBg: string }> = {
@@ -125,10 +61,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const variant = state.variant || 'warning';
   const styles = variantStyles[variant];
-  const busy = state.busy === true;
 
   return (
-    <ConfirmContext.Provider value={{ confirm, confirmAction }}>
+    <ConfirmContext.Provider value={{ confirm }}>
       {children}
       {state.isOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
@@ -139,32 +74,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 <h3 className="text-[15px] font-bold text-stone-900">{state.title}</h3>
                 <p className="mt-1 text-[13px] text-stone-600 leading-relaxed">{state.message}</p>
               </div>
-              <button disabled={busy} onClick={handleCancel} className="shrink-0 p-1 text-stone-400 hover:text-stone-600 transition disabled:opacity-40">
+              <button onClick={() => handleClose(false)} className="shrink-0 p-1 text-stone-400 hover:text-stone-600 transition">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            {state.actionError && (
-              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-bold text-red-700">
-                {state.actionError}
-              </p>
-            )}
             <div className="flex gap-2 justify-end pt-1">
               <button
-                disabled={busy}
-                onClick={handleCancel}
-                className="px-4 py-2 text-[13px] font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => handleClose(false)}
+                className="px-4 py-2 text-[13px] font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg transition"
               >
                 {state.cancelLabel || 'Cancel'}
               </button>
               <button
-                disabled={busy}
-                onClick={handleConfirm}
-                className={`px-4 py-2 text-[13px] font-semibold text-white rounded-lg transition ${styles.confirmBg} disabled:opacity-70`}
+                onClick={() => handleClose(true)}
+                className={`px-4 py-2 text-[13px] font-semibold text-white rounded-lg transition ${styles.confirmBg}`}
               >
-                {busy && (
-                  <span className="mr-1.5 inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white align-[-2px]"></span>
-                )}
-                {busy ? state.workingLabel || 'Working…' : state.confirmLabel || 'Confirm'}
+                {state.confirmLabel || 'Confirm'}
               </button>
             </div>
           </div>

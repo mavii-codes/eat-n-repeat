@@ -9,46 +9,28 @@ import {
   useRef,
   useState,
 } from "react";
-import { usePathname } from "next/navigation";
 import { initialAdminData } from "@/lib/admin/mock-data";
 import { ensureHashed } from "@/lib/admin/password";
 import { formatPhDateTime } from "@/lib/admin/delivery-utils";
-import {
-  normalizeExpense,
-  normalizeExpenses,
-} from "@/lib/admin/expense-utils";
 import type {
   AdminDataState,
-  CashShift,
   DeliveryOrder,
   DeliveryOrderInput,
   DeliverySettings,
   DeliveryStatus,
-  ExpenseItem,
-  ExpensesSummary,
   MenuCategory,
   MenuCategoryInput,
   MenuItem,
   MenuItemInput,
   RecentOrder,
-  SalesDataPoint,
-  SalesFigures,
   ServiceArea,
   ServiceAreaInput,
   StaffAccount,
   StaffAccountInput,
-  StockAdjustInput,
   StockCategory,
   StockCategoryInput,
-  StockDashboardResponse,
-  StockInInput,
   StockItem,
   StockItemInput,
-  StockLayer,
-  StockMovement,
-  StockMovementPage,
-  StockMutationItemSnapshot,
-  StockMutationResponse,
   StockRequest,
   StockRequestInput,
   SystemSettings,
@@ -57,163 +39,15 @@ import type {
 const STORAGE_KEY = "eat-n-repeat-admin-data";
 const MENU_API_TIMEOUT_MS = 8000;
 
-import { getStaffOrAdminToken, getTokenRole } from "@/lib/admin/auth-token";
-import { subscribeAdminEvents } from "@/lib/admin/admin-events";
-export { getStaffOrAdminToken };
-
-const SALES_EVENTS_DEBOUNCE_MS = 1000;
-
-function salesNumber(value: unknown): number {
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function normalizeSalesPoints(value: unknown): SalesDataPoint[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((entry) => {
-    const point = (
-      entry && typeof entry === "object" ? entry : {}
-    ) as Record<string, unknown>;
-    return {
-      label: typeof point.label === "string" ? point.label : "",
-      amount: salesNumber(point.amount),
-    };
-  });
-}
-
-function normalizeSalesFigures(raw: unknown): SalesFigures {
-  const json = (
-    raw && typeof raw === "object" ? raw : {}
-  ) as Record<string, unknown>;
-  const todayRaw = (
-    json.today && typeof json.today === "object" ? json.today : {}
-  ) as Record<string, unknown>;
-  const changeRaw = json.change_pct;
-  const changePct =
-    changeRaw == null ? null : Number.isFinite(Number(changeRaw)) ? Number(changeRaw) : null;
-
-  return {
-    today: {
-      revenue: salesNumber(todayRaw.revenue),
-      orders: salesNumber(todayRaw.orders),
-      completed: salesNumber(todayRaw.completed),
-      pending: salesNumber(todayRaw.pending),
-      // Older backends omit the promo figures; fall back to 0 / revenue.
-      totalDiscounts: salesNumber(todayRaw.total_discounts),
-      grossBeforeDiscounts:
-        todayRaw.gross_sales_before_discounts == null
-          ? salesNumber(todayRaw.revenue)
-          : salesNumber(todayRaw.gross_sales_before_discounts),
-    },
-    yesterdayRevenue: salesNumber(json.yesterday_revenue),
-    changePct,
-    weekly: normalizeSalesPoints(json.weekly),
-    weeklyTotal: salesNumber(json.weekly_total),
-    monthly: normalizeSalesPoints(json.monthly),
-    monthlyTotal: salesNumber(json.monthly_total),
-    yearlyTotal: salesNumber(json.yearly_total),
-    // Same defensive defaults for the month/year windows.
-    monthlyTotalDiscounts: salesNumber(json.monthly_total_discounts),
-    monthlyGrossBeforeDiscounts:
-      json.monthly_gross_sales_before_discounts == null
-        ? salesNumber(json.monthly_total)
-        : salesNumber(json.monthly_gross_sales_before_discounts),
-    yearlyTotalDiscounts: salesNumber(json.yearly_total_discounts),
-    yearlyGrossBeforeDiscounts:
-      json.yearly_gross_sales_before_discounts == null
-        ? salesNumber(json.yearly_total)
-        : salesNumber(json.yearly_gross_sales_before_discounts),
-    generatedAt: typeof json.generated_at === "string" ? json.generated_at : "",
-  };
-}
-
-/** Expense totals from /api/expenses and /api/expenses/summary.
- *  `stockPurchases` is optional so older backends simply omit the line. */
-function normalizeExpensesSummary(raw: unknown): ExpensesSummary {
-  const json = (
-    raw && typeof raw === "object" ? raw : {}
-  ) as Record<string, unknown>;
-  const summary: ExpensesSummary = {
-    total: salesNumber(json.total),
-    count: salesNumber(json.count),
-  };
-  const stockRaw = (
-    json.stockPurchases && typeof json.stockPurchases === "object"
-      ? json.stockPurchases
-      : null
-  ) as Record<string, unknown> | null;
-  if (stockRaw) {
-    summary.stockPurchases = {
-      total: salesNumber(stockRaw.total),
-      count: salesNumber(stockRaw.count),
-    };
-  }
-  return summary;
-}
-
-type AdminEventManager = {
-  subscribe: (listener: () => void) => () => void;
-};
-
-let sharedAdminEventManager: AdminEventManager | null = null;
-
-/**
- * One shared admin EventSource + trailing debounce for the whole portal.
- * Bursts of backend events collapse into a single notification so the
- * pages/context refresh once per burst instead of once per event.
- */
-export function createAdminEventManager(): AdminEventManager {
-  if (sharedAdminEventManager) return sharedAdminEventManager;
-
-  const listeners = new Set<() => void>();
-  let stopStream: (() => void) | null = null;
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const notify = () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      for (const listener of Array.from(listeners)) {
-        try {
-          listener();
-        } catch {
-          // A page listener must never break the shared stream.
-        }
-      }
-    }, SALES_EVENTS_DEBOUNCE_MS);
-  };
-
-  const manager: AdminEventManager = {
-    subscribe(listener) {
-      listeners.add(listener);
-      if (!stopStream) {
-        stopStream = subscribeAdminEvents(notify);
-      }
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size === 0) {
-          if (debounceTimer) {
-            clearTimeout(debounceTimer);
-            debounceTimer = null;
-          }
-          const stop = stopStream;
-          stopStream = null;
-          stop?.();
-        }
-      };
-    },
-  };
-
-  sharedAdminEventManager = manager;
-  return manager;
-}
-
-
 // Menu is server-backed (shared across devices) with a localStorage fallback
 // for offline use. Reads are public; writes need a staff/admin token.
 async function menuApi(path: string, init?: RequestInit): Promise<Response> {
   const { getApiUrl } = await import("@/lib/config");
-  const token = getStaffOrAdminToken();
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("eat-n-repeat-admin-token") ||
+        localStorage.getItem("eat-n-repeat-staff-token")
+      : null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MENU_API_TIMEOUT_MS);
   try {
@@ -247,8 +81,8 @@ function notifyStaffSyncFailed(detail?: string) {
 
 // Staff accounts are server-backed (shared across devices) with a
 // localStorage offline cache. DB is source of truth when reachable.
-// Only core identity fields are synced; availability/lastActive stay
-// device-local. Passwords are NEVER read from the server:
+// Only core identity fields are synced; availability/contactNumber/
+// lastActive stay device-local. Passwords are NEVER read from the server:
 // GET /api/staff strips passwordHash, POST/PUT send plaintext over HTTPS
 // and the backend stores bcrypt hashes.
 // Writes get a longer timeout: free-tier backends (Render) can cold-start
@@ -262,7 +96,11 @@ async function staffApi(
   timeoutMs: number = MENU_API_TIMEOUT_MS,
 ): Promise<Response> {
   const { getApiUrl } = await import("@/lib/config");
-  const token = getStaffOrAdminToken();
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("eat-n-repeat-admin-token") ||
+        localStorage.getItem("eat-n-repeat-staff-token")
+      : null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -315,12 +153,6 @@ function mergeServerStaff(
   );
   const byEmail = new Map(prev.map((a) => [(a.email || "").toLowerCase(), a]));
   const serverIds = new Set(server.map((s) => s.id));
-  const serverUsernames = new Set(
-    server.map((s) => (s.username || "").toLowerCase()),
-  );
-  const serverEmails = new Set(
-    server.map((s) => (s.email || "").toLowerCase()),
-  );
   const merged: StaffAccount[] = server.map((s) => {
     const local =
       byId.get(s.id) ??
@@ -337,6 +169,7 @@ function mergeServerStaff(
       role: s.role,
       status: s.status,
       availability: local?.availability ?? "Offline",
+      contactNumber: local?.contactNumber ?? "",
       lastActive: local?.lastActive ?? "Never",
       createdAt: local?.createdAt ?? s.createdAt ?? new Date().toISOString(),
       archived: s.archived ?? false,
@@ -344,17 +177,7 @@ function mergeServerStaff(
     };
   });
   // Keep device-only rows created offline (not yet on server) alongside.
-  // Never duplicate rows that already exist on the server by ID, username, or email.
-  // Evict legacy mock sf-1 and Cafe Administrator placeholder.
-  const offlineOnly = prev.filter((a) => {
-    if (serverIds.has(a.id)) return false;
-    const u = (a.username || "").toLowerCase();
-    const e = (a.email || "").toLowerCase();
-    if (u && serverUsernames.has(u)) return false;
-    if (e && serverEmails.has(e)) return false;
-    if (a.id === "sf-1" || a.name === "Cafe Administrator") return false;
-    return true;
-  });
+  const offlineOnly = prev.filter((a) => !serverIds.has(a.id));
   return [...merged, ...offlineOnly];
 }
 
@@ -369,10 +192,6 @@ function mergeServerStaff(
 type BackendOrderRow = {
   id: string;
   orderNumber: string;
-  /* Additive (Phase 3): ordering customer's account id — passed through so
-     the "Flag customer" report entry can target /api/admin/users/customers/
-     :id/report. Optional; untouched rows keep working. */
-  customerId?: string | null;
   customerName?: string | null;
   phone?: string | null;
   address?: string | null;
@@ -385,9 +204,6 @@ type BackendOrderRow = {
   status?: string | null;
   archived?: boolean | null;
   notes?: string | null;
-  // Pick-Up / Take-Out details (server rows; null for other types).
-  pickupName?: string | null;
-  pickupAt?: string | null;
   createdAt?: string | null;
   deliveredAt?: string | null;
   orderMode?: string | null;
@@ -453,12 +269,6 @@ function mapDeliveryStatus(status: string | null | undefined): DeliveryStatus {
       return "out_for_delivery";
     case "delivered":
       return "delivered";
-    // A delivery row the backend persisted as "completed" (staff chose
-    // Completed) must survive mapping. It previously fell into default and
-    // came back as "pending" on every repull/poll, making Completed revert
-    // to Pending and dropping the order out of history filters.
-    case "completed":
-      return "completed";
     case "cancelled":
       return "cancelled";
     case "pending":
@@ -492,7 +302,6 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
       delivery.push({
         id: row.id,
         orderNumber: row.orderNumber,
-        customerId: row.customerId ?? undefined,
         customerName: row.customerName ?? "Customer",
         phone: row.phone ?? "",
         address: row.address ?? "",
@@ -512,15 +321,12 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
       store.push({
         id: row.id,
         orderId: row.orderNumber,
-        customerId: row.customerId ?? undefined,
         customerName: row.customerName ?? undefined,
         orderType: row.type ?? undefined,
         orderMode: row.orderMode ?? undefined,
         phone: row.phone ?? undefined,
         address: row.address ?? undefined,
         serviceAreaId: row.serviceAreaId ?? undefined,
-        pickupName: row.pickupName ?? undefined,
-        pickupAt: row.pickupAt ?? undefined,
         time: timeLabel,
         orderedAt: createdIso || undefined,
         items,
@@ -539,14 +345,7 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
 }
 
 function createId(prefix: string) {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-  }
-  // Fallback for non-secure contexts (HTTP localhost/LAN) where crypto.randomUUID is unavailable.
-  // Combines timestamp + random for uniqueness without requiring HTTPS.
-  const timestamp = Date.now().toString(36);
-  const randomPart = Math.random().toString(36).substring(2, 10);
-  return `${prefix}-${timestamp}${randomPart}`.slice(0, prefix.length + 1 + 16);
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function archiveTimestamp() {
@@ -566,12 +365,6 @@ function ensureArchived<T extends { archived?: boolean }>(
 // Retired factory order mocks. Order views must render only real orders;
 // these ids are dropped when cached state loads (genuine offline-created
 // rows use random ids and are unaffected).
-// Rows created on this device (offline/optimistic) use createId("ord"/"do")
-// ids. They are the only rows safe to keep when the server response no longer
-// includes them — server-origin rows (uuid ids) missing from a successful
-// response were deleted server-side and must be pruned, or they stay visible
-// forever as ghosts that 404 on every action.
-const CLIENT_GENERATED_ROW_ID = /^(ord|do)-/i;
 const LEGACY_MOCK_ORDER_IDS = new Set(["so-1", "so-2", "so-3"]);
 const LEGACY_MOCK_DELIVERY_IDS = new Set([
   "do-1",
@@ -580,16 +373,6 @@ const LEGACY_MOCK_DELIVERY_IDS = new Set([
   "do-4",
   "do-5",
   "do-6",
-]);
-
-const LEGACY_MOCK_STOCK_IDS = new Set([
-  "st-1",
-  "st-2",
-  "st-3",
-  "st-4",
-  "st-5",
-  "st-6",
-  "si-6f12f5bf",
 ]);
 
 function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
@@ -602,24 +385,20 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
     ),
     menuItems: ensureArchived(data.menuItems, initialAdminData.menuItems),
     stockCategories: data.stockCategories ?? initialAdminData.stockCategories,
-    stockItems: (data.stockItems ?? []).filter(
-      (i) => !LEGACY_MOCK_STOCK_IDS.has(i.id) && !i.name.includes("Test Item Sync"),
-    ),
+    stockItems: data.stockItems ?? initialAdminData.stockItems,
     stockRequests: data.stockRequests ?? initialAdminData.stockRequests,
     staffAccounts: ensureArchived(
-      (data.staffAccounts ?? initialAdminData.staffAccounts)
-        .filter((a) => a.id !== "sf-1" && a.name !== "Cafe Administrator")
-        .map((account) => {
-          const initial = initialAdminData.staffAccounts.find((x) => x.id === account.id);
-          return {
-            ...account,
-            username: account.username || initial?.username || account.name.toLowerCase().replace(/\s+/g, ""),
-            // Never persist plaintext: hash legacy/mock passwords on load.
-            password: ensureHashed(account.password || initial?.password || "staff123"),
-            role:
-              (account.role as string) === "cashier" ? "staff" : account.role,
-          };
-        }),
+      (data.staffAccounts ?? initialAdminData.staffAccounts).map((account) => {
+        const initial = initialAdminData.staffAccounts.find((x) => x.id === account.id);
+        return {
+          ...account,
+          username: account.username || initial?.username || account.name.toLowerCase().replace(/\s+/g, ""),
+          // Never persist plaintext: hash legacy/mock passwords on load.
+          password: ensureHashed(account.password || initial?.password || "staff123"),
+          role:
+            (account.role as string) === "cashier" ? "staff" : account.role,
+        };
+      }),
       initialAdminData.staffAccounts,
     ),
     systemSettings: data.systemSettings ?? initialAdminData.systemSettings,
@@ -646,11 +425,9 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
 }
 
 type AdminDataContextValue = AdminDataState & {
-  addMenuItem: (input: MenuItemInput) => Promise<any> | void;
-  updateMenuItem: (id: string, input: MenuItemInput) => Promise<any> | void;
+  addMenuItem: (input: MenuItemInput) => void;
+  updateMenuItem: (id: string, input: MenuItemInput) => void;
   deleteMenuItem: (id: string) => void;
-  refreshBackendMenu: () => Promise<boolean>;
-  fetchStockConsistencyCheck: () => Promise<any>;
   archiveMenuItem: (id: string) => void;
   restoreMenuItem: (id: string) => void;
   addMenuCategory: (input: MenuCategoryInput) => void;
@@ -675,12 +452,6 @@ type AdminDataContextValue = AdminDataState & {
   restoreStaffAccount: (id: string) => void;
   refreshStaffAccounts: () => Promise<boolean>;
   refreshBackendOrders: () => Promise<boolean>;
-  refreshBackendStock: () => Promise<boolean>;
-  /** Live figures from GET /api/sales/figures (shared by dashboard/reports). */
-  salesFigures: SalesFigures | null;
-  /** Incremented after each debounced admin event; pages refetch scoped data. */
-  salesEventsVersion: number;
-  fetchSalesFigures: () => Promise<void>;
   fetchOrderHistoryPage: (args: {
     page: number;
     limit?: number;
@@ -691,30 +462,6 @@ type AdminDataContextValue = AdminDataState & {
     delivery: DeliveryOrder[];
     pagination: { page: number; limit: number; total: number; totalPages: number };
   } | null>;
-  fetchStockDashboard: () => Promise<StockDashboardResponse | null>;
-  fetchStockMovementsPage: (args: {
-    page: number;
-    limit?: number;
-    itemId?: string;
-    type?: string;
-    from?: string;
-    to?: string;
-    staffId?: string;
-    search?: string;
-  }) => Promise<StockMovementPage | null>;
-  stockInItem: (itemId: string, input: StockInInput) => Promise<StockMutationResponse>;
-  adjustStockItem: (itemId: string, input: StockAdjustInput) => Promise<StockMutationResponse>;
-  fetchStockItemLayers: (itemId: string) => Promise<StockLayer[] | null>;
-  /** Admin-only Phase B write: set the unit cost on one FIFO cost layer.
-   *  PATCH /api/stock/items/:id/layers/:layerId/cost → on success
-   *  { success: true, layer }; 400/404/409 return { success: false, message }. */
-  setStockLayerCost: (
-    itemId: string,
-    layerId: string,
-    unitCost: number,
-  ) => Promise<
-    { ok: true; layer: StockLayer } | { ok: false; message: string }
-  >;
   migrateLocalStaffAccount: (
     id: string,
     password: string,
@@ -737,57 +484,6 @@ type AdminDataContextValue = AdminDataState & {
   updateStoreOrderStatus: (id: string, status: RecentOrder["status"]) => void;
   confirmStoreOrderPayment: (id: string, cashReceived?: number) => void;
   fetchActiveCashShift: () => Promise<void>;
-  fetchExpenses: (args: {
-    page: number;
-    limit?: number;
-    from?: string;
-    to?: string;
-    category?: string;
-    paymentSource?: string;
-    origin?: string;
-    createdById?: string;
-  }) => Promise<{
-    expenses: ExpenseItem[];
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-    summary: ExpensesSummary;
-  } | null>;
-  fetchExpensesSummary: (
-    from?: string,
-    to?: string,
-  ) => Promise<ExpensesSummary | null>;
-  createShiftExpense: (
-    shiftId: string,
-    input: { amount: number; category: string; reason: string; note?: string },
-  ) => Promise<{
-    ok: boolean;
-    message: string;
-    expense: ExpenseItem | null;
-    shift: CashShift | null;
-  }>;
-  createAdminExpense: (
-    input: {
-      date?: string;
-      amount: number;
-      category: string;
-      payee?: string;
-      paymentSource: "cash_drawer" | "other" | string;
-      reason: string;
-      note?: string;
-    },
-  ) => Promise<{
-    ok: boolean;
-    message: string;
-    expense: ExpenseItem | null;
-    shift: CashShift | null;
-  }>;
-  voidExpense: (id: string, reason: string) => Promise<{ ok: boolean; message: string }>;
-  reverseExpense: (
-    id: string,
-    reason: string,
-  ) => Promise<{ ok: boolean; message: string; expense: ExpenseItem | null }>;
   addStoreOrder: (input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => void;
   addServiceArea: (input: ServiceAreaInput) => void;
   updateServiceArea: (id: string, input: ServiceAreaInput) => void;
@@ -845,9 +541,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffSyncError, setStaffSyncError] = useState<string | null>(null);
   const [serverStaffIds, setServerStaffIds] = useState<string[]>([]);
-  const [salesFigures, setSalesFigures] = useState<SalesFigures | null>(null);
-  const [salesEventsVersion, setSalesEventsVersion] = useState(0);
-  const salesFiguresInFlight = useRef(false);
   // Guards the persist effect below: without it, the mount-time write would
   // persist the SSR placeholder OVER the real cache before hydration reads it.
   const hydratedFromStorage = useRef(false);
@@ -855,9 +548,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   // outside setData updaters and must not close over stale renders.
   const dataRef = useRef(data);
   dataRef.current = data;
-  // Current route, used to scope staff/admin-only background polling (see the
-  // cash-shift poll below). Purely client-side — no server render depends on it.
-  const pathname = usePathname();
 
   // Client-only cache hydration (runs after first paint, post-hydration).
   useEffect(() => {
@@ -892,58 +582,78 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     hydratedFromStorage.current = true;
   });
 
-  // Pull shared menu from backend with full stock-tracking metadata if staff/admin.
-  const refreshBackendMenu = useCallback(async (): Promise<boolean> => {
-    try {
-      const token = getStaffOrAdminToken();
-      const itemsUrl = token ? "/api/menu/items?admin=true" : "/api/menu/items";
-      const [catRes, itemRes] = await Promise.all([
-        menuApi("/api/menu/categories"),
-        menuApi(itemsUrl),
-      ]);
-      if (!catRes.ok || !itemRes.ok) return false;
-      const catJson = await catRes.json();
-      const itemJson = await itemRes.json();
-      const serverCategories = ensureArchived((catJson.categories ?? []) as MenuCategory[]);
-      const serverItems = ensureArchived((itemJson.items ?? []) as MenuItem[]);
-      const archivedCatIds = new Set<string>(catJson.archivedIds ?? []);
-      const archivedItemIds = new Set<string>(itemJson.archivedIds ?? []);
-      setData((prev) => {
-        const serverCatIds = new Set(serverCategories.map((c) => c.id));
-        const serverItemIds = new Set(serverItems.map((i) => i.id));
-        return {
-          ...prev,
-          menuCategories: [
-            ...serverCategories,
-            ...prev.menuCategories
-              .filter((c) => !serverCatIds.has(c.id))
-              .map((c) =>
-                archivedCatIds.has(c.id)
-                  ? { ...c, archived: true, archivedAt: c.archivedAt ?? archiveTimestamp() }
-                  : c,
-              ),
-          ],
-          menuItems: [
-            ...serverItems,
-            ...prev.menuItems
-              .filter((i) => !serverItemIds.has(i.id))
-              .map((i) =>
-                archivedItemIds.has(i.id)
-                  ? { ...i, archived: true, archivedAt: i.archivedAt ?? archiveTimestamp() }
-                  : i,
-              ),
-          ],
-        };
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
+  // Load the shared menu from the backend once on mount. Server rows win for
+  // matching ids; device-only rows (created offline) are kept alongside.
   useEffect(() => {
-    void refreshBackendMenu();
-  }, [refreshBackendMenu]);
+    let cancelled = false;
+    (async () => {
+      try {
+        // Diagnostics: prove whether the rendered menu comes from the API.
+        // (console.info only — safe in production, no PII.)
+        const { getApiUrl } = await import("@/lib/config");
+        console.info(`[customer-menu] API URL: ${getApiUrl()}`);
+        console.info("[customer-menu] fetching /api/menu/items");
+        const [catRes, itemRes] = await Promise.all([
+          menuApi("/api/menu/categories"),
+          menuApi("/api/menu/items"),
+        ]);
+        if (!catRes.ok || !itemRes.ok) {
+          console.warn("[customer-menu] API failed, using cached fallback.");
+          return;
+        }
+        const catJson = await catRes.json();
+        const itemJson = await itemRes.json();
+        if (cancelled) return;
+        const serverCategories = ensureArchived(
+          (catJson.categories ?? []) as MenuCategory[],
+        );
+        const serverItems = ensureArchived(
+          (itemJson.items ?? []) as MenuItem[],
+        );
+        console.info(`[customer-menu] API response count: ${serverItems.length}`);
+        console.info(`[customer-menu] API item IDs: ${serverItems.map((i) => i.id).join(", ")}`);
+        // Tombstones: ids the server reports as archived. Cached rows with
+        // these ids were removed on another device — mark them archived in
+        // place (kept for offline cache, hidden from customer views). Rows
+        // absent from BOTH lists are genuine offline-created rows and stay.
+        const archivedCatIds = new Set<string>(catJson.archivedIds ?? []);
+        const archivedItemIds = new Set<string>(itemJson.archivedIds ?? []);
+        setData((prev) => {
+          const serverCatIds = new Set(serverCategories.map((c) => c.id));
+          const serverItemIds = new Set(serverItems.map((i) => i.id));
+          return {
+            ...prev,
+            menuCategories: [
+              ...serverCategories,
+              ...prev.menuCategories
+                .filter((c) => !serverCatIds.has(c.id))
+                .map((c) =>
+                  archivedCatIds.has(c.id)
+                    ? { ...c, archived: true, archivedAt: c.archivedAt ?? archiveTimestamp() }
+                    : c,
+                ),
+            ],
+            menuItems: [
+              ...serverItems,
+              ...prev.menuItems
+                .filter((i) => !serverItemIds.has(i.id))
+                .map((i) =>
+                  archivedItemIds.has(i.id)
+                    ? { ...i, archived: true, archivedAt: i.archivedAt ?? archiveTimestamp() }
+                    : i,
+                ),
+            ],
+          };
+        });
+      } catch {
+        // Backend unreachable — keep the local cache (offline mode).
+        console.warn("[customer-menu] API failed, using cached fallback.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshStaffAccounts = useCallback(async (): Promise<boolean> => {
     setStaffLoading(true);
@@ -979,7 +689,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   // staff/admin token exists. DB wins; device-only offline rows are kept.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const token = getStaffOrAdminToken();
+    const token =
+      localStorage.getItem("eat-n-repeat-admin-token") ||
+      localStorage.getItem("eat-n-repeat-staff-token");
     if (!token) return;
     refreshStaffAccounts();
   }, [refreshStaffAccounts]);
@@ -1005,28 +717,18 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           ...delivery.map((o) => o.orderNumber),
           ...delivery.map((o) => o.id),
         ]);
-        // Server rows missing from a SUCCESSFUL response were deleted
-        // server-side; only device-created rows (ord-/do- ids) are kept as
-        // offline-only. Keeping server-origin rows here would leave ghosts
-        // that 404 on every staff action.
         return {
           ...prev,
           storeOrders: [
             ...store,
             ...prev.storeOrders.filter(
-              (o) =>
-                CLIENT_GENERATED_ROW_ID.test(o.id) &&
-                !serverStoreKeys.has(o.orderId) &&
-                !serverStoreKeys.has(o.id),
+              (o) => !serverStoreKeys.has(o.orderId) && !serverStoreKeys.has(o.id),
             ),
           ],
           deliveryOrders: [
             ...delivery,
             ...prev.deliveryOrders.filter(
-              (o) =>
-                CLIENT_GENERATED_ROW_ID.test(o.id) &&
-                !serverDeliveryKeys.has(o.orderNumber) &&
-                !serverDeliveryKeys.has(o.id),
+              (o) => !serverDeliveryKeys.has(o.orderNumber) && !serverDeliveryKeys.has(o.id),
             ),
           ],
         };
@@ -1037,154 +739,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   }, []);
-
-  // Pull shared stock data (items, categories, requests) from the backend so
-  // both Admin and Staff portals stay in sync. Same offline-resilient pattern
-  // as refreshBackendOrders: server rows win, device-only offline rows kept.
-  const refreshBackendStock = useCallback(async (): Promise<boolean> => {
-    try {
-      const [catRes, itemRes, reqRes] = await Promise.all([
-        staffApi("/api/stock/categories"),
-        staffApi("/api/stock/items"),
-        staffApi("/api/stock/requests").catch(() => null),
-      ]);
-      if (!catRes.ok || !itemRes.ok) return false;
-      const catJson = await catRes.json().catch(() => null);
-      const itemJson = await itemRes.json().catch(() => null);
-      const reqJson = reqRes && reqRes.ok ? await reqRes.json().catch(() => null) : null;
-      const serverCategories = (catJson?.categories ?? []) as { id: string; name: string }[];
-      const serverItems = (itemJson?.items ?? []) as {
-        id: string; name: string; categoryId: string;
-        quantity: number; unit: string; lowStockThreshold: number;
-      }[];
-      const serverRequests = reqJson?.requests as any[] | undefined;
-      setData((prev) => {
-        return {
-          ...prev,
-          stockCategories: serverCategories.length > 0 ? serverCategories : prev.stockCategories,
-          stockItems: serverItems,
-          ...(serverRequests
-            ? {
-                stockRequests: serverRequests.map((r: any) => ({
-                  id: r.id,
-                  staffId: r.staffId,
-                  staffName: r.staffName,
-                  ingredientId: r.ingredientId,
-                  ingredientName: r.ingredientName,
-                  currentQuantity: Number(r.currentQuantity),
-                  unit: r.unit ?? "",
-                  threshold: Number(r.threshold),
-                  message: r.message ?? "",
-                  status: r.status,
-                  adminNote: r.adminNote ?? "",
-                  createdAt: r.createdAt ?? new Date().toISOString(),
-                })),
-              }
-            : {}),
-        };
-      });
-      return true;
-    } catch {
-      // Backend unreachable — keep the local cache (offline mode).
-      return false;
-    }
-  }, []);
-
-  // Live revenue bundle for the dashboard + reports pages. Admin-only on the
-  // server; 401/403 stays silent (same pattern as the cash-shift fetch), and
-  // concurrent callers share the in-flight request.
-  const fetchSalesFigures = useCallback(async () => {
-    if (typeof window === "undefined") return;
-    if (salesFiguresInFlight.current) return;
-    const token = getStaffOrAdminToken();
-    if (!token) return;
-    // Admin-only endpoint: skip the request (and its 403 console noise) for
-    // staff-role sessions; staff pages never render revenue figures.
-    if (getTokenRole(token) !== "admin") return;
-
-    salesFiguresInFlight.current = true;
-    try {
-      const { getApiUrl } = await import("@/lib/config");
-      const res = await fetch(`${getApiUrl()}/api/sales/figures`, {
-        headers: { Authorization: `Bearer ${token}` },
-        // Bound every refresh so a cold backend cannot pile up requests.
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.status === 401 || res.status === 403) return;
-      if (!res.ok) return;
-      const json = await res.json().catch(() => null);
-      if (!json?.success) return;
-      setSalesFigures(normalizeSalesFigures(json));
-    } catch (e: any) {
-      if (e?.name === "TimeoutError" || e?.name === "AbortError") {
-        console.warn("[sales-figures] Request timed out, keeping previous figures.");
-      }
-      // Backend unreachable — keep the last snapshot (offline mode).
-    } finally {
-      salesFiguresInFlight.current = false;
-    }
-  }, []);
-
-  // Seed the shared figures once on mount when a staff/admin token exists.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!getStaffOrAdminToken()) return;
-    void fetchSalesFigures();
-  }, [fetchSalesFigures]);
-
-  // Load shared stock inventory and orders from the backend once on mount
-  // when a staff/admin token exists.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const token = getStaffOrAdminToken();
-    if (!token) return;
-    refreshBackendStock();
-    refreshBackendOrders();
-  }, [refreshBackendStock, refreshBackendOrders]);
-
-  // Admin live-data wiring: one shared SSE connection + trailing debounce.
-  // Any backend event refreshes the shared sales bundle, orders, and stock;
-  // bumping the version lets each page refetch its own scoped data (e.g. the
-  // reports expenses summary, which depends on the page's period dates).
-  const needsAdminEvents = Boolean(pathname?.startsWith("/admin"));
-
-  useEffect(() => {
-    if (!needsAdminEvents || typeof window === "undefined") return;
-    if (!getStaffOrAdminToken()) return;
-
-    void fetchSalesFigures();
-    const unsubscribe = createAdminEventManager().subscribe(() => {
-      void fetchSalesFigures();
-      void refreshBackendOrders();
-      void refreshBackendStock();
-      void refreshBackendMenu();
-      setSalesEventsVersion((version) => version + 1);
-    });
-    return unsubscribe;
-  }, [
-    needsAdminEvents,
-    fetchSalesFigures,
-    refreshBackendOrders,
-    refreshBackendStock,
-    refreshBackendMenu,
-  ]);
-
-  // Tab focus / return self-heals revenue even if the SSE reconnect is still
-  // pending (the reconnect itself also refetches via SUBSCRIBED).
-  useEffect(() => {
-    if (!needsAdminEvents || typeof window === "undefined") return;
-    const refresh = () => {
-      if (document.visibilityState === "visible" && getStaffOrAdminToken()) {
-        void fetchSalesFigures();
-      }
-    };
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
-    return () => {
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [needsAdminEvents, fetchSalesFigures]);
 
   type OrderHistoryPage = {
     store: RecentOrder[];
@@ -1236,297 +790,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       }
     },
     []
-  );
-
-  /* ── Inventory (Phase A) — bare fetch helpers, no rows in context state ──
-     Same pattern as fetchOrderHistoryPage: pages own their loading state;
-     these only hit the server and normalize the response. */
-
-  const fetchStockDashboard = useCallback(async (): Promise<StockDashboardResponse | null> => {
-    try {
-      const res = await staffApi("/api/stock/dashboard");
-      if (!res.ok) return null;
-      const json = (await res.json().catch(() => null)) as
-        | (StockDashboardResponse & { success?: boolean })
-        | null;
-      if (!json?.cards || !json?.lists) return null;
-      return json;
-    } catch {
-      // Auth/network failure — caller decides what to show (stale chip).
-      return null;
-    }
-  }, []);
-
-  const fetchStockMovementsPage = useCallback(
-    async (args: {
-      page: number;
-      limit?: number;
-      itemId?: string;
-      type?: string;
-      from?: string;
-      to?: string;
-      staffId?: string;
-      search?: string;
-    }): Promise<StockMovementPage | null> => {
-      try {
-        // Always send page/limit; blank filters are OMITTED instead of sent
-        // as empty strings — /api/stock/movements 400s strict and "type" only
-        // accepts a CSV of movement types.
-        const params = new URLSearchParams({
-          page: String(Math.max(1, Math.floor(args.page) || 1)),
-          limit: String(Math.min(100, Math.max(1, Math.floor(args.limit ?? 20)))),
-        });
-        const itemId = (args.itemId ?? "").trim();
-        if (itemId && itemId !== "all") params.set("itemId", itemId);
-        const type = (args.type ?? "").trim();
-        if (type && type !== "all") params.set("type", type);
-        const from = (args.from ?? "").trim();
-        if (from) params.set("from", from);
-        const to = (args.to ?? "").trim();
-        if (to) params.set("to", to);
-        const staffId = (args.staffId ?? "").trim();
-        if (staffId && staffId !== "all") params.set("staffId", staffId);
-        const search = (args.search ?? "").trim();
-        if (search) params.set("search", search);
-
-        const res = await staffApi(`/api/stock/movements?${params}`);
-        if (!res.ok) return null;
-        const json = await res.json().catch(() => null);
-        const movements = json?.movements as StockMovement[] | undefined;
-        const pagination = json?.pagination;
-        if (!Array.isArray(movements) || !pagination) return null;
-        return {
-          movements,
-          pagination: {
-            page: Number(pagination.page) || 1,
-            limit: Number(pagination.limit) || 20,
-            total: Number(pagination.total) || 0,
-            totalPages: Math.max(1, Number(pagination.totalPages) || 1),
-          },
-        };
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
-  // FIFO cost layers for one stock item (read-only). Returns null on
-  // auth/network failure; [] is a valid "no layers" answer.
-  const fetchStockItemLayers = useCallback(
-    async (itemId: string): Promise<StockLayer[] | null> => {
-      try {
-        const res = await staffApi(
-          `/api/stock/items/${encodeURIComponent(itemId)}/layers`
-        );
-        if (!res.ok) return null;
-        const json = await res.json().catch(() => null);
-        // The endpoint returns a bare array; accept { layers: [...] } too.
-        const rows = Array.isArray(json)
-          ? json
-          : json && Array.isArray(json.layers)
-            ? json.layers
-            : null;
-        if (!rows) return null;
-        return rows as StockLayer[];
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
-  // Phase B admin write: record/fix the unit cost on a single FIFO cost
-  // layer. Follows the stockInItem/adjustStockItem pattern (staffApi PATCH
-  // + JSON body + Bearer token, cold-start-friendly write timeout) but is
-  // silent toward the shared stock list — the caller refreshes scoped data
-  // via fetchStockDashboard()/its own layer cache. 400/404/409 surface the
-  // server message; 401/403 and network failures return friendly copy.
-  const setStockLayerCost = useCallback(
-    async (
-      itemId: string,
-      layerId: string,
-      unitCost: number,
-    ): Promise<
-      { ok: true; layer: StockLayer } | { ok: false; message: string }
-    > => {
-      try {
-        const res = await staffApi(
-          `/api/stock/items/${encodeURIComponent(itemId)}/layers/${encodeURIComponent(layerId)}/cost`,
-          { method: "PATCH", body: JSON.stringify({ unitCost: Number(unitCost) }) },
-          STAFF_WRITE_TIMEOUT_MS,
-        );
-        const json = (await res.json().catch(() => null)) as {
-          success?: unknown;
-          layer?: unknown;
-          message?: unknown;
-        } | null;
-        if (res.ok && json?.success === true && json.layer && typeof json.layer === "object") {
-          return { ok: true, layer: json.layer as StockLayer };
-        }
-        if (res.status === 401 || res.status === 403) {
-          return { ok: false, message: "Admin authorization required." };
-        }
-        const message =
-          typeof json?.message === "string" && json.message.trim()
-            ? json.message
-            : "Couldn't save the cost. Try again.";
-        return { ok: false, message };
-      } catch {
-        return {
-          ok: false,
-          message: "Network error. Please check the connection and try again.",
-        };
-      }
-    },
-    []
-  );
-
-  // Shared normalizer for the stock-in / adjust write responses (201 →
-  // { movement, item }): returns null movement when the payload is off-contract.
-  function parseStockMutationResponse(json: unknown): {
-    message: string;
-    field?: string;
-    errors?: Array<{ field: string; message: string }>;
-    movement: StockMovement | null;
-    item: StockMutationItemSnapshot | null;
-  } {
-    const raw = (json ?? {}) as {
-      message?: unknown;
-      field?: unknown;
-      errors?: unknown;
-      movement?: unknown;
-      item?: unknown;
-    };
-    const message =
-      typeof raw.message === "string" ? raw.message : "";
-    const field =
-      typeof raw.field === "string" ? raw.field : undefined;
-    const errors =
-      Array.isArray(raw.errors)
-        ? (raw.errors as Array<{ field: string; message: string }>)
-        : undefined;
-
-    let movement: StockMovement | null = null;
-    if (raw.movement && typeof raw.movement === "object") {
-      movement = raw.movement as StockMovement;
-    }
-    let item: StockMutationItemSnapshot | null = null;
-    if (raw.item && typeof raw.item === "object") {
-      const it = raw.item as Record<string, unknown>;
-      item = {
-        id: String(it.id ?? ""),
-        name: String(it.name ?? ""),
-        quantity: Number(it.quantity ?? 0),
-        unit: it.unit != null ? String(it.unit) : null,
-      };
-    }
-    return { message, field, errors, movement, item };
-  }
-
-  const stockInItem = useCallback(
-    async (
-      itemId: string,
-      input: StockInInput,
-    ): Promise<StockMutationResponse> => {
-      try {
-        const body = {
-          quantity: Number(input.quantity),
-          unitCost: Number(input.unitCost),
-          ...(input.receivedAt ? { receivedAt: input.receivedAt } : {}),
-          ...(input.expiryDate ? { expiryDate: input.expiryDate } : {}),
-          ...(input.supplier && input.supplier.trim()
-            ? { supplier: input.supplier.trim() }
-            : {}),
-          ...(input.note && input.note.trim() ? { note: input.note.trim() } : {}),
-        };
-        const res = await staffApi(
-          `/api/stock/items/${encodeURIComponent(itemId)}/stock-in`,
-          { method: "POST", body: JSON.stringify(body) },
-          STAFF_WRITE_TIMEOUT_MS,
-        );
-        if (res.status === 201) {
-          const parsed = parseStockMutationResponse(await res.json().catch(() => null));
-          if (parsed.movement) {
-            // On-hand quantities changed everywhere — resync the shared list.
-            refreshBackendStock();
-            return { ok: true, message: "", movement: parsed.movement, item: parsed.item };
-          }
-          return { ok: false, message: "Stock-in failed. Try again.", movement: null, item: null };
-        }
-        if (res.status === 401 || res.status === 403) {
-          return { ok: false, message: "Admin authorization required.", movement: null, item: null };
-        }
-        const parsed = parseStockMutationResponse(await res.json().catch(() => null));
-        return {
-          ok: false,
-          message: parsed.message || "Stock-in failed. Try again.",
-          field: parsed.field,
-          errors: parsed.errors,
-          movement: null,
-          item: null,
-        };
-      } catch {
-        return {
-          ok: false,
-          message: "Network error. Please check the connection and try again.",
-          movement: null,
-          item: null,
-        };
-      }
-    },
-    [refreshBackendStock]
-  );
-
-  const adjustStockItem = useCallback(
-    async (
-      itemId: string,
-      input: StockAdjustInput,
-    ): Promise<StockMutationResponse> => {
-      try {
-        const body = {
-          direction: input.direction,
-          quantity: Number(input.quantity),
-          reason: input.reason,
-          ...(input.note && input.note.trim() ? { note: input.note.trim() } : {}),
-          ...(input.receivedAt ? { receivedAt: input.receivedAt } : {}),
-          ...(input.expiryDate ? { expiryDate: input.expiryDate } : {}),
-        };
-        const res = await staffApi(
-          `/api/stock/items/${encodeURIComponent(itemId)}/adjust`,
-          { method: "POST", body: JSON.stringify(body) },
-          STAFF_WRITE_TIMEOUT_MS,
-        );
-        if (res.status === 201) {
-          const parsed = parseStockMutationResponse(await res.json().catch(() => null));
-          if (parsed.movement) {
-            refreshBackendStock();
-            return { ok: true, message: "", movement: parsed.movement, item: parsed.item };
-          }
-          return { ok: false, message: "Adjustment failed. Try again.", movement: null, item: null };
-        }
-        if (res.status === 401 || res.status === 403) {
-          return { ok: false, message: "Admin authorization required.", movement: null, item: null };
-        }
-        const parsed = parseStockMutationResponse(await res.json().catch(() => null));
-        return {
-          ok: false,
-          message: parsed.message || "Adjustment failed. Try again.",
-          field: parsed.field,
-          errors: parsed.errors,
-          movement: null,
-          item: null,
-        };
-      } catch {
-        return {
-          ok: false,
-          message: "Network error. Please check the connection and try again.",
-          movement: null,
-          item: null,
-        };
-      }
-    },
-    [refreshBackendStock]
   );
 
   const migrateLocalStaffAccount = useCallback(
@@ -1589,52 +852,90 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     [data.staffAccounts, serverStaffIds],
   );
 
-  const addMenuItem = useCallback(async (input: MenuItemInput) => {
-    const res = await menuApi("/api/menu/items", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: "Failed to add menu item." }));
-      throw new Error(err.message || "Failed to add menu item.");
-    }
-    const json = await res.json();
-    const saved = json.item as MenuItem;
-    if (saved?.id) {
-      setData((prev) => ({
-        ...prev,
-        menuItems: [...prev.menuItems.filter((i) => i.id !== saved.id), { ...saved, archived: false }],
-      }));
-    }
-    void refreshBackendStock();
-    return saved;
-  }, [refreshBackendStock]);
+  const addMenuItem = useCallback((input: MenuItemInput) => {
+    const tempId = createId("mi");
+    setData((prev) => ({
+      ...prev,
+      menuItems: [...prev.menuItems, { ...input, id: tempId, archived: false }],
+    }));
+    // Persist to the shared backend; reconcile the temp id on success.
+    (async () => {
+      try {
+        const res = await menuApi("/api/menu/items", {
+          method: "POST",
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) notifyMenuSyncFailed();
+          return;
+        }
+        const json = await res.json();
+        const saved = json.item as MenuItem;
+        if (!saved?.id) return;
+        setData((prev) => ({
+          ...prev,
+          menuItems: prev.menuItems.map((item) =>
+            item.id === tempId ? { ...saved, archived: false } : item,
+          ),
+        }));
+      } catch {
+        // Offline — the local row stays and syncs on next edit/reload.
+      }
+    })();
+  }, []);
 
-  const updateMenuItem = useCallback(async (id: string, input: MenuItemInput) => {
-    const res = await menuApi(`/api/menu/items/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(input),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: "Failed to update menu item." }));
-      throw new Error(err.message || "Failed to update menu item.");
-    }
-    const json = await res.json();
-    const saved = json.item as MenuItem;
-    if (saved?.id) {
-      setData((prev) => ({
-        ...prev,
-        menuItems: prev.menuItems.map((item) => (item.id === id ? { ...saved, archived: false } : item)),
-      }));
-    }
-    void refreshBackendStock();
-    return saved;
-  }, [refreshBackendStock]);
-
-  const fetchStockConsistencyCheck = useCallback(async () => {
-    const res = await staffApi("/api/stock/consistency-check");
-    if (!res.ok) throw new Error("Consistency check failed.");
-    return res.json();
+  const updateMenuItem = useCallback((id: string, input: MenuItemInput) => {
+    setData((prev) => ({
+      ...prev,
+      menuItems: prev.menuItems.map((item) =>
+        item.id === id ? { ...item, ...input, id } : item,
+      ),
+    }));
+    (async () => {
+      try {
+        const res = await menuApi(`/api/menu/items/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(input),
+        });
+        if (!res.ok) {
+          // Unknown to the server (device-only row) — create it instead.
+          if (res.status === 404) {
+            const createRes = await menuApi("/api/menu/items", {
+              method: "POST",
+              body: JSON.stringify(input),
+            });
+            if (!createRes.ok) {
+              if (createRes.status === 401 || createRes.status === 403)
+                notifyMenuSyncFailed();
+              return;
+            }
+            const json = await createRes.json();
+            const saved = json.item as MenuItem;
+            if (!saved?.id) return;
+            setData((prev) => ({
+              ...prev,
+              menuItems: prev.menuItems.map((item) =>
+                item.id === id ? { ...saved, archived: false } : item,
+              ),
+            }));
+            return;
+          }
+          if (res.status === 401 || res.status === 403) notifyMenuSyncFailed();
+          return;
+        }
+        const json = await res.json();
+        const saved = json.item as MenuItem;
+        if (!saved?.id) return;
+        setData((prev) => ({
+          ...prev,
+          menuItems: prev.menuItems.map((item) =>
+            item.id === id ? { ...saved } : item,
+          ),
+        }));
+      } catch {
+        // Offline — optimistic local change stands.
+      }
+    })();
   }, []);
 
   const deleteMenuItem = useCallback((id: string) => {
@@ -1660,12 +961,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         });
         if (!res.ok && (res.status === 401 || res.status === 403))
           notifyMenuSyncFailed();
-        void refreshBackendStock();
       } catch {
         // Offline — optimistic local change stands.
       }
     })();
-  }, [refreshBackendStock]);
+  }, []);
 
   const restoreMenuItem = useCallback((id: string) => {
     setData((prev) => ({
@@ -1683,12 +983,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         });
         if (!res.ok && (res.status === 401 || res.status === 403))
           notifyMenuSyncFailed();
-        void refreshBackendStock();
       } catch {
         // Offline — optimistic local change stands.
       }
     })();
-  }, [refreshBackendStock]);
+  }, []);
 
   const addMenuCategory = useCallback((input: MenuCategoryInput) => {
     const tempId = createId("mc");
@@ -1811,67 +1110,27 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addStockItem = useCallback((input: StockItemInput) => {
-    const localId = createId("st");
-    // Optimistic local update.
     setData((prev) => ({
       ...prev,
-      stockItems: [...prev.stockItems, { ...input, id: localId }],
+      stockItems: [...prev.stockItems, { ...input, id: createId("st") }],
     }));
-    // Persist to backend; on success, re-pull so server id replaces localId.
-    (async () => {
-      try {
-        const res = await staffApi("/api/stock/items", {
-          method: "POST",
-          body: JSON.stringify(input),
-        }, STAFF_WRITE_TIMEOUT_MS);
-        if (res.ok) refreshBackendStock();
-      } catch {
-        // Offline — optimistic local change stands.
-      }
-    })();
-  }, [refreshBackendStock]);
+  }, []);
 
   const updateStockItem = useCallback((id: string, input: StockItemInput) => {
-    // Optimistic local update.
     setData((prev) => ({
       ...prev,
       stockItems: prev.stockItems.map((item) =>
         item.id === id ? { ...input, id } : item,
       ),
     }));
-    // Persist to backend.
-    (async () => {
-      try {
-        const res = await staffApi(`/api/stock/items/${encodeURIComponent(id)}`, {
-          method: "PUT",
-          body: JSON.stringify(input),
-        }, STAFF_WRITE_TIMEOUT_MS);
-        if (res.ok) refreshBackendStock();
-      } catch {
-        // Offline — optimistic local change stands.
-      }
-    })();
-  }, [refreshBackendStock]);
+  }, []);
 
   const deleteStockItem = useCallback((id: string) => {
-    // Optimistic local update.
     setData((prev) => ({
       ...prev,
       stockItems: prev.stockItems.filter((item) => item.id !== id),
     }));
-    // Persist to backend.
-    (async () => {
-      try {
-        await staffApi(`/api/stock/items/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-        }, STAFF_WRITE_TIMEOUT_MS);
-        // No need to refresh on delete — item is already removed locally.
-      } catch {
-        // Offline — optimistic local change stands.
-      }
-    })();
   }, []);
-
 
   const addStockRequest = useCallback((input: StockRequestInput) => {
     setData((prev) => ({
@@ -1886,18 +1145,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         },
       ],
     }));
-    (async () => {
-      try {
-        const res = await staffApi("/api/stock/requests", {
-          method: "POST",
-          body: JSON.stringify(input),
-        }, STAFF_WRITE_TIMEOUT_MS);
-        if (res.ok) refreshBackendStock();
-      } catch {
-        // Offline — optimistic local change stands.
-      }
-    })();
-  }, [refreshBackendStock]);
+  }, []);
 
   const updateStockRequestStatus = useCallback(
     (id: string, status: StockRequest["status"], adminNote?: string) => {
@@ -1907,42 +1155,19 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           request.id === id ? { ...request, status, adminNote } : request,
         ),
       }));
-      (async () => {
-        try {
-          const res = await staffApi(`/api/stock/requests/${encodeURIComponent(id)}/status`, {
-            method: "PATCH",
-            body: JSON.stringify({ status, adminNote }),
-          }, STAFF_WRITE_TIMEOUT_MS);
-          if (res.ok) refreshBackendStock();
-        } catch {
-          // Offline — optimistic local change stands.
-        }
-      })();
     },
-    [refreshBackendStock],
+    [],
   );
 
   const addStockCategory = useCallback((input: StockCategoryInput) => {
-    const localId = createId("sc");
     setData((prev) => ({
       ...prev,
       stockCategories: [
         ...prev.stockCategories,
-        { ...input, id: localId },
+        { ...input, id: createId("sc") },
       ],
     }));
-    (async () => {
-      try {
-        const res = await staffApi("/api/stock/categories", {
-          method: "POST",
-          body: JSON.stringify(input),
-        }, STAFF_WRITE_TIMEOUT_MS);
-        if (res.ok) refreshBackendStock();
-      } catch {
-        // Offline — optimistic local change stands.
-      }
-    })();
-  }, [refreshBackendStock]);
+  }, []);
 
   const updateStockCategory = useCallback(
     (id: string, input: StockCategoryInput) => {
@@ -1952,19 +1177,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           category.id === id ? { ...input, id } : category,
         ),
       }));
-      (async () => {
-        try {
-          const res = await staffApi(`/api/stock/categories/${encodeURIComponent(id)}`, {
-            method: "PUT",
-            body: JSON.stringify(input),
-          }, STAFF_WRITE_TIMEOUT_MS);
-          if (res.ok) refreshBackendStock();
-        } catch {
-          // Offline — optimistic local change stands.
-        }
-      })();
     },
-    [refreshBackendStock],
+    [],
   );
 
   const deleteStockCategory = useCallback((id: string) => {
@@ -1980,17 +1194,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         ),
       };
     });
-    if (deleted) {
-      (async () => {
-        try {
-          await staffApi(`/api/stock/categories/${encodeURIComponent(id)}`, {
-            method: "DELETE",
-          }, STAFF_WRITE_TIMEOUT_MS);
-        } catch {
-          // Offline — optimistic local change stands.
-        }
-      })();
-    }
     return deleted;
   }, []);
 
@@ -1998,12 +1201,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     async (
       input: StaffAccountInput,
     ): Promise<{ ok: boolean; message: string; offline?: boolean }> => {
-      if (input.role === "admin") {
-        return {
-          ok: false,
-          message: "Creating admin accounts is not allowed.",
-        };
-      }
       const tempId = createId("sf");
       const plainPassword = input.password || "staff123";
       const trimmed = {
@@ -2321,16 +1518,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const isClientRowId = (id: string) => /^(ord|do)-/i.test(id);
 
   const patchBackendOrderStatus = useCallback(
-    async (
-      id: string,
-      status: string,
-      fallbackIdentifier?: string,
-    ): Promise<{ ok: boolean; networkError: boolean; httpStatus: number | null }> => {
+    async (id: string, status: string, fallbackIdentifier?: string): Promise<boolean> => {
       console.info(
         `[order-status] PATCH attempt id="${id}" (${isClientRowId(id) ? "client" : "server"} id) status="${status}".`,
       );
       const first = await patchOneOrderStatus(id, status);
-      if (first.ok) return { ok: true, networkError: false, httpStatus: first.httpStatus };
+      if (first.ok) return true;
       console.warn(
         `[order-status] PATCH id="${id}" (${isClientRowId(id) ? "client" : "server"} id)` +
           ` failed (http=${first.httpStatus ?? "network"}) — ${first.notFound ? "row unknown to server" : "server/network error"}.`,
@@ -2343,17 +1536,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             `[order-status] Retry also failed (http=${second.httpStatus ?? "network"}).`,
           );
         }
-        return {
-          ok: second.ok,
-          networkError: second.httpStatus === null,
-          httpStatus: second.httpStatus,
-        };
+        return second.ok;
       }
-      return {
-        ok: false,
-        networkError: first.httpStatus === null,
-        httpStatus: first.httpStatus,
-      };
+      return false;
     },
     [patchOneOrderStatus],
   );
@@ -2381,27 +1566,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       // Database is the source of truth — persist, and revert the optimistic
       // change if the API update fails so staff and customer can never
       // disagree. Failures surface on the existing staff-sync-failed channel.
-      // Offline/network failures instead QUEUE the change for the sync drain
-      // (priority rules applied server-side) and keep the optimistic value.
-      patchBackendOrderStatus(id, status, row?.orderNumber).then(async ({ ok, networkError, httpStatus }) => {
+      patchBackendOrderStatus(id, status, row?.orderNumber).then((ok) => {
         if (ok) {
           // Collapse the optimistic→poll window: re-pull immediately so the
           // confirmed row (and its server timestamps) replaces the guess.
           refreshBackendOrders();
-          return;
-        }
-        const offline =
-          networkError || (typeof navigator !== "undefined" && !navigator.onLine);
-        if (offline && prevStatus !== undefined) {
-          try {
-            const { journalStatusChange } = await import("@/lib/offlineSync");
-            journalStatusChange({ orderId: id, fallbackIdentifier: row?.orderNumber ?? null, status });
-          } catch {
-            // Journaling must never break the UI.
-          }
-          console.info(
-            `[order-status] offline — queued "${status}" for ${id}; replays on reconnect under server priority rules.`,
-          );
           return;
         }
         if (prevStatus === undefined) return;
@@ -2411,18 +1580,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
             order.id === id ? { ...order, status: prevStatus } : order,
           ),
         }));
-        // 404 means the row no longer exists server-side: re-pull now so the
-        // ghost is pruned immediately instead of on the next 10s poll.
-        if (httpStatus === 404) refreshBackendOrders();
-        if (httpStatus === 401 || httpStatus === 403) {
-          notifyStaffSyncFailed(
-            "Session expired or authentication failed. Please log in again to update order statuses.",
-          );
-        } else {
-          notifyStaffSyncFailed(
-            `Order status change to "${status}" did not reach the server — reverted. Check the browser console for details.`,
-          );
-        }
+        notifyStaffSyncFailed(
+          `Order status change to "${status}" did not reach the server — reverted.`,
+        );
       });
     },
     [patchBackendOrderStatus, refreshBackendOrders],
@@ -2502,27 +1662,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     // Database is the source of truth — persist, and revert the optimistic
     // change if the API update fails so staff and customer can never
     // disagree. Failures surface on the existing staff-sync-failed channel.
-    // Offline/network failures instead QUEUE the change for the sync drain
-    // (priority rules applied server-side) and keep the optimistic value.
-    patchBackendOrderStatus(id, status, row?.orderId).then(async ({ ok, networkError, httpStatus }) => {
+    patchBackendOrderStatus(id, status, row?.orderId).then((ok) => {
       if (ok) {
         // Collapse the optimistic→poll window: re-pull immediately so the
         // confirmed row (and its server timestamps) replaces the guess.
         refreshBackendOrders();
-        return;
-      }
-      const offline =
-        networkError || (typeof navigator !== "undefined" && !navigator.onLine);
-      if (offline && prevStatus !== undefined) {
-        try {
-          const { journalStatusChange } = await import("@/lib/offlineSync");
-          journalStatusChange({ orderId: id, fallbackIdentifier: row?.orderId ?? null, status });
-        } catch {
-          // Journaling must never break the UI.
-        }
-        console.info(
-          `[order-status] offline — queued "${status}" for ${id}; replays on reconnect under server priority rules.`,
-        );
         return;
       }
       if (prevStatus === undefined) return;
@@ -2532,45 +1676,24 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           order.id === id ? { ...order, status: prevStatus } : order
         ),
       }));
-      // 404 means the row no longer exists server-side: re-pull now so the
-      // ghost is pruned immediately instead of on the next 10s poll.
-      if (httpStatus === 404) refreshBackendOrders();
-      if (httpStatus === 401 || httpStatus === 403) {
-        notifyStaffSyncFailed(
-          "Session expired or authentication failed. Please log in again to update order statuses.",
-        );
-      } else {
-        notifyStaffSyncFailed(
-          `Order status change to "${status}" did not reach the server — reverted. Check the browser console for details.`,
-        );
-      }
+      notifyStaffSyncFailed(
+        `Order status change to "${status}" did not reach the server — reverted.`,
+      );
     });
   }, [patchBackendOrderStatus, refreshBackendOrders]);
 
   const confirmStoreOrderPayment = useCallback(async (id: string, cashReceived?: number) => {
-    const markPaidLocally = (syncPending = false) => {
+    const markPaidLocally = () => {
       setData((prev) => ({
         ...prev,
         storeOrders: prev.storeOrders.map((order) =>
-          order.id === id ? { ...order, paid: true, paymentStatus: 'paid' as const, paymentSyncPending: syncPending || undefined } : order
+          order.id === id ? { ...order, paid: true, paymentStatus: 'paid' as const } : order
         ),
       }));
     };
-    // Cash collected without a server-confirmed write must still reach the
-    // database: queue it for the offline drain (deduped by order id, skipped
-    // server-side when the payment is already PAID).
-    const queueOfflinePayment = async () => {
-      try {
-        const { journalPayment } = await import('@/lib/offlineSync');
-        journalPayment({ orderId: id, method: 'Cash', cashReceived: cashReceived ?? null });
-      } catch {
-        // Journaling must never break the sale.
-      }
-      markPaidLocally(true);
-    };
     try {
       const { getApiUrl } = await import('@/lib/config');
-      const token = getStaffOrAdminToken();
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
       const response = await fetch(`${getApiUrl()}/api/admin-orders/${id}/payment`, {
         method: 'PATCH',
         headers: {
@@ -2584,15 +1707,14 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       if (data.success) {
         markPaidLocally();
       } else {
-        // Backend rejected (or CORS-blocked in this deploy) — keep POS usable
-        // and queue the collection so a later drain persists it.
-        await queueOfflinePayment();
+        // Backend rejected (or CORSblocked in this deploy) — keep POS usable offline.
+        markPaidLocally();
       }
       return data;
     } catch (e) {
       console.error(e);
-      // Offline: record payment locally AND queue it so the drain syncs it.
-      await queueOfflinePayment();
+      // Offline: record payment locally so it syncs later.
+      markPaidLocally();
       return { success: false, message: "Network error" };
     }
   }, []);
@@ -2600,48 +1722,26 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const fetchActiveCashShift = useCallback(async () => {
     try {
       const { getApiUrl } = await import('@/lib/config');
-      const token = getStaffOrAdminToken();
+      const token = localStorage.getItem('eat-n-repeat-staff-token');
       if (!token) return;
       const res = await fetch(`${getApiUrl()}/api/cash/shift/current`, {
-        headers: { Authorization: `Bearer ${token}` },
-        // Bound the 10s poll: a stalled backend must not pile up hanging
-        // polls behind it.
-        signal: AbortSignal.timeout(8000),
+        headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.status === 401 || res.status === 403) {
-        return;
+      const data = await res.json();
+      if (data.success) {
+        setData(prev => ({ ...prev, activeCashShift: data.shift }));
       }
-      const data = await res.json().catch(() => null);
-      if (data?.success) {
-        const shift = data.shift as CashShift | null;
-        if (shift && Array.isArray(shift.expenses)) {
-          shift.expenses = normalizeExpenses(shift.expenses);
-        }
-        setData(prev => ({ ...prev, activeCashShift: shift }));
-      }
-    } catch (e: any) {
-      if (e?.name === "TimeoutError" || e?.name === "AbortError") {
-        console.warn("[cash-shift] Request timed out, keeping previous shift state.");
-      } else {
-        console.warn("[cash-shift] Backend unreachable, keeping previous shift state.", e);
-      }
+    } catch (e) {
+      // Deliberately console.warn (never console.error): a down/unreachable
+      // backend is routine in café operation, and Next.js dev surfaces
+      // console.error(Error) as a fullscreen blocking overlay. The shift
+      // simply stays unset until the backend is reachable again.
+      console.warn("[cash-shift] Backend unreachable, keeping previous shift state.", e);
     }
   }, []);
 
-  // Poll for active cash shift updates every 10 seconds — STAFF/ADMIN SURFACES
-  // ONLY. activeCashShift and fetchActiveCashShift are consumed solely by the
-  // staff POS (components/staff/POSCashierTab.tsx) and the admin cash page, so
-  // polling from the Customer Portal only produced a staff-only request with
-  // whatever token happened to sit in localStorage — typically an 8h-expired
-  // staff/admin JWT — which the requireAuth-guarded endpoint answered with 401
-  // every 10s. Explicit fetchActiveCashShift() callers are unaffected, and the
-  // endpoint keeps its authentication.
-  const needsCashShift = Boolean(
-    pathname?.startsWith("/staff") || pathname?.startsWith("/admin"),
-  );
-
+  // Poll for active cash shift updates every 10 seconds
   useEffect(() => {
-    if (!needsCashShift) return;
     let mounted = true;
     const interval = setInterval(() => {
       if (mounted) fetchActiveCashShift();
@@ -2650,350 +1750,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       clearInterval(interval);
     };
-  }, [fetchActiveCashShift, needsCashShift]);
-
-  /* ── Expenses (drawer paid-outs + admin expense log) ──
-     Same bare-helper pattern as the stock endpoints: reads normalize
-     server payloads, writes return result objects with the server's
-     human message so pages can toast it verbatim. */
-
-  // Shared normalizer for the three expense writes (201 → {expense, shift}).
-  function parseExpenseWriteResponse(json: unknown): {
-    message: string;
-    expense: ExpenseItem | null;
-    shift: CashShift | null;
-  } {
-    const raw = json as {
-      message?: string;
-      expense?: ExpenseItem | null;
-      shift?: CashShift | null;
-    } | null;
-    return {
-      message: typeof raw?.message === "string" ? raw.message : "",
-      // mapExpense emits snake_case on the wire; surfaces read camelCase.
-      expense: raw?.expense
-        ? normalizeExpense(raw.expense as unknown as Record<string, unknown>)
-        : null,
-      shift:
-        raw?.shift != null
-          ? (() => {
-              const s = raw.shift as CashShift;
-              if (Array.isArray(s.expenses)) {
-                s.expenses = normalizeExpenses(s.expenses);
-              }
-              return s;
-            })()
-          : null,
-    };
-  }
-
-  const fetchExpenses = useCallback(
-    async (args: {
-      page: number;
-      limit?: number;
-      from?: string;
-      to?: string;
-      category?: string;
-      paymentSource?: string;
-      origin?: string;
-      createdById?: string;
-    }): Promise<{
-      expenses: ExpenseItem[];
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-      summary: ExpensesSummary;
-    } | null> => {
-      try {
-        // Always send page/limit; blank filters are omitted — the endpoint
-        // is strict about unknown/blank params (same as /api/stock/movements).
-        const params = new URLSearchParams({
-          page: String(Math.max(1, Math.floor(args.page) || 1)),
-          limit: String(Math.min(100, Math.max(1, Math.floor(args.limit ?? 20)))),
-        });
-        const from = (args.from ?? "").trim();
-        if (from) params.set("from", from);
-        const to = (args.to ?? "").trim();
-        if (to) params.set("to", to);
-        const category = (args.category ?? "").trim();
-        if (category) params.set("category", category);
-        const paymentSource = (args.paymentSource ?? "").trim();
-        if (paymentSource) params.set("paymentSource", paymentSource);
-        const origin = (args.origin ?? "").trim();
-        if (origin) params.set("origin", origin);
-        const createdById = (args.createdById ?? "").trim();
-        if (createdById) params.set("createdById", createdById);
-
-        const res = await staffApi(`/api/expenses?${params}`);
-        if (!res.ok) return null;
-        const json = await res.json().catch(() => null);
-        if (!Array.isArray(json?.expenses)) return null;
-        const expenses = normalizeExpenses(json.expenses);
-        return {
-          expenses,
-          page: Number(json?.page) || 1,
-          limit: Number(json?.limit) || 20,
-          total: Number(json?.total) || 0,
-          totalPages: Math.max(1, Number(json?.totalPages) || 1),
-          summary: normalizeExpensesSummary(json?.summary),
-        };
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
-  const fetchExpensesSummary = useCallback(
-    async (
-      from?: string,
-      to?: string,
-    ): Promise<ExpensesSummary | null> => {
-      try {
-        const params = new URLSearchParams();
-        if (from?.trim()) params.set("from", from.trim());
-        if (to?.trim()) params.set("to", to.trim());
-        const qs = params.toString();
-        const res = await staffApi(`/api/expenses/summary${qs ? `?${qs}` : ""}`);
-        if (!res.ok) return null;
-        const json = await res.json().catch(() => null);
-        if (!json?.success) return null;
-        return normalizeExpensesSummary(json);
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
-  // Drawer paid-out from the staff POS: 201 → refresh the active shift so
-  // the shift bar and the Paid Today panel pick up the new figures/rows.
-  const createShiftExpense = useCallback(
-    async (
-      shiftId: string,
-      input: { amount: number; category: string; reason: string; note?: string },
-    ): Promise<{
-      ok: boolean;
-      message: string;
-      expense: ExpenseItem | null;
-      shift: CashShift | null;
-    }> => {
-      try {
-        if (typeof navigator !== "undefined" && typeof navigator.onLine === "boolean" && !navigator.onLine) {
-          throw new Error("Offline");
-        }
-        const res = await staffApi(
-          `/api/cash/shifts/${encodeURIComponent(shiftId)}/expense`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              amount: input.amount,
-              category: input.category,
-              reason: input.reason,
-              ...(input.note ? { note: input.note } : {}),
-            }),
-          },
-          STAFF_WRITE_TIMEOUT_MS
-        );
-        const parsed = parseExpenseWriteResponse(await res.json().catch(() => null));
-        if (res.status === 201) {
-          await fetchActiveCashShift();
-          return { ok: true, message: parsed.message, expense: parsed.expense, shift: parsed.shift };
-        }
-        return {
-          ok: false,
-          message: parsed.message || "Failed to record the expense.",
-          expense: null,
-          shift: null,
-        };
-      } catch {
-        // Offline / network failure: journal the drawer paid-out so it syncs with the shift
-        const { journalExpense } = await import("@/lib/offlineSync");
-        const expId = `exp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-        const token = getStaffOrAdminToken();
-        let staffId: string | null = null;
-        if (token) {
-          try {
-            const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
-            if (typeof payload?.sub === "string") staffId = payload.sub;
-          } catch {}
-        }
-        journalExpense({
-          id: expId,
-          shiftId,
-          amount: input.amount,
-          category: input.category,
-          reason: input.reason,
-          note: input.note || null,
-          staffId,
-        });
-
-        let updatedShift: CashShift | null = null;
-        setData((prev) => {
-          const currentShift = prev.activeCashShift;
-          const prevExpected = Number(currentShift?.expected_cash) || 0;
-          const newExpected = Math.max(0, prevExpected - input.amount);
-          const newExpense: ExpenseItem = {
-            id: expId,
-            expenseDate: new Date().toISOString(),
-            amount: input.amount,
-            category: input.category,
-            reason: input.reason,
-            note: input.note || null,
-            source: "drawer",
-            paymentSource: "cash_drawer",
-            status: "active",
-            shiftId,
-            createdAt: new Date().toISOString(),
-          };
-          const existingExpenses = Array.isArray(currentShift?.expenses) ? currentShift.expenses : [];
-          updatedShift = {
-            ...(currentShift || {
-              id: shiftId,
-              starting_float: 0,
-              status: "open",
-            }),
-            expected_cash: newExpected,
-            expenses: [...existingExpenses, newExpense],
-          } as CashShift;
-          return {
-            ...prev,
-            activeCashShift: updatedShift,
-          };
-        });
-
-        return {
-          ok: true,
-          message: "Expense saved offline — will sync with shift.",
-          expense: {
-            id: expId,
-            expenseDate: new Date().toISOString(),
-            amount: input.amount,
-            category: input.category,
-            reason: input.reason,
-            note: input.note || null,
-            source: "drawer",
-            paymentSource: "cash_drawer",
-            status: "active",
-            shiftId,
-            createdAt: new Date().toISOString(),
-          },
-          shift: updatedShift,
-        };
-      }
-    },
-    [fetchActiveCashShift]
-  );
-
-  const createAdminExpense = useCallback(
-    async (input: {
-      date?: string;
-      amount: number;
-      category: string;
-      payee?: string;
-      paymentSource: "cash_drawer" | "other" | string;
-      reason: string;
-      note?: string;
-    }): Promise<{
-      ok: boolean;
-      message: string;
-      expense: ExpenseItem | null;
-      shift: CashShift | null;
-    }> => {
-      try {
-        const body: Record<string, unknown> = {
-          amount: input.amount,
-          category: input.category,
-          paymentSource: input.paymentSource,
-          reason: input.reason,
-        };
-        if (input.date?.trim()) body.date = input.date.trim();
-        if (input.payee?.trim()) body.payee = input.payee.trim();
-        if (input.note?.trim()) body.note = input.note.trim();
-
-        const res = await staffApi(
-          "/api/expenses",
-          { method: "POST", body: JSON.stringify(body) },
-          STAFF_WRITE_TIMEOUT_MS
-        );
-        const parsed = parseExpenseWriteResponse(await res.json().catch(() => null));
-        if (res.status === 201) {
-          return { ok: true, message: parsed.message, expense: parsed.expense, shift: parsed.shift };
-        }
-        return {
-          ok: false,
-          message: parsed.message || "Failed to record the expense.",
-          expense: null,
-          shift: null,
-        };
-      } catch {
-        return {
-          ok: false,
-          message: "Network error — expense not recorded.",
-          expense: null,
-          shift: null,
-        };
-      }
-    },
-    []
-  );
-
-  const voidExpense = useCallback(
-    async (id: string, reason: string): Promise<{ ok: boolean; message: string }> => {
-      try {
-        const res = await staffApi(
-          `/api/expenses/${encodeURIComponent(id)}/void`,
-          { method: "POST", body: JSON.stringify({ reason }) },
-          STAFF_WRITE_TIMEOUT_MS
-        );
-        const json = await res.json().catch(() => null);
-        if (res.ok) {
-          return { ok: true, message: typeof json?.message === "string" ? json.message : "Expense voided." };
-        }
-        return {
-          ok: false,
-          message: (typeof json?.message === "string" && json.message) || "Failed to void the expense.",
-        };
-      } catch {
-        return { ok: false, message: "Network error — expense not voided." };
-      }
-    },
-    []
-  );
-
-  // Reverse a drawer paid-out (admin-side correction): 201 → refresh the
-  // shift it belongs to when we can see it via the active-shift shape.
-  const reverseExpense = useCallback(
-    async (
-      id: string,
-      reason: string,
-    ): Promise<{ ok: boolean; message: string; expense: ExpenseItem | null }> => {
-      try {
-        const res = await staffApi(
-          `/api/expenses/${encodeURIComponent(id)}/reverse`,
-          { method: "POST", body: JSON.stringify({ reason }) },
-          STAFF_WRITE_TIMEOUT_MS
-        );
-        const json = await res.json().catch(() => null);
-        if (res.ok) {
-          return {
-            ok: true,
-            message: (typeof json?.message === "string" && json.message) || "Expense reversed.",
-            expense: (json?.expense as ExpenseItem) ?? null,
-          };
-        }
-        return {
-          ok: false,
-          message: (typeof json?.message === "string" && json.message) || "Failed to reverse the expense.",
-          expense: null,
-        };
-      } catch {
-        return { ok: false, message: "Network error — expense not reversed.", expense: null };
-      }
-    },
-    []
-  );
+  }, [fetchActiveCashShift]);
 
   const addStoreOrder = useCallback((input: Omit<RecentOrder, "id" | "archived" | "archivedAt">) => {
     setData((prev) => ({
@@ -3068,7 +1825,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       data.deliveryOrders.filter(
         (order) =>
           !order.archived &&
-          ["delivered", "completed", "cancelled"].includes(order.status),
+          ["delivered", "cancelled"].includes(order.status),
       ),
     [data.deliveryOrders],
   );
@@ -3103,17 +1860,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       serverStaffIds,
       refreshStaffAccounts,
       refreshBackendOrders,
-      refreshBackendStock,
-      salesFigures,
-      salesEventsVersion,
-      fetchSalesFigures,
       fetchOrderHistoryPage,
       migrateLocalStaffAccount,
       addMenuItem,
       updateMenuItem,
       deleteMenuItem,
-      refreshBackendMenu,
-      fetchStockConsistencyCheck,
       archiveMenuItem,
       restoreMenuItem,
       addMenuCategory,
@@ -3149,18 +1900,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
       fetchActiveCashShift,
-      fetchExpenses,
-      fetchExpensesSummary,
-      createShiftExpense,
-      createAdminExpense,
-      voidExpense,
-      reverseExpense,
-      fetchStockDashboard,
-      fetchStockMovementsPage,
-      fetchStockItemLayers,
-      setStockLayerCost,
-      stockInItem,
-      adjustStockItem,
       addStoreOrder,
       addServiceArea,
       updateServiceArea,
@@ -3182,22 +1921,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       serverStaffIds,
       refreshStaffAccounts,
       refreshBackendOrders,
-      refreshBackendStock,
-      salesFigures,
-      salesEventsVersion,
-      fetchSalesFigures,
-      fetchStockDashboard,
-      fetchStockMovementsPage,
-      fetchStockItemLayers,
-      setStockLayerCost,
-      stockInItem,
-      adjustStockItem,
+      fetchOrderHistoryPage,
       migrateLocalStaffAccount,
       addMenuItem,
       updateMenuItem,
       deleteMenuItem,
-      refreshBackendMenu,
-      fetchStockConsistencyCheck,
       archiveMenuItem,
       restoreMenuItem,
       addMenuCategory,
@@ -3233,12 +1961,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       updateStoreOrderStatus,
       confirmStoreOrderPayment,
       fetchActiveCashShift,
-      fetchExpenses,
-      fetchExpensesSummary,
-      createShiftExpense,
-      createAdminExpense,
-      voidExpense,
-      reverseExpense,
       addStoreOrder,
       addServiceArea,
       updateServiceArea,

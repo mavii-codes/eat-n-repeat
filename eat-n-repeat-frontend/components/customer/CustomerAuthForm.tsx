@@ -1,8 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import Script from 'next/script';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/brand/Logo';
@@ -15,78 +14,19 @@ type CustomerAuthFormProps = {
   mode: AuthMode;
 };
 
-type TurnstileApi = {
-  render: (
-    container: HTMLElement,
-    options: {
-      sitekey: string;
-      callback: (token: string) => void;
-      'expired-callback'?: () => void;
-      'error-callback'?: () => void;
-    },
-  ) => string;
-  remove: (widgetId: string) => void;
-};
-
-function getTurnstile(): TurnstileApi | undefined {
-  if (typeof window === 'undefined') return undefined;
-  return (window as Window & { turnstile?: TurnstileApi }).turnstile;
-}
-
 export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [company, setCompany] = useState('');
-  const [cfTurnstileToken, setCfTurnstileToken] = useState('');
-  const startedAtRef = useRef<number | null>(null);
-  const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
-  const turnstileWidgetIdRef = useRef<string | null>(null);
 
   const isSignUp = mode === 'signup';
-  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-
-  useEffect(() => {
-    if (isSignUp && startedAtRef.current === null) {
-      startedAtRef.current = Date.now();
-    }
-  }, [isSignUp]);
-
-  const renderTurnstile = useCallback(() => {
-    if (!turnstileSiteKey || turnstileWidgetIdRef.current !== null) return;
-    const container = turnstileContainerRef.current;
-    const turnstile = getTurnstile();
-    if (!container || !turnstile) return;
-    turnstileWidgetIdRef.current = turnstile.render(container, {
-      sitekey: turnstileSiteKey,
-      callback: (token) => setCfTurnstileToken(token),
-      'expired-callback': () => setCfTurnstileToken(''),
-      'error-callback': () => setCfTurnstileToken(''),
-    });
-  }, [turnstileSiteKey]);
-
-  useEffect(() => {
-    if (!isSignUp || !turnstileSiteKey) return;
-    // The script may already be loaded (e.g. navigating back to this form).
-    renderTurnstile();
-  }, [isSignUp, turnstileSiteKey, renderTurnstile]);
-
-  useEffect(() => {
-    return () => {
-      const turnstile = getTurnstile();
-      const widgetId = turnstileWidgetIdRef.current;
-      if (turnstile && widgetId !== null) {
-        turnstile.remove(widgetId);
-      }
-      turnstileWidgetIdRef.current = null;
-    };
-  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -108,31 +48,15 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
 
         // Single source of truth: the Express backend (creates the DB row,
         // the verification token, and sends the verification email).
-        // Sign-up collects basic credentials only — the mobile number is
-        // captured at the first checkout and then becomes permanent.
         const res = await fetch(`${getApiUrl()}/api/customer-auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            email,
-            password,
-            company,
-            startedAt: new Date(startedAtRef.current ?? Date.now()).toISOString(),
-            ...(cfTurnstileToken ? { cfTurnstileToken } : {}),
-          }),
+          body: JSON.stringify({ name, email, password, phone }),
         });
 
-        const data = await res.json().catch(() => null);
+        const data = await res.json();
         if (!res.ok) {
-          // 429 carries server copy (rate limit / lockout). Never replace it
-          // with a fabricated credentials error.
-          setError(
-            data?.message ??
-              (res.status === 429
-                ? 'Too many sign-ups from this connection. Try again later.'
-                : 'Registration failed.'),
-          );
+          setError(data.message ?? 'Registration failed.');
           setLoading(false);
           return;
         }
@@ -203,21 +127,6 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignUp && (
-              <div aria-hidden="true" className="sr-only">
-                <label htmlFor="company">Company</label>
-                <input
-                  id="company"
-                  name="company"
-                  type="text"
-                  tabIndex={-1}
-                  autoComplete="off"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                />
-              </div>
-            )}
-
-            {isSignUp && (
               <div>
                 <label htmlFor="name" className="block text-[11px] font-black text-stone-600 uppercase tracking-wider mb-1">
                   FULL NAME
@@ -251,6 +160,23 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
               />
             </div>
 
+            {isSignUp && (
+              <div>
+                <label htmlFor="phone" className="block text-[11px] font-black text-stone-600 uppercase tracking-wider mb-1">
+                  PHONE <span className="font-normal normal-case text-stone-400">(optional)</span>
+                </label>
+                <input
+                  id="phone"
+                  type="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="09XX XXX XXXX"
+                  className="w-full px-4 py-3 rounded-2xl border border-amber-200/90 bg-[#FFF8F0] text-sm text-stone-800 placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition"
+                />
+              </div>
+            )}
+
             <div>
               <label htmlFor="password" className="block text-[11px] font-black text-stone-600 uppercase tracking-wider mb-1">
                 PASSWORD
@@ -261,10 +187,10 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
                   type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                  minLength={8}
+                  minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 8 characters"
+                  placeholder="At least 6 characters"
                   className="w-full px-4 py-3 pr-12 rounded-2xl border border-amber-200/90 bg-[#FFF8F0] text-sm text-stone-800 placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition"
                 />
                 <button
@@ -312,10 +238,6 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
               </div>
             )}
 
-            {isSignUp && turnstileSiteKey && (
-              <div ref={turnstileContainerRef} className="flex justify-center overflow-hidden pt-1" />
-            )}
-
             {/* Submit Button */}
             <div className="pt-2">
               <button
@@ -355,14 +277,6 @@ export function CustomerAuthForm({ mode }: CustomerAuthFormProps) {
           </div>
         </div>
       </div>
-
-      {isSignUp && turnstileSiteKey && (
-        <Script
-          src="https://challenges.cloudflare.com/turnstile/v0/api.js"
-          strategy="afterInteractive"
-          onLoad={renderTurnstile}
-        />
-      )}
     </div>
   );
 }

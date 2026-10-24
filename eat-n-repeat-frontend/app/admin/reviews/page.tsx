@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useReviews } from '@/context/ReviewsContext';
+import { useAdminData } from '@/context/AdminDataContext';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminModal } from '@/components/admin/AdminModal';
 import { AdminButton, AdminPanel } from '@/components/admin/AdminForm';
 import { Search, EyeOff, Trash2, Eye } from 'lucide-react';
-import { deleteServerReview } from '@/lib/customer/reviews-api';
-import { getStaffOrAdminToken } from '@/lib/admin/auth-token';
 
 type RatingFilter = 'all' | '5' | '4' | '3' | '2' | '1';
 type StatusFilter = 'all' | 'visible' | 'hidden';
@@ -22,111 +21,104 @@ function formatDate(dateString: string): string {
   });
 }
 
-const PAGE_SIZE = 20;
-
 export default function AdminReviewsPage() {
-  const {
-    adminState,
-    fetchAdminPage,
-    adminLoading,
-    hideReview,
-    unhideReview,
-    refreshSummaries,
-  } = useReviews();
-  const { reviews, pagination, stats } = adminState;
+  const { getAllReviews, hideReview, unhideReview, deleteReview } = useReviews();
+  const { menuItems } = useAdminData();
+  const allReviews = getAllReviews();
 
   const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [page, setPage] = useState(1);
-
+  
   const [confirmHideId, setConfirmHideId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchAdminPage({
-      rating: ratingFilter,
-      status: statusFilter,
-      search: appliedSearch,
-      page,
-      limit: PAGE_SIZE,
+  const filteredReviews = useMemo(() => {
+    return allReviews.filter((r) => {
+      if (ratingFilter !== 'all' && r.rating !== Number(ratingFilter)) return false;
+      if (statusFilter === 'visible' && r.hidden) return false;
+      if (statusFilter === 'hidden' && !r.hidden) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return (
+          r.customerName.toLowerCase().includes(q) ||
+          r.menuItemName.toLowerCase().includes(q) ||
+          r.comment.toLowerCase().includes(q)
+        );
+      }
+      return true;
     });
-  }, [fetchAdminPage, ratingFilter, statusFilter, appliedSearch, page]);
+  }, [allReviews, ratingFilter, statusFilter, searchQuery]);
 
-  // Filters are server-side: reset to page 1 whenever they change.
-  const onRatingChange = (v: RatingFilter) => {
-    setRatingFilter(v);
-    setPage(1);
-  };
-  const onStatusChange = (v: StatusFilter) => {
-    setStatusFilter(v);
-    setPage(1);
-  };
-  const onSearchSubmit = () => {
-    setAppliedSearch(searchQuery.trim());
-    setPage(1);
-  };
+  const stats = useMemo(() => {
+    const visible = allReviews.filter((r) => !r.hidden);
+    const avgRating = visible.length > 0
+      ? Math.round((visible.reduce((sum, r) => sum + r.rating, 0) / visible.length) * 10) / 10
+      : 0;
+    
+    // Calculate rating distribution (including hidden? Usually yes for total overview, or only visible? Let's use visible for true average)
+    // Actually, let's use all reviews for distribution so admin sees everything, but maybe visible only? The prompt says "Visible reviews: 14" out of 14, so it probably includes all in the distribution. Let's just use all reviews to show what customers rated.
+    const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    allReviews.forEach(r => {
+      if (r.rating >= 1 && r.rating <= 5) {
+        distribution[r.rating as keyof typeof distribution]++;
+      }
+    });
+
+    return {
+      total: allReviews.length,
+      visible: visible.length,
+      hidden: allReviews.length - visible.length,
+      averageRating: avgRating,
+      distribution
+    };
+  }, [allReviews]);
+
+  // Top Rated Menu Items (calculated dynamically)
+  const topRatedItems = useMemo(() => {
+    const itemStats: Record<string, { totalRating: number, count: number, name: string }> = {};
+    const visibleReviews = allReviews.filter(r => !r.hidden);
+    
+    visibleReviews.forEach(r => {
+      if (!itemStats[r.menuItemId]) {
+        itemStats[r.menuItemId] = { totalRating: 0, count: 0, name: r.menuItemName };
+      }
+      itemStats[r.menuItemId].totalRating += r.rating;
+      itemStats[r.menuItemId].count += 1;
+    });
+
+    return Object.values(itemStats)
+      .map(stat => ({
+        name: stat.name,
+        averageRating: Math.round((stat.totalRating / stat.count) * 10) / 10,
+        reviewCount: stat.count
+      }))
+      .filter(item => item.reviewCount > 0)
+      .sort((a, b) => b.averageRating - a.averageRating || b.reviewCount - a.reviewCount)
+      .slice(0, 5); // Top 5
+  }, [allReviews]);
 
   const handleHideToggle = (id: string, currentlyHidden: boolean) => {
     if (currentlyHidden) {
-      unhideReview(id).then(() =>
-        fetchAdminPage({
-          rating: ratingFilter,
-          status: statusFilter,
-          search: appliedSearch,
-          page,
-          limit: PAGE_SIZE,
-        }),
-      );
+      unhideReview(id);
     } else {
       setConfirmHideId(id);
     }
   };
 
-  const executeHide = async () => {
-    if (!confirmHideId) return;
-    setActionError(null);
-    try {
-      await hideReview(confirmHideId);
+  const executeHide = () => {
+    if (confirmHideId) {
+      hideReview(confirmHideId);
       setConfirmHideId(null);
-      await fetchAdminPage({
-        rating: ratingFilter,
-        status: statusFilter,
-        search: appliedSearch,
-        page,
-        limit: PAGE_SIZE,
-      });
-    } catch (e: any) {
-      setActionError(e?.message || 'Could not hide this review.');
     }
   };
 
-  const executeDelete = async () => {
-    if (!confirmDeleteId) return;
-    setActionError(null);
-    try {
-      // Admin moderation delete (any review) — owner path in ReviewsContext
-      // only covers the signed-in customer's own rows.
-      const staffToken = getStaffOrAdminToken();
-      if (!staffToken) throw new Error('Admin authorization required.');
-      await deleteServerReview(staffToken, confirmDeleteId);
+  const executeDelete = () => {
+    if (confirmDeleteId) {
+      deleteReview(confirmDeleteId);
       setConfirmDeleteId(null);
-      await refreshSummaries();
-      await fetchAdminPage({
-        rating: ratingFilter,
-        status: statusFilter,
-        search: appliedSearch,
-        page,
-        limit: PAGE_SIZE,
-      });
-    } catch (e: any) {
-      setActionError(e?.message || 'Could not delete this review.');
     }
   };
-
-  const totalPages = pagination?.totalPages ?? 1;
 
   return (
     <>
@@ -136,25 +128,25 @@ export default function AdminReviewsPage() {
         subtitle="View and manage customer feedback, ratings, and menu performance."
       />
 
-      {/* Summary Cards (server-computed stats) */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <div className="admin-stat-card rounded-2xl p-5 border-l-4 border-l-[#800000]">
           <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">Total Reviews</p>
-          <p className="text-3xl font-serif font-bold text-stone-900 mt-2">{stats?.total ?? 0}</p>
+          <p className="text-3xl font-serif font-bold text-stone-900 mt-2">{stats.total}</p>
         </div>
         <div className="admin-stat-card rounded-2xl p-5 border-l-4 border-l-yellow-500">
           <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">Average Rating</p>
           <p className="text-3xl font-serif font-bold text-yellow-500 mt-2 flex items-center gap-2">
-            ★ {(stats?.averageRating ?? 0).toFixed(1)} <span className="text-lg text-stone-400">/ 5.0</span>
+            ★ {stats.averageRating.toFixed(1)} <span className="text-lg text-stone-400">/ 5.0</span>
           </p>
         </div>
         <div className="admin-stat-card rounded-2xl p-5 border-l-4 border-l-emerald-500">
           <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">Visible Reviews</p>
-          <p className="text-3xl font-serif font-bold text-stone-900 mt-2">{stats?.visible ?? 0}</p>
+          <p className="text-3xl font-serif font-bold text-stone-900 mt-2">{stats.visible}</p>
         </div>
         <div className="admin-stat-card rounded-2xl p-5 border-l-4 border-l-stone-400">
           <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">Hidden Reviews</p>
-          <p className="text-3xl font-serif font-bold text-stone-900 mt-2">{stats?.hidden ?? 0}</p>
+          <p className="text-3xl font-serif font-bold text-stone-900 mt-2">{stats.hidden}</p>
         </div>
       </div>
 
@@ -164,17 +156,16 @@ export default function AdminReviewsPage() {
           <AdminPanel title="Rating Overview" subtitle="Distribution of all reviews">
             <div className="p-5 space-y-3">
               {[5, 4, 3, 2, 1].map((stars) => {
-                const count = stats?.distribution?.[stars] ?? 0;
-                const total = stats?.total ?? 0;
-                const percentage = total > 0 ? (count / total) * 100 : 0;
+                const count = stats.distribution[stars as keyof typeof stats.distribution];
+                const percentage = stats.total > 0 ? (count / stats.total) * 100 : 0;
                 return (
                   <div key={stars} className="flex items-center gap-3 text-sm">
                     <div className="w-16 flex text-yellow-500 font-bold shrink-0">
                       {'★'.repeat(stars)}{'☆'.repeat(5 - stars)}
                     </div>
                     <div className="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-yellow-400 rounded-full"
+                      <div 
+                        className="h-full bg-yellow-400 rounded-full" 
                         style={{ width: `${percentage}%` }}
                       ></div>
                     </div>
@@ -188,71 +179,81 @@ export default function AdminReviewsPage() {
           </AdminPanel>
         </div>
 
-        {/* Filters */}
+        {/* Top Rated Menu Items */}
         <div className="lg:col-span-2">
-          <AdminPanel title="Find Reviews" subtitle="Filters apply on the server">
-            <div className="p-5 space-y-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-                <input
-                  type="text"
-                  placeholder="Search reviews..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') onSearchSubmit();
-                  }}
-                  className="w-full pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-[#800000] focus:ring-1 focus:ring-[#800000] transition-colors shadow-sm"
-                />
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <select
-                  value={ratingFilter}
-                  onChange={(e) => onRatingChange(e.target.value as RatingFilter)}
-                  className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm text-stone-600 focus:outline-none focus:border-[#800000] min-w-[130px]"
-                >
-                  <option value="all">All Ratings</option>
-                  <option value="5">★ 5 Stars</option>
-                  <option value="4">★ 4 Stars</option>
-                  <option value="3">★ 3 Stars</option>
-                  <option value="2">★ 2 Stars</option>
-                  <option value="1">★ 1 Star</option>
-                </select>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => onStatusChange(e.target.value as StatusFilter)}
-                  className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm text-stone-600 focus:outline-none focus:border-[#800000] min-w-[120px]"
-                >
-                  <option value="all">All Status</option>
-                  <option value="visible">Visible</option>
-                  <option value="hidden">Hidden</option>
-                </select>
-                <AdminButton variant="secondary" onClick={onSearchSubmit}>
-                  Search
-                </AdminButton>
-              </div>
-              {actionError && (
-                <p className="text-xs font-bold text-red-600">{actionError}</p>
+          <AdminPanel title="Top Rated Menu Items" subtitle="Based on visible customer ratings">
+            <div className="p-0">
+              {topRatedItems.length > 0 ? (
+                <ul className="divide-y divide-stone-100">
+                  {topRatedItems.map((item, idx) => (
+                    <li key={idx} className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 hover:bg-stone-50 transition-colors">
+                      <div className="font-semibold text-[#800000]">{item.name}</div>
+                      <div className="flex items-center gap-4 text-sm font-medium">
+                        <span className="text-yellow-500 flex items-center gap-1">★ {item.averageRating.toFixed(1)}</span>
+                        <span className="text-stone-400">{item.reviewCount} review{item.reviewCount !== 1 && 's'}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="p-8 text-center text-stone-400 text-sm">
+                  No rated menu items yet.
+                </div>
               )}
             </div>
           </AdminPanel>
         </div>
       </div>
 
+      {/* Filters */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+            <input
+              type="text"
+              placeholder="Search reviews..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-[#800000] focus:ring-1 focus:ring-[#800000] transition-colors shadow-sm"
+            />
+          </div>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <select
+              value={ratingFilter}
+              onChange={(e) => setRatingFilter(e.target.value as RatingFilter)}
+              className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm text-stone-600 focus:outline-none focus:border-[#800000] min-w-[130px] flex-1 sm:flex-none"
+            >
+              <option value="all">All Ratings</option>
+              <option value="5">★ 5 Stars</option>
+              <option value="4">★ 4 Stars</option>
+              <option value="3">★ 3 Stars</option>
+              <option value="2">★ 2 Stars</option>
+              <option value="1">★ 1 Star</option>
+            </select>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm text-stone-600 focus:outline-none focus:border-[#800000] min-w-[120px] flex-1 sm:flex-none"
+            >
+              <option value="all">All Status</option>
+              <option value="visible">Visible</option>
+              <option value="hidden">Hidden</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       {/* Review List */}
       <div className="space-y-4">
-        {adminLoading && reviews.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl border border-stone-200 shadow-sm">
-            <p className="text-sm font-semibold text-stone-600">Loading reviews...</p>
-          </div>
-        ) : reviews.length === 0 ? (
+        {filteredReviews.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-stone-200 shadow-sm">
             <div className="mb-3 opacity-50"><svg className="w-10 h-10 text-stone-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></div>
             <p className="text-sm font-semibold text-stone-600">No reviews found</p>
             <p className="text-xs text-stone-400 mt-1">Adjust your filters or search query.</p>
           </div>
         ) : (
-          reviews.map((review) => (
+          filteredReviews.map((review) => (
             <div
               key={review.id}
               className={`bg-white rounded-xl border p-5 shadow-sm transition-all flex flex-col sm:flex-row gap-5 ${
@@ -301,7 +302,7 @@ export default function AdminReviewsPage() {
                     {review.hidden ? 'Hidden' : 'Visible'}
                   </span>
                 </div>
-
+                
                 <div className="flex gap-2 w-full sm:w-auto">
                   <button
                     onClick={() => handleHideToggle(review.id, review.hidden)}
@@ -323,31 +324,6 @@ export default function AdminReviewsPage() {
           ))
         )}
       </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="px-4 py-2 bg-white border border-stone-200 rounded-lg text-xs font-bold text-stone-600 disabled:opacity-50"
-          >
-            Previous
-          </button>
-          <span className="text-xs font-bold text-stone-600">
-            Page {pagination?.page ?? page} of {totalPages}
-          </span>
-          <button
-            type="button"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-            className="px-4 py-2 bg-white border border-stone-200 rounded-lg text-xs font-bold text-stone-600 disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
-      )}
 
       {/* Hide Modal */}
       <AdminModal

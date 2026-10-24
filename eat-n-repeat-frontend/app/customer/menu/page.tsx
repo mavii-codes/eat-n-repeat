@@ -34,7 +34,7 @@ export default function MenuPage() {
   // DB-backed add-ons (public list, available only). Attached to every item
   // as `customizations.addons` — the details modal renders them from there.
   // Unset while offline: items simply show no add-ons (existing behavior).
-  const [dbAddons, setDbAddons] = useState<{ id: string; name: string; price: number; image?: string | null }[]>([]);
+  const [dbAddons, setDbAddons] = useState<{ id: string; name: string; price: number }[]>([]);
   const { data: session, status: sessionStatus } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -51,7 +51,7 @@ export default function MenuPage() {
           setDbAddons(
             list
               .filter((a: any) => a && a.available !== false && a.name && Number(a.price) >= 0)
-              .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0, image: typeof a.image === 'string' && a.image ? a.image : null }))
+              .map((a: any) => ({ id: String(a.id ?? a.name), name: String(a.name), price: Number(a.price) || 0 }))
           );
         }
       } catch {
@@ -109,8 +109,15 @@ export default function MenuPage() {
         ? 'Popular'
         : undefined;
 
-      // Availability is server-authoritative (tracks explicit links and stock balance without fuzzy matching)
-      const effectiveAvailable = item.available;
+      // Check linked ingredient stock status
+      const linkedStock = stockItems?.find(
+        (s) =>
+          s.id === item.stockItemId ||
+          item.name.toLowerCase().includes(s.name.toLowerCase()) ||
+          s.name.toLowerCase().includes(item.name.toLowerCase())
+      );
+      const isOutOfStock = linkedStock ? linkedStock.quantity <= 0 : false;
+      const effectiveAvailable = item.available && !isOutOfStock;
 
       return {
         id: item.id,
@@ -459,21 +466,6 @@ export default function MenuPage() {
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
-        onAddRecommendedAddon={(addon) => {
-          // Create a pseudo menu item from the addon
-          const addonMenuItem: CustomerMenuItem = {
-            id: `addon-${addon.id}`,
-            name: addon.name,
-            description: '',
-            price: addon.price,
-            image: addon.image || '',
-            category: 'Add-ons',
-            rating: 5,
-            reviews: 0,
-            available: true,
-          };
-          handleAddToCart(addonMenuItem);
-        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />

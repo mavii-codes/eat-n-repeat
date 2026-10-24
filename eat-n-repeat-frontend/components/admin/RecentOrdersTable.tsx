@@ -64,11 +64,11 @@ export function RecentOrdersTable({ orders, onArchive }: RecentOrdersTableProps)
             ) : (
               orders.map((order) => (
                 <tr key={order.id} className="border-b border-accent/5 last:border-0">
-                  <td className="px-4 py-3 font-medium text-accent text-xs max-w-[150px] truncate" title={order.orderId} aria-label={`Order ${order.orderId}`}>
+                  <td className="px-4 py-3 font-medium text-accent">
                     {order.orderId}
                   </td>
                   <td className="px-4 py-3 text-muted">{order.time}</td>
-                  <td className="px-4 py-3 text-muted max-w-[160px] truncate" title={order.items}>{order.items}</td>
+                  <td className="px-4 py-3 text-muted">{order.items}</td>
                   <td className="px-4 py-3 font-semibold text-[#800000]">
                     ₱{order.total.toLocaleString()}
                   </td>

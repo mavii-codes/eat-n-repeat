@@ -52,10 +52,10 @@ export function NotificationsPanel({ notifications }: NotificationsPanelProps) {
       </ul>
 
       <Link
-        href="/admin/inventory"
+        href="/admin/stock"
         className="mt-4 block min-h-11 rounded-xl bg-gradient-to-r from-accent to-accent-dark px-4 py-3 text-center text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:mt-5"
       >
-        View Inventory
+        View Stock Management
       </Link>
     </div>
   );

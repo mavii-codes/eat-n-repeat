@@ -17,7 +17,7 @@ import {
 import type { StockItem } from "@/lib/admin/types";
 import { useAdminData } from "@/context/AdminDataContext";
 import { useAuth } from "@/context/AuthContext";
-import { StaffPanel, staffThead, staffTh, staffTd, staffRow, staffEmptyCell, staffControl } from "@/components/staff/StaffPanel";
+import { AdminPanel } from "@/components/admin/AdminForm";
 import { getPendingStockTransactions } from "@/lib/offlineSync";
 
 /* ── Types ──────────────────────────────────────── */
@@ -236,7 +236,7 @@ export function StaffInventoryTab({
 
       {/* KPI SUMMARY CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-5 border border-stone-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-5 border border-stone-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="w-10 h-10 rounded-xl bg-[#63131d]/5 flex items-center justify-center shrink-0 mb-2 sm:mb-0">
             <Package className="w-5 h-5 text-[#63131d]" />
           </div>
@@ -249,7 +249,7 @@ export function StaffInventoryTab({
             </p>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-5 border border-stone-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-5 border border-emerald-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0 mb-2 sm:mb-0">
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
           </div>
@@ -262,7 +262,7 @@ export function StaffInventoryTab({
             </p>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-5 border border-stone-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-5 border border-amber-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0 mb-2 sm:mb-0">
             <AlertTriangle className="w-5 h-5 text-amber-600" />
           </div>
@@ -275,7 +275,7 @@ export function StaffInventoryTab({
             </p>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-5 border border-stone-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-5 border border-red-200 shadow-sm flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0 mb-2 sm:mb-0">
             <XCircle className="w-5 h-5 text-red-600" />
           </div>
@@ -294,8 +294,8 @@ export function StaffInventoryTab({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* STOCK ALERTS PANEL */}
         <div className="lg:col-span-2">
-          <StaffPanel icon={<AlertTriangle className="h-5 w-5 text-[#800000]" />} title="Stock Alerts" subtitle="Ingredients requiring attention">
-            <div className="p-4 grid gap-3 grid-cols-1 sm:grid-cols-2">
+          <AdminPanel title="Stock Alerts" subtitle="Ingredients requiring attention">
+            <div className="p-4 grid gap-3 grid-cols-1 sm:grid-cols-2 bg-white/40 backdrop-blur-md">
               {alertItems.length === 0 ? (
                 <div className="col-span-full py-6 flex flex-col items-center justify-center text-center">
                   <CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" />
@@ -312,14 +312,14 @@ export function StaffInventoryTab({
                   const isPending = request?.status === "Pending";
 
                   return (
-<div
-                  key={item.id}
-                  className={`p-4 rounded-xl border ${
-                    isOut
-                      ? "bg-red-50/60 border-red-200"
-                      : "bg-amber-50/60 border-amber-200"
-                  } flex flex-col justify-between gap-3 shadow-2xs`}
-                >
+                    <div
+                      key={item.id}
+                      className={`p-4 rounded-2xl border ${
+                        isOut
+                          ? "bg-red-50/60 border-red-200"
+                          : "bg-amber-50/60 border-amber-200"
+                      } flex flex-col justify-between gap-3 shadow-2xs`}
+                    >
                       <div className="flex gap-3 items-start">
                         <AlertTriangle
                           className={`w-5 h-5 shrink-0 mt-0.5 ${
@@ -375,20 +375,23 @@ export function StaffInventoryTab({
                 })
               )}
             </div>
-          </StaffPanel>
+          </AdminPanel>
         </div>
 
         {/* RESTOCK REQUESTS HISTORY */}
         <div className="lg:col-span-1 h-fit">
-          <StaffPanel icon={<MessageSquare className="h-5 w-5 text-[#800000]" />} title="Restock Requests" subtitle="Your previous requests">
-            <div className="p-4 max-h-[260px] overflow-y-auto space-y-3">
+          <AdminPanel title="Restock Requests" subtitle="Your previous requests">
+            <div className="p-4 bg-white/40 backdrop-blur-md max-h-[260px] overflow-y-auto space-y-3">
               {myRequests.length === 0 ? (
                 <div className="py-6 text-center text-stone-400 text-xs font-semibold">
                   No restock requests found.
                 </div>
               ) : (
                 myRequests.map((req) => (
-                  <div className="bg-white p-3.5 rounded-xl border border-stone-200 shadow-2xs flex items-start gap-3">
+                  <div
+                    key={req.id}
+                    className="bg-white p-3.5 rounded-2xl border border-stone-200/80 shadow-2xs flex items-start gap-3"
+                  >
                     <div
                       className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ${
                         req.status === "Approved"
@@ -431,65 +434,74 @@ export function StaffInventoryTab({
                 ))
               )}
             </div>
-          </StaffPanel>
+          </AdminPanel>
         </div>
       </div>
 
       {/* MAIN INVENTORY LEDGER CARD */}
-      <StaffPanel icon={<Package className="h-5 w-5 text-[#800000]" />} title="Inventory Ledger" subtitle="Real-time stock quantities linked to order processing">
-        <div className="px-4 py-3 border-b border-stone-100 bg-white space-y-3">
-          {/* SEARCH BAR */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
-            <input
-              type="text"
-              placeholder="Search ingredients..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-stone-200 bg-white py-2 pl-11 pr-4 text-sm text-stone-800 placeholder-stone-400 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#63131d]/20 focus:border-[#63131d]/30 transition-all"
-            />
-          </div>
-
-          {/* CATEGORY FILTER PILLS */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setSelectedCategory("all")}
-              className={`rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${
-                selectedCategory === "all"
-                  ? "bg-[#5c141d] text-white shadow-sm"
-                  : "bg-white border border-stone-200 text-stone-600 hover:border-[#63131d]/30 hover:bg-stone-50"
-              }`}
-            >
-              All Items
-            </button>
-            {stockCategories.map((cat) => {
-              const isSelected = selectedCategory === cat.id || selectedCategory === cat.name;
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedCategory(cat.id)}
-                  className={`rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${
-                    isSelected
-                      ? "bg-[#5c141d] text-white shadow-sm"
-                      : "bg-white border border-stone-200 text-stone-600 hover:border-[#63131d]/30 hover:bg-stone-50"
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              );
-            })}
-          </div>
+      <div className="rounded-3xl border border-stone-200/80 bg-white/95 p-6 sm:p-8 shadow-sm backdrop-blur-md space-y-6">
+        <div>
+          <h2 className="font-serif text-2xl font-bold tracking-tight text-[#63131d]">
+            Inventory Ledger
+          </h2>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Real-time stock quantities linked to order processing
+          </p>
         </div>
-        <div className="p-2">
+
+        {/* SEARCH BAR */}
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+          <input
+            type="text"
+            placeholder="Search ingredients..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-2xl border border-stone-200 bg-white py-3 pl-11 pr-4 text-sm text-stone-800 placeholder-stone-400 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#63131d]/20 focus:border-[#63131d]/30 transition-all"
+          />
+        </div>
+
+        {/* CATEGORY FILTER PILLS */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setSelectedCategory("all")}
+            className={`rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${
+              selectedCategory === "all"
+                ? "bg-[#5c141d] text-white shadow-sm"
+                : "bg-white border border-stone-200 text-stone-600 hover:border-[#63131d]/30 hover:bg-stone-50"
+            }`}
+          >
+            All Items
+          </button>
+          {stockCategories.map((cat) => {
+            const isSelected = selectedCategory === cat.id || selectedCategory === cat.name;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`rounded-full px-5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                  isSelected
+                    ? "bg-[#5c141d] text-white shadow-sm"
+                    : "bg-white border border-stone-200 text-stone-600 hover:border-[#63131d]/30 hover:bg-stone-50"
+                }`}
+              >
+                {cat.name}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* INVENTORY TABLE — Desktop View */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className={staffThead}>
-                <th className={staffTh}>INGREDIENT</th>
-                <th className={staffTh}>CATEGORY</th>
-                <th className={staffTh}>REMAINING QUANTITY</th>
-                <th className={staffTh}>STATUS</th>
-                <th className={staffTh}>ALERT THRESHOLD</th>
-                <th className={`${staffTh} text-right`}>ACTION</th>
+              <tr className="border-b border-stone-100 text-[11px] font-bold tracking-wider text-stone-400 uppercase py-3">
+                <th className="pb-4 font-bold">INGREDIENT</th>
+                <th className="pb-4 font-bold">CATEGORY</th>
+                <th className="pb-4 font-bold">REMAINING QUANTITY</th>
+                <th className="pb-4 font-bold">STATUS</th>
+                <th className="pb-4 font-bold">ALERT THRESHOLD</th>
+                <th className="pb-4 font-bold text-right">ACTION</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
@@ -527,9 +539,9 @@ export function StaffInventoryTab({
                   }
 
                   return (
-                    <tr key={item.id} className={staffRow}>
+                    <tr key={item.id} className="hover:bg-stone-50/50 transition-colors">
                       {/* INGREDIENT */}
-                      <td className={staffTd}>
+                      <td className="py-4 pr-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-xl bg-stone-100 border border-stone-200/60 flex items-center justify-center text-stone-400 shrink-0">
                             <BarChart2 className="w-4 h-4 text-stone-400" />
@@ -539,14 +551,14 @@ export function StaffInventoryTab({
                       </td>
 
                       {/* CATEGORY */}
-                      <td className={staffTd}>
+                      <td className="py-4 pr-4">
                         <span className="inline-flex bg-stone-100/90 border border-stone-200/60 text-stone-600 px-3.5 py-1 rounded-full text-xs font-semibold">
                           {categoryName}
                         </span>
                       </td>
 
                       {/* REMAINING QUANTITY */}
-                      <td className={staffTd}>
+                      <td className="py-4 pr-4">
                         <div className="flex flex-col justify-center min-w-[130px]">
                           <span className="font-black text-stone-900 text-sm tracking-wide uppercase">
                             {item.quantity} {item.unit}
@@ -568,27 +580,27 @@ export function StaffInventoryTab({
                       </td>
 
                       {/* STATUS */}
-                      <td className={staffTd}>
+                      <td className="py-4 pr-4">
                         {status === "low-stock" || status === "out-of-stock" ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-amber-50/90 text-amber-700 border border-amber-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> LOW STOCK
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-emerald-50/90 text-emerald-700 border border-emerald-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> OPTIMAL
                           </span>
                         )}
                       </td>
 
                       {/* ALERT THRESHOLD */}
-                      <td className={staffTd}>
+                      <td className="py-4 pr-4">
                         <span className="text-xs font-bold text-stone-500">
                           {item.lowStockThreshold} {item.unit}
                         </span>
                       </td>
 
                       {/* ACTION */}
-                      <td className={`${staffTd} text-right`}>
+                      <td className="py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           {request?.status === "Pending" ? (
                             <button
@@ -669,7 +681,7 @@ export function StaffInventoryTab({
               return (
                 <div
                   key={item.id}
-                  className="rounded-xl border border-stone-200 bg-white p-4 space-y-3"
+                  className="rounded-2xl border border-stone-200/80 bg-white p-4 space-y-3"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -684,11 +696,11 @@ export function StaffInventoryTab({
                       </div>
                     </div>
                     {isLow ? (
-                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                         • LOW STOCK
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                         • OPTIMAL
                       </span>
                     )}
@@ -763,7 +775,7 @@ export function StaffInventoryTab({
             })
           )}
         </div>
-      </StaffPanel>
+      </div>
 
       {/* ── TOAST NOTIFICATIONS CONTAINER ── */}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">

@@ -42,7 +42,6 @@ import { AdminDataProvider } from "@/context/AdminDataContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { NetworkStatusProvider } from "@/context/NetworkStatusContext";
 import { OnlineIndicator } from "@/components/shared/OnlineIndicator";
-import { Toaster } from "react-hot-toast";
 
 export default function RootLayout({
   children,
@@ -61,29 +60,6 @@ export default function RootLayout({
             <NetworkStatusProvider>{children}</NetworkStatusProvider>
           </AuthProvider>
         </AdminDataProvider>
-        {/* Global toast layer — one mount for the whole app (admin + staff +
-            customer portals). Toasts fire from cash/staff/inventory/POS and
-            NetworkStatus code; this finally gives them a visible surface:
-            warm cream card, stone text, subtle shadow. */}
-        <Toaster
-          position="top-center"
-          containerStyle={{ zIndex: 9999 }}
-          toastOptions={{
-            style: {
-              background: "#FFFBF2",
-              color: "#292524",
-              border: "1px solid #E7E5E4",
-              borderRadius: "12px",
-              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.10)",
-              fontSize: "13.5px",
-              fontWeight: 600,
-              maxWidth: "420px",
-            },
-            success: { iconTheme: { primary: "#16A34A", secondary: "#FFFBF2" } },
-            error: { iconTheme: { primary: "#DC2626", secondary: "#FFFBF2" } },
-            loading: { iconTheme: { primary: "#800000", secondary: "#FFFBF2" } },
-          }}
-        />
       </body>
     </html>
   );

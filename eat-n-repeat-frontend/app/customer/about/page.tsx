@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
-import { CartDrawer, type CartItem, type CustomerMenuItem } from '@/components/customer/CartDrawer';
+import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
 import Link from 'next/link';
 import { Target, Eye, MapPin, Star, Phone, Smartphone, Mail } from 'lucide-react';
 
@@ -13,19 +13,6 @@ export default function AboutPage() {
 
   const totalCartCount = cartItems.reduce((acc, ci) => acc + ci.quantity, 0);
   const totalCartSubtotal = cartItems.reduce((acc, ci) => acc + ci.menuItem.price * ci.quantity, 0);
-
-  const handleAddToCart = (item: CustomerMenuItem) => {
-    const incoming = `addon-${item.id}::${item.id}::`;
-    setCartItems((prev) => {
-      const existing = prev.find((ci) => ci.menuItem.id === item.id);
-      if (existing) {
-        return prev.map((ci) =>
-          ci.menuItem.id === item.id ? { ...ci, quantity: ci.quantity + 1 } : ci
-        );
-      }
-      return [...prev, { menuItem: item, quantity: 1 }];
-    });
-  };
 
   return (
     <div className="min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col justify-between selection:bg-[#B91C1C] selection:text-white">
@@ -200,20 +187,6 @@ export default function AboutPage() {
         }}
         onRemoveItem={(id) => setCartItems((prev) => prev.filter((ci) => ci.menuItem.id !== id))}
         onClearCart={() => setCartItems([])}
-        onAddRecommendedAddon={(addon) => {
-          const addonMenuItem: CustomerMenuItem = {
-            id: `addon-${addon.id}`,
-            name: addon.name,
-            description: '',
-            price: addon.price,
-            image: addon.image || '',
-            category: 'Add-ons',
-            rating: 5,
-            reviews: 0,
-            available: true,
-          };
-          handleAddToCart(addonMenuItem);
-        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />

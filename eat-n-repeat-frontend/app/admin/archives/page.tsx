@@ -7,7 +7,6 @@ import { useAdminData } from "@/context/AdminDataContext";
 import {
   deliveryStatusLabels,
 } from "@/lib/admin/delivery-utils";
-import { formatPickupLine } from "@/lib/pickup";
 
 type ArchiveTab = "menu" | "categories" | "staff" | "orders";
 
@@ -163,11 +162,7 @@ export default function ArchivesPage() {
                 cells: [
                   order.orderId,
                   order.time,
-                  // Pick-Up / Take-Out rows carry the collector + promised time
-                  // appended to the items summary (cells are plain strings).
-                  order.orderType === 'pickup' && formatPickupLine(order.pickupName, order.pickupAt, order.customerName)
-                    ? `${order.items} (${formatPickupLine(order.pickupName, order.pickupAt, order.customerName)})`
-                    : order.items,
+                  order.items,
                   `₱${order.total.toLocaleString()}`,
                   formatArchivedAt(order.archivedAt),
                 ],
@@ -239,8 +234,7 @@ function ArchiveTable({
               {row.cells.map((cell, index) => (
                 <td
                   key={`${row.id}-${index}`}
-                  className={`px-4 py-3 ${index === 0 ? "font-medium text-[#800000] text-xs max-w-[180px] truncate" : "text-muted"}`}
-                  title={index === 0 ? cell : undefined}
+                  className={`px-4 py-3 ${index === 0 ? "font-medium text-[#800000]" : "text-muted"}`}
                 >
                   {cell}
                 </td>

@@ -45,9 +45,7 @@ export function SalesChart({ monthlyData, weeklyData }: SalesChartProps) {
   const config = viewConfig[view];
 
   const { maxValue, yLabels, peak, total } = useMemo(() => {
-    const peakAmount = data.length
-      ? Math.max(...data.map((item) => item.amount))
-      : 0;
+    const peakAmount = Math.max(...data.map((item) => item.amount));
     const max = getNiceMax(peakAmount);
 
     return {

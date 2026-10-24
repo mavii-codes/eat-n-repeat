@@ -6,23 +6,18 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Logo } from '@/components/brand/Logo';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { getApiUrl } from "@/lib/config";
-import { maskEmail } from '@/lib/mask-email';
 
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  const emailParam = searchParams.get('email') || '';
-  const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'code'>('loading');
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
-  const [email, setEmail] = useState(emailParam);
-  const [code, setCode] = useState('');
-  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
-    // New code flow (no link token): show the 6-digit code form instead.
     if (!token) {
-      setStatus('code');
+      setStatus('error');
+      setErrorMsg('The verification link is missing or invalid.');
       return;
     }
 
@@ -39,84 +34,6 @@ function VerifyEmailContent() {
         setErrorMsg(err.message);
       });
   }, [token]);
-
-  async function handleVerifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email || code.trim().length !== 6) return;
-    setVerifying(true);
-    setErrorMsg('');
-    try {
-      const res = await fetch(`${getApiUrl()}/api/customer-auth/verify-email-code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: code.trim() }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.message || 'Verification failed');
-      }
-      setStatus('success');
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Verification failed. Please try again.');
-    } finally {
-      setVerifying(false);
-    }
-  }
-
-  if (status === 'code') {
-    return (
-      <div className="p-6 space-y-4">
-        <div className="text-center">
-          <h2 className="text-xl font-black text-[#451a03]">Verify Your Email</h2>
-          <p className="text-sm text-stone-600 mt-1">
-            We sent a 6-digit code to <span className="font-bold text-stone-900">{email ? maskEmail(email) : 'your email'}</span>
-          </p>
-        </div>
-        {errorMsg && (
-          <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">
-            {errorMsg}
-          </div>
-        )}
-        <form onSubmit={handleVerifyCode} className="space-y-3">
-          {!emailParam && (
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="w-full px-4 py-3 rounded-2xl border border-amber-200/90 bg-[#FFF8F0] text-sm text-stone-800 placeholder:text-stone-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition"
-            />
-          )}
-          <input
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            required
-            minLength={6}
-            maxLength={6}
-            pattern="[0-9]{6}"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="••••••"
-            className="w-full px-4 py-3 rounded-2xl border border-amber-200/90 bg-[#FFF8F0] text-center text-2xl font-black tracking-[0.5em] text-stone-900 placeholder:text-stone-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition"
-          />
-          <button
-            type="submit"
-            disabled={verifying || code.trim().length !== 6 || !email}
-            className="w-full py-3.5 rounded-full bg-[#B91C1C] hover:bg-[#991B1B] disabled:bg-stone-300 text-white font-extrabold text-sm shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
-          >
-            {verifying ? 'Verifying…' : 'Verify Email'}
-          </button>
-        </form>
-        <div className="text-center text-xs font-semibold text-stone-600">
-          <Link href="/customer/verification-pending" className="font-extrabold text-[#B91C1C] hover:underline">
-            Resend Code
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   if (status === 'loading') {
     return (
@@ -136,7 +53,7 @@ function VerifyEmailContent() {
         <p className="text-sm text-stone-600">{errorMsg}</p>
         <div className="pt-4 flex gap-3 w-full">
           <Link href="/customer/verification-pending" className="flex-1 py-3 px-4 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-full text-sm font-bold transition-all">
-            Request New Code
+            Request New Link
           </Link>
         </div>
       </div>

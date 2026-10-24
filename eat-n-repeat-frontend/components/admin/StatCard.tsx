@@ -6,8 +6,6 @@ type StatCardProps = {
   subtitle: string;
   icon: ReactNode;
   tone?: "red" | "wine" | "rose";
-  /** Optional accent for signed change copy (defaults to the green success tone). */
-  subtitleClassName?: string;
 };
 
 const toneStyles = {
@@ -22,7 +20,6 @@ export function StatCard({
   subtitle,
   icon,
   tone = "red",
-  subtitleClassName,
 }: StatCardProps) {
   return (
     <div className="admin-stat-card rounded-2xl p-5 pl-6">
@@ -35,9 +32,7 @@ export function StatCard({
         </div>
       </div>
       <p className="font-serif text-3xl font-semibold text-[#800000]">{value}</p>
-      <p className={`mt-2 text-xs font-medium ${subtitleClassName ?? "text-success"}`}>
-        {subtitle}
-      </p>
+      <p className="mt-2 text-xs font-medium text-success">{subtitle}</p>
     </div>
   );
 }

@@ -1,58 +1,34 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminData } from "@/context/AdminDataContext";
-import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Flag, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu } from "lucide-react";
+import { Bell, Search, Eye, X, Filter, MapPin, MessageCircle, Archive, Edit3, Plus, ArrowDownAZ, AlertTriangle, Printer, RefreshCcw, WifiOff, LayoutDashboard, UtensilsCrossed, Package, ShoppingBag, PlusCircle, Clock, LogOut, CheckCircle2, ChevronRight, ShoppingCart, User, Check, Banknote, Map, Truck, Coffee, ListTree, Settings, Tag, Image as ImageIcon, SearchX, Menu } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { useConfirm } from "@/components/shared/ConfirmDialog";
 import { StaffInventoryTab } from "@/components/staff/StaffInventoryTab";
 import { StaffNotificationPanel } from "@/components/staff/StaffNotificationPanel";
 import { POSCashierTab } from "@/components/staff/POSCashierTab";
+import { CafeQrPanel } from "@/components/staff/CafeQrPanel";
 import { ArchiveTab } from "@/components/admin/ArchiveTab";
 import {
   AdminButton,
   AdminField,
   AdminInput,
+  AdminPanel,
   AdminSelect,
   AdminTextarea,
   CrudActions,
 } from "@/components/admin/AdminForm";
-import {
-  StaffPanel,
-  staffThead,
-  staffTh,
-  staffTd,
-  staffRow,
-  staffEmptyCell,
-  staffControl,
-  staffHeaderAction,
-} from "@/components/staff/StaffPanel";
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminChatModal } from "@/components/admin/AdminChatModal";
-import {
-  FlagCustomerLink,
-  FlagCustomerModal,
-  flagCustomerIdOf,
-  type FlagCustomerTarget,
-} from "@/components/admin/users/FlagCustomerModal";
 import { StatCard, DollarIcon, ClipboardIcon, TrendIcon } from "@/components/admin/StatCard";
 import type { MenuItem, MenuItemInput, StaffRole, DeliveryStatus, RecentOrder, DeliveryOrder } from "@/lib/admin/types";
 import { formatPhDateTime, formatOrderDateTime, orderEpoch } from "@/lib/admin/delivery-utils";
-import { formatPickupLine } from "@/lib/pickup";
 
-// Pick-Up / Take-Out display helper. Staff tables mix store and delivery rows
-// whose TypeScript shapes differ (and legacy rows lack the pickup fields), so
-// read them defensively here; returns null for every non-pickup row.
-function getPickupLine(order: any): string | null {
-  if (!order || order.orderType !== "pickup") return null;
-  return formatPickupLine(order.pickupName, order.pickupAt, order.customerName);
-}
-import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
-
-type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos";
+type StaffTab = "dashboard" | "orders" | "menu" | "inventory" | "delivery" | "archive" | "profile" | "pos" | "qr";
 
 // Never render "₱NaN": order totals can be missing on legacy/partial rows,
 // so fall back through subtotal+fee and finally 0.
@@ -171,69 +147,6 @@ function toDisplayRows(storeOrders: RecentOrder[], deliveryOrders: DeliveryOrder
   ];
 }
 
-// Delivery-tab flavor of the mapping above, used by the Delivery queue and
-// Delivery History "Details" buttons. Same normalization, but deliberately NO
-// `paid` flag: DeliveryOrder carries no payment state anywhere in the app, so
-// the details modal hides its Payment Status block for these rows instead of
-// asserting a payment state that was never fetched. (Customer Orders keeps
-// using toDisplayRows unchanged.)
-function deliveryToDisplayRow(d: DeliveryOrder) {
-  return {
-    ...d,
-    id: d.id,
-    orderId: d.orderNumber,
-    time: d.orderedAt,
-    orderType: "delivery" as const,
-    customerName: d.customerName,
-    subtotal: d.subtotal,
-    deliveryFee: d.deliveryFee,
-  };
-}
-
-// Completed/cancelled orders are final: the details modal must stay read-only
-// for them (no Confirm Payment, no Chat action).
-function isFinalOrderStatus(status: unknown): boolean {
-  const s = String(status || "").toLowerCase();
-  return s === "completed" || s === "cancelled";
-}
-
-// Read-only status timeline for the Order Details modal. Steps come from the
-// row's real fields (status / orderedAt / deliveredAt) only — timestamps are
-// never fabricated; steps the status has not reached stay muted.
-function getOrderTimeline(order: any): { label: string; done: boolean; cancelled?: boolean; at?: string }[] {
-  const status = String(order?.status || "").toLowerCase();
-  const isDelivery = order?.orderType === "delivery";
-  const placedAt = formatOrderDateTime(order);
-  if (status === "cancelled") {
-    return [
-      { label: "Order Placed", done: true, at: placedAt },
-      { label: "Cancelled", done: true, cancelled: true },
-    ];
-  }
-  const deliveredAt = isDelivery ? formatPhDateTime(order?.deliveredAt ?? "") : "";
-  const steps: [string, string, string][] = isDelivery
-    ? [
-        ["Order Placed", "pending", placedAt],
-        ["Confirmed", "confirmed", ""],
-        ["Preparing", "preparing", ""],
-        ["Out for Delivery", "out_for_delivery", ""],
-        ["Delivered", "delivered", deliveredAt],
-        ["Completed", "completed", ""],
-      ]
-    : [
-        ["Order Placed", "pending", placedAt],
-        ["Confirmed", "confirmed", ""],
-        ["Preparing", "preparing", ""],
-        ["Ready", "ready", ""],
-        ["Completed", "completed", ""],
-      ];
-  const ranks: Record<string, number> = isDelivery
-    ? { pending: 0, confirmed: 1, preparing: 2, out_for_delivery: 3, delivered: 4, completed: 5 }
-    : { pending: 0, awaiting_payment: 0, confirmed: 1, preparing: 2, ready: 3, completed: 4 };
-  const current = ranks[status] ?? 0;
-  return steps.map(([label, , at], i) => ({ label, done: current >= i, at }));
-}
-
 // MARK AS PAID visibility: cash-like (or unknown — e.g. local orders with no
 // payment row yet) method, unpaid, not cancelled, and a server-shaped id.
 // Device-only ord-*/do-* rows cannot be PATCHed yet; they become actionable
@@ -338,7 +251,6 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     updateStockItem,
     deleteStockItem,
     refreshBackendOrders,
-    refreshBackendStock,
     fetchOrderHistoryPage,
   } = useAdminData();
   const router = useRouter();
@@ -356,8 +268,6 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
   const [orderTypeFilter, setOrderTypeFilter] = useState("all");
   const [orderHistorySearch, setOrderHistorySearch] = useState("");
-  const [deliverySearch, setDeliverySearch] = useState("");
-  const [deliveryHistorySearch, setDeliveryHistorySearch] = useState("");
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
 
@@ -396,28 +306,20 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Pull shared orders from the backend (all types) and stock inventory on mount
-  // and every 10s so orders placed on another device and stock changes made by Admin
-  // appear here without manual refresh. Silent on auth/network failure (offline mode).
+  // Pull shared orders from the backend (all types) on mount and every 20s
+  // so orders placed on another device appear here without manual refresh.
+  // Silent on auth/network failure (offline mode keeps the local cache).
   useEffect(() => {
     let mounted = true;
-    const refresh = () => {
-      if (mounted && document.visibilityState === "visible") {
-        refreshBackendOrders();
-        refreshBackendStock();
-      }
-    };
-    refresh();
-    const interval = setInterval(refresh, 10000);
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
+    refreshBackendOrders();
+    const interval = setInterval(() => {
+      if (mounted) refreshBackendOrders();
+    }, 20000);
     return () => {
       mounted = false;
       clearInterval(interval);
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
     };
-  }, [refreshBackendOrders, refreshBackendStock]);
+  }, [refreshBackendOrders]);
 
   // Surface failed order-status writes (the context reverts the optimistic
   // change and fires this event). Scoped to order-status details only so
@@ -466,38 +368,22 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     setMarkingPaidId(order.id);
     try {
       const { getApiUrl } = await import("@/lib/config");
-      const token = getStaffOrAdminToken();
-      // One PATCH attempt; bounded so a hung backend can never leave the
-      // button stuck on "Processing…". Returns both so the caller can decide
-      // whether a fallback retry is warranted.
-      const patchPayment = async (identifier: string) => {
-        const response = await fetch(
-          `${getApiUrl()}/api/admin-orders/${encodeURIComponent(identifier)}/payment`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ method: "Cash" }),
-            signal: AbortSignal.timeout(20000),
+      const token =
+        localStorage.getItem("eat-n-repeat-admin-token") ||
+        localStorage.getItem("eat-n-repeat-staff-token");
+      const response = await fetch(
+        `${getApiUrl()}/api/admin-orders/${encodeURIComponent(order.id)}/payment`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-        );
-        const data = await response.json().catch(() => null);
-        return { response, data };
-      };
-      let { response, data } = await patchPayment(order.id);
-      // The backend resolves the param by DB id OR order number. A 404 on the
-      // row id may mean the cached row predates the server row's id, so retry
-      // once with the order number (mirrors the status-change retry).
-      const fallback = order.orderId || order.orderNumber;
-      if (response.status === 404 && fallback && fallback !== order.id) {
-        ({ response, data } = await patchPayment(fallback));
-      }
+          body: JSON.stringify({ method: "Cash" }),
+        },
+      );
+      const data = await response.json().catch(() => null);
       if (!response.ok || !data?.success) {
-        // 404 => the row no longer exists server-side; re-pull before the
-        // alert so the ghost row is pruned now, not on the next poll.
-        if (response.status === 404) refreshBackendOrders();
         throw new Error(data?.message || "Payment update was not accepted by the server.");
       }
       // Re-pull immediately so the Paid state comes from the database, not
@@ -572,38 +458,12 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
 
   const [chatOpen, setChatOpen] = useState(false);
-  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderId: string; orderNumber: string } | null>(null);
+  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
 
-  const handleOpenChat = (customerName: string, orderId: string, orderNumber: string) => {
-    setActiveChatOrder({ customerName, orderId, orderNumber });
+  const handleOpenChat = (customerName: string, orderNumber: string) => {
+    setActiveChatOrder({ customerName, orderNumber });
     setChatOpen(true);
   };
-
-  // "Flag customer" report entry (staff / head_staff / admin). The order row
-  // must carry the ordering customer's account id (server-fetched rows);
-  // walk-ins and device-only offline rows never offer the action.
-  const [flagTarget, setFlagTarget] = useState<FlagCustomerTarget | null>(null);
-  const openFlagModal = (order: any) => {
-    const customerId = flagCustomerIdOf(order);
-    if (!customerId) return;
-    setFlagTarget({
-      customerId,
-      customerName: order?.customerName || "Customer",
-      phone: typeof order?.phone === "string" ? order.phone : "",
-      orderNumber: order?.orderId || order?.orderNumber || "",
-    });
-  };
-
-  // Order Details modal: Escape closes it while open (X button and backdrop
-  // click handle the other two paths in the JSX). Cleanup on close/unmount.
-  useEffect(() => {
-    if (!selectedOrderDetails) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedOrderDetails(null);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedOrderDetails]);
   const [currentTime, setCurrentTime] = useState("");
 
   useEffect(() => {
@@ -649,18 +509,6 @@ function OrderTableScroll({ className, children }: { className?: string; childre
             <rect x="14" y="3" width="7" height="7" rx="1.5" />
             <rect x="3" y="14" width="7" height="7" rx="1.5" />
             <rect x="14" y="14" width="7" height="7" rx="1.5" />
-          </svg>
-        ),
-      },
-      {
-        id: "pos" as StaffTab,
-        label: "POS Cashier",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="M2 10h20" />
-            <path d="M6 15h2M10 15h2M14 15h2" />
-            <path d="M12 4V2" />
           </svg>
         ),
       },
@@ -722,12 +570,38 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     ];
 
     list.push({
+      id: "pos" as StaffTab,
+      label: "POS Cashier",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="M2 10h20" />
+          <path d="M6 15h2M10 15h2M14 15h2" />
+          <path d="M12 4V2" />
+        </svg>
+      ),
+    });
+
+    list.push({
       id: "profile",
       label: "My Profile",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
           <circle cx="12" cy="12" r="3" />
           <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+        </svg>
+      ),
+    });
+
+    list.push({
+      id: "qr",
+      label: "Café QR",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <path d="M14 14h3v3h-3zM20 14v.01M14 20v.01M18 18h3v3h-3z" />
         </svg>
       ),
     });
@@ -741,14 +615,11 @@ function OrderTableScroll({ className, children }: { className?: string; childre
     const activeDel = deliveryOrders.filter(o => !o.archived);
 
     const storePaidSales = activeStore.filter(o => o.status === "completed" || o.paid).reduce((sum, o) => sum + o.total, 0);
-    // Fulfilled delivery revenue covers both terminal delivery states.
-    // ("completed" delivery rows now survive backend mapping instead of
-    // collapsing to "pending"; without this they would leave sales entirely.)
-    const delDeliveredSales = activeDel.filter(o => o.status === "delivered" || o.status === "completed").reduce((sum, o) => sum + o.total, 0);
+    const delDeliveredSales = activeDel.filter(o => o.status === "delivered").reduce((sum, o) => sum + o.total, 0);
     const totalSales = storePaidSales + delDeliveredSales;
 
     const totalOrders = activeStore.length + activeDel.length;
-    const completedOrders = activeStore.filter(o => o.status === "completed").length + activeDel.filter(o => o.status === "delivered" || o.status === "completed").length;
+    const completedOrders = activeStore.filter(o => o.status === "completed").length + activeDel.filter(o => o.status === "delivered").length;
     const pendingOrders = activeStore.filter(o => o.status === "pending").length + activeDel.filter(o => ["pending", "confirmed", "preparing", "out_for_delivery"].includes(o.status)).length;
 
     return {
@@ -989,17 +860,13 @@ function OrderTableScroll({ className, children }: { className?: string; childre
         <div className="w-10" aria-hidden="true" />
       </div>
       {/* MAIN MAIN AREA */}
-      {/* Customer Orders & Delivery tabs use the full width next to the fixed
-          sidebar (same per-page carve-out pattern as /admin/cash) so the wide
-          order tables fit without horizontal scrolling on desktop; every other
-          tab keeps the standard reading width. */}
-      <main className={`relative z-10 mx-auto w-full flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:pl-72 lg:py-8 ${activeTab === "orders" || activeTab === "delivery" ? "lg:max-w-none lg:px-5" : "max-w-6xl lg:px-8"}`}>
+      <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 lg:pl-72">
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
             {/* HEADER */}
-            <header className="flex flex-col gap-4 rounded-xl border border-stone-200 bg-white px-6 py-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <header className="flex flex-col gap-4 rounded-3xl border border-white/80 bg-white/90 px-6 py-6 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-accent/80">Staff Workspace</p>
                 <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-[#63131d]">Good day, {user?.name || 'Staff'}!</h1>
@@ -1024,7 +891,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                 { label: "Completed", value: salesSummary.completedOrders, color: "text-[#24753c]" },
                 { label: "Low Stock", value: stockNotifications.length, color: "text-[#bd2525]" },
               ].map((stat) => (
-                <div key={stat.label} className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm transition-all hover:shadow-md">
+                <div key={stat.label} className="rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md hover:bg-white/95">
                   <p className="text-xs font-semibold text-muted uppercase tracking-wide">{stat.label}</p>
                   <p className={`mt-2 font-serif text-3xl font-bold ${stat.color}`}>{stat.value}</p>
                 </div>
@@ -1032,18 +899,19 @@ function OrderTableScroll({ className, children }: { className?: string; childre
             </section>
 
             {/* STATUS SUMMARY */}
-            <StaffPanel
-              icon={<ListTree className="h-5 w-5 text-[#800000]" />}
-              title="Order Status Summary"
-            >
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 text-center p-4">
+            <section className="rounded-2xl border border-white/60 bg-white/80 p-5 shadow-sm backdrop-blur-sm">
+              <h2 className="text-sm font-bold text-[#63131d] mb-4 flex items-center gap-2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>
+                Order Status Summary
+              </h2>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 text-center">
                 {[
-                  { s: "Pending", c: "bg-amber-100 text-amber-800 border-amber-300" },
-                  { s: "Confirmed", c: "bg-blue-100 text-blue-800 border-blue-300" },
-                  { s: "Preparing", c: "bg-purple-100 text-purple-800 border-purple-300" },
-                  { s: "Ready", c: "bg-teal-100 text-teal-800 border-teal-300" },
-                  { s: "Completed", c: "bg-emerald-100 text-emerald-800 border-emerald-300" },
-                  { s: "Cancelled", c: "bg-stone-100 text-stone-600 border-stone-300" },
+                  { s: "Pending", c: "bg-amber-50 text-amber-700 border-amber-200" },
+                  { s: "Confirmed", c: "bg-blue-50 text-blue-700 border-blue-200" },
+                  { s: "Preparing", c: "bg-purple-50 text-purple-700 border-purple-200" },
+                  { s: "Ready", c: "bg-teal-50 text-teal-700 border-teal-200" },
+                  { s: "Completed", c: "bg-green-50 text-green-700 border-green-200" },
+                  { s: "Cancelled", c: "bg-stone-50 text-stone-600 border-stone-200" },
                 ].map(status => {
                   const count = [...storeOrders, ...deliveryOrders].filter(o => !o.archived && o.status === status.s.toLowerCase()).length;
                   return (
@@ -1054,60 +922,53 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                   );
                 })}
               </div>
-            </StaffPanel>
+            </section>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
               {/* LEFT COLUMN: CUSTOMER ORDERS */}
               <div className="space-y-6">
-                <StaffPanel icon={<ShoppingBag className="h-5 w-5 text-[#800000]" />} title="Customer Orders" subtitle="Today's active orders from all channels" action={<button onClick={() => setActiveTab("orders")} className={staffHeaderAction}>View all</button>}>
+                <AdminPanel title="Customer Orders" subtitle="Today's active orders from all channels" action={<button onClick={() => setActiveTab("orders")} className="text-xs font-bold text-accent hover:underline">View all</button>}>
                   <div className="overflow-x-auto p-1">
-                    <table className="w-full text-left text-sm min-w-[420px]">
+                    <table className="w-full text-left text-sm min-w-[500px]">
                       <thead>
-                        <tr className={staffThead}>
-                          <th className={staffTh}>ID</th>
-                          <th className={staffTh}>Type</th>
-                          <th className={staffTh}>Items</th>
-                          <th className={staffTh}>Total</th>
-                          <th className={staffTh}>Status</th>
+                        <tr className="border-b border-accent/10 text-muted">
+                          <th className="px-4 py-3 font-medium">ID</th>
+                          <th className="px-4 py-3 font-medium">Type</th>
+                          <th className="px-4 py-3 font-medium">Items</th>
+                          <th className="px-4 py-3 font-medium">Total</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-stone-100">
+                      <tbody>
                         {[...storeOrders.map(o => ({...o, type: "Dine-in/Pickup"})), ...deliveryOrders.map(o => ({...o, type: "Delivery", orderId: o.orderNumber, total: o.subtotal + (o.deliveryFee || 0)}))]
                           .filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered")
                           .sort((a, b) => orderEpoch(b) - orderEpoch(a))
                           .slice(0, 5)
                           .map((order) => (
-                          <tr key={order.id} className={staffRow}>
-                            <td className={`${staffTd} font-bold text-[#63131d]`}>
-                              {order.orderId}
-                              {getPickupLine(order) && (
-                                <p className="text-[10px] font-semibold text-stone-500 mt-0.5">
-                                  {getPickupLine(order)}
-                                </p>
-                              )}
-                            </td>
-                            <td className={`${staffTd} text-xs font-semibold text-stone-500`}>{order.type}</td>
-                            <td className={`${staffTd} text-xs text-stone-700 max-w-[150px] truncate`}>{order.items}</td>
-                            <td className={`${staffTd} font-semibold text-[#24753c]`}>₱{order.total}</td>
-                            <td className={staffTd}>
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${
-                                order.status === "pending" ? "bg-amber-100 text-amber-800 border-amber-300" :
-                                order.status === "preparing" ? "bg-purple-100 text-purple-800 border-purple-300" :
-                                "bg-blue-100 text-blue-800 border-blue-300"
+                          <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
+                            <td className="px-4 py-3 font-bold text-[#63131d]">{order.orderId}</td>
+                            <td className="px-4 py-3 text-xs font-medium text-muted">{order.type}</td>
+                            <td className="px-4 py-3 text-xs text-[#1c1c1c] truncate max-w-[150px]">{order.items}</td>
+                            <td className="px-4 py-3 font-semibold text-[#24753c]">₱{order.total}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
+                                order.status === "pending" ? "bg-amber-100 text-amber-800" :
+                                order.status === "preparing" ? "bg-purple-100 text-purple-800" :
+                                "bg-blue-100 text-blue-800"
                               }`}>{order.status}</span>
                             </td>
                           </tr>
                         ))}
                         {[...storeOrders, ...deliveryOrders].filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled" && o.status !== "delivered").length === 0 && (
-                          <tr><td colSpan={5} className={staffEmptyCell}>No active orders at the moment.</td></tr>
+                          <tr><td colSpan={5} className="py-8 text-center text-sm text-muted">No active orders at the moment.</td></tr>
                         )}
                       </tbody>
                     </table>
                   </div>
-                </StaffPanel>
+                </AdminPanel>
 
-                <StaffPanel icon={<ShoppingCart className="h-5 w-5 text-[#800000]" />} title="Customer Activity" subtitle="Recent interactions & updates">
-                  <div className="divide-y divide-stone-100 px-5 py-2">
+                <AdminPanel title="Customer Activity" subtitle="Recent interactions & updates">
+                  <div className="divide-y divide-accent/5 px-5 py-2">
                       {[...storeOrders.map(o => ({id: o.id, text: `New in-store order #${o.orderId} received`, time: formatOrderDateTime(o), epoch: orderEpoch(o), raw: o})),
                         ...deliveryOrders.map(o => ({id: o.id, text: `New delivery order #${o.orderNumber} received`, time: formatPhDateTime(o.orderedAt), epoch: orderEpoch(o), raw: o}))]
                       .sort((a, b) => b.epoch - a.epoch)
@@ -1124,18 +985,18 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       </div>
                     ))}
                     {storeOrders.length === 0 && deliveryOrders.length === 0 && (
-                      <p className="py-8 text-center text-sm text-stone-400 font-bold">No recent activity to show.</p>
+                      <p className="py-8 text-center text-sm text-muted">No recent activity to show.</p>
                     )}
                   </div>
-                </StaffPanel>
+                </AdminPanel>
               </div>
 
               {/* RIGHT COLUMN: ALERTS & ACTIONS */}
               <div className="space-y-6">
-                <StaffPanel icon={<AlertTriangle className="h-5 w-5 text-[#800000]" />} title="Needs Attention" subtitle="Tasks requiring staff action">
-                  <div className="divide-y divide-stone-100 px-5">
+                <AdminPanel title="Needs Attention" subtitle="Tasks requiring staff action">
+                  <div className="divide-y divide-accent/10 px-5">
                     {salesSummary.pendingOrders > 0 && (
-                      <button onClick={() => setActiveTab("orders")} className="w-full flex items-center justify-between py-3.5 hover:bg-stone-50 transition-colors text-left group cursor-pointer">
+                      <button onClick={() => setActiveTab("orders")} className="w-full flex items-center justify-between py-3.5 hover:bg-white/40 transition-colors text-left group cursor-pointer">
                         <div className="flex items-center gap-3">
                           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 font-bold text-sm">◷</span>
                           <div>
@@ -1147,7 +1008,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       </button>
                     )}
                     {stockNotifications.length > 0 && (
-                      <button onClick={() => setActiveTab("inventory")} className="w-full flex items-center justify-between py-3.5 hover:bg-stone-50 transition-colors text-left group cursor-pointer">
+                      <button onClick={() => setActiveTab("inventory")} className="w-full flex items-center justify-between py-3.5 hover:bg-white/40 transition-colors text-left group cursor-pointer">
                         <div className="flex items-center gap-3">
                           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-50 text-red-600 font-bold text-sm">!</span>
                           <div>
@@ -1159,13 +1020,13 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       </button>
                     )}
                     {salesSummary.pendingOrders === 0 && stockNotifications.length === 0 && (
-                      <p className="py-6 text-center text-xs text-stone-400 font-bold">No urgent tasks at the moment.</p>
+                      <p className="py-6 text-center text-xs text-muted">No urgent tasks at the moment.</p>
                     )}
                   </div>
-                </StaffPanel>
+                </AdminPanel>
 
-                <StaffPanel icon={<Package className="h-5 w-5 text-[#800000]" />} title="Inventory Alerts" subtitle="Low or out of stock items" action={<button onClick={() => setActiveTab("inventory")} className={staffHeaderAction}>Open stock</button>}>
-                  <div className="divide-y divide-stone-100 px-5">
+                <AdminPanel title="Inventory Alerts" subtitle="Low or out of stock items" action={<button onClick={() => setActiveTab("inventory")} className="text-xs font-bold text-accent hover:underline">Open stock</button>}>
+                  <div className="divide-y divide-accent/10 px-5">
                     {stockNotifications.slice(0, 3).map((alert) => (
                       <div key={alert.id} className="flex gap-3 py-3">
                         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600">!</span>
@@ -1176,12 +1037,12 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       </div>
                     ))}
                     {stockNotifications.length === 0 && (
-                      <p className="py-6 text-center text-xs text-stone-400 font-bold">Stock levels are healthy.</p>
+                      <p className="py-6 text-center text-xs text-muted">Stock levels are healthy.</p>
                     )}
                   </div>
-                </StaffPanel>
+                </AdminPanel>
 
-                <StaffPanel icon={<Settings className="h-5 w-5 text-[#800000]" />} title="Quick Actions" subtitle="Jump to section">
+                <AdminPanel title="Quick Actions" subtitle="Jump to section">
                   <div className="grid grid-cols-2 gap-3 px-4 py-4 text-center text-[11px] font-semibold text-[#63131d]">
                     {[
                       { label: "View Orders", icon: "▣", action: () => setActiveTab("orders") },
@@ -1189,13 +1050,13 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       { label: "Check Stock", icon: "□", action: () => setActiveTab("inventory") },
                       { label: "Open POS", icon: "₱", action: () => setActiveTab("pos") }
                     ].map((action, index) => (
-                      <button key={action.label} onClick={action.action} className="group flex flex-col items-center gap-2 rounded-xl py-3 border border-stone-200 bg-white hover:bg-stone-50 hover:shadow-sm transition-all cursor-pointer">
+                      <button key={action.label} onClick={action.action} className="group flex flex-col items-center gap-2 rounded-xl py-3 border border-white/50 bg-white/40 hover:bg-white hover:shadow-sm transition-all cursor-pointer">
                         <span className={`flex h-8 w-8 items-center justify-center rounded-lg text-lg ${["bg-rose-50 text-accent", "bg-emerald-50 text-emerald-700", "bg-blue-50 text-blue-700", "bg-amber-50 text-amber-700"][index]}`}>{action.icon}</span>
                         {action.label}
                       </button>
                     ))}
                   </div>
-                </StaffPanel>
+                </AdminPanel>
               </div>
             </div>
           </div>
@@ -1275,7 +1136,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                   { label: "Completed", value: summary.completed, color: "text-green-700" },
                   { label: "Cancelled", value: summary.cancelled, color: "text-red-600" },
                 ].map(stat => (
-                  <div key={stat.label} className="bg-white rounded-xl p-3 border border-stone-200 shadow-sm flex flex-col items-center justify-center">
+                  <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-xl p-3 border border-white/40 shadow-sm flex flex-col items-center justify-center">
                     <p className="text-[10px] font-bold text-muted uppercase tracking-wider">{stat.label}</p>
                     <p className={`text-xl font-bold font-serif mt-1 ${stat.color}`}>{stat.value}</p>
                   </div>
@@ -1283,7 +1144,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
               </div>
 
               {/* ACTIVE ORDERS PANEL */}
-              <StaffPanel icon={<ShoppingBag className="h-5 w-5 text-[#800000]" />} title="Active Orders Tickets" subtitle="Currently processing">
+              <AdminPanel title="Active Orders Tickets" subtitle="Currently processing">
                 {orderStatusSyncError && (
                   <div className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-800 flex items-center justify-between gap-3">
                     <span>{orderStatusSyncError} Check the browser console for the order id and PATCH status, then retry.</span>
@@ -1298,20 +1159,20 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                   </div>
                 )}
                 {/* FILTERS */}
-                <div className="px-4 py-3 border-b border-stone-100 bg-white flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
                     <input 
                       type="text" 
                       placeholder="Search ID or customer..." 
-                      className={`${staffControl} w-full pl-9`}
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
                       value={orderSearch}
                       onChange={(e) => setOrderSearch(e.target.value)}
                     />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
                     <select 
-                      className={staffControl}
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
                       value={orderTypeFilter}
                       onChange={(e) => setOrderTypeFilter(e.target.value)}
                     >
@@ -1322,7 +1183,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       <option value="delivery">Delivery</option>
                     </select>
                     <select 
-                      className={staffControl}
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium"
                       value={orderStatusFilter}
                       onChange={(e) => setOrderStatusFilter(e.target.value)}
                     >
@@ -1336,7 +1197,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                 </div>
 
                 {/* DESKTOP TABLE / MOBILE CARDS */}
-                <div className="p-2">
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
                   {filteredActive.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
@@ -1349,66 +1210,52 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                     <>
                       {/* DESKTOP TABLE */}
                       <OrderTableScroll className="hidden md:block overflow-x-auto">
-                        {/* Tighter horizontal cell padding lets all 9 columns share the
-                            widened container; the scroll wrapper only engages below md. */}
-                        <table className="w-full text-left text-sm [&_th]:px-2 [&_td]:px-2">
+                        <table className="w-full text-left text-sm">
                           <thead>
-                            <tr className={staffThead}>
-                              <th className={staffTh}>Order ID</th>
-                              <th className={staffTh}>Customer</th>
-                              <th className={staffTh}>Type</th>
-                              <th className={staffTh}>Items</th>
-                              <th className={staffTh}>Total</th>
-                              <th className={staffTh}>Payment</th>
-                              <th className={staffTh}>Ordered</th>
-                              <th className={staffTh}>Status</th>
-                              <th className={`${staffTh} text-right`}>Actions</th>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Order ID</th>
+                              <th className="px-4 py-3 font-medium">Customer</th>
+                              <th className="px-4 py-3 font-medium">Type</th>
+                              <th className="px-4 py-3 font-medium">Items</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
+                              <th className="px-4 py-3 font-medium">Payment</th>
+                              <th className="px-4 py-3 font-medium">Ordered</th>
+                              <th className="px-4 py-3 font-medium">Status</th>
+                              <th className="px-4 py-3 font-medium text-right">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-stone-100">
+                          <tbody>
                             {filteredActive.map((order) => (
-                              <Fragment key={order.id}>
-                              <tr className={staffRow}>
-                                <td className={`${staffTd} font-bold text-[#800000] text-[11px] max-w-[130px] truncate`} title={order.orderId} aria-label={`Order ID ${order.orderId}`}>{order.orderId}
+                              <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10">
+                                <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}
                                 </td>
-                                <td className={`${staffTd} text-xs font-semibold text-stone-700`}>
-                                  <div className="min-w-0 break-words">{order.customerName || "Walk-in"}</div>
-                                  {flagCustomerIdOf(order) && (
-                                    <FlagCustomerLink
-                                      onOpen={() => openFlagModal(order)}
-                                      className="mt-1 text-[10px]"
-                                    />
-                                  )}
-                                </td>
-                                <td className={staffTd}>
-                                  <span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-200">
+                                <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-accent/10 shadow-sm">
                                     {order.orderType || "dine-in"}
                                   </span>
                                 </td>
-                                <td className={`${staffTd} text-xs text-stone-500 max-w-[150px] truncate`}>{order.items}</td>
-                                <td className={`${staffTd} font-bold whitespace-nowrap`}>₱{formatOrderTotal(order)}</td>
-                                <td className={staffTd}>
+                                <td className="px-4 py-3 text-xs text-muted max-w-[150px] truncate">{order.items}</td>
+                                <td className="px-4 py-3 font-bold">₱{formatOrderTotal(order)}</td>
+                                <td className="px-4 py-3">
                                   {order.paid ? (
-                                    <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800 border border-emerald-300">Confirmed Paid</span>
+                                    <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-200">Confirmed Paid</span>
                                   ) : (
-                                    <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800 border border-amber-300">Pending</span>
-                                  )}
-                                  {(order as any).paymentSyncPending && (
-                                    <span className="mt-1 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-800 border border-blue-300" title="Cash collected offline — will sync when reconnected">Sync pending</span>
+                                    <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">Pending</span>
                                   )}
                                   {canMarkCashPaid(order) && (
                                     <button
                                       type="button"
                                       onClick={() => handleMarkCashPaid(order)}
                                       disabled={markingPaidId === order.id}
-                                      className="mt-1.5 w-full px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-wide rounded-md shadow-sm transition"
+                                      className="mt-2 w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wide rounded-lg shadow transition"
                                     >
                                       {markingPaidId === order.id ? "Processing…" : "Mark as Paid"}
                                     </button>
                                   )}
                                 </td>
-                                <td className={`${staffTd} text-[10px] font-semibold text-stone-400`}>{formatOrderDateTime(order) || "—"}</td>
-                                <td className={staffTd}>
+                                <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatOrderDateTime(order) || "—"}</td>
+                                <td className="px-4 py-3">
                                   <AdminSelect
                                     value={order.status}
                                     onChange={(e) => {
@@ -1418,7 +1265,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                         updateStoreOrderStatus(order.id, e.target.value as any);
                                       }
                                     }}
-                                    className="!py-1 !text-xs max-w-[110px] shadow-sm font-medium"
+                                    className="!py-1.5 !text-xs max-w-[120px] shadow-sm font-medium"
                                   >
                                     <option value="pending">Pending</option>
                                     <option value="confirmed">Confirmed</option>
@@ -1429,32 +1276,15 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                     <option value="cancelled">Cancelled</option>
                                   </AdminSelect>
                                 </td>
-                                <td className={`${staffTd} text-right`}>
-                                  {/* Icon-only Details: keeps the Actions column one
-                                      unbroken ~28px slot so it can never be clipped. */}
+                                <td className="px-4 py-3 text-right">
                                   <button
                                     onClick={() => setSelectedOrderDetails(order)}
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-stone-200 bg-white text-[#800000] shadow-sm transition-colors hover:bg-stone-50 cursor-pointer"
-                                    aria-label="Details"
-                                    title="Details"
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-accent hover:underline bg-white px-3 py-1.5 rounded-lg border border-accent/10 shadow-sm"
                                   >
-                                    <Eye className="h-3.5 w-3.5" />
+                                    <Eye className="h-3.5 w-3.5" /> Details
                                   </button>
                                 </td>
                               </tr>
-                              {/* Pick-up helper text lives on its own full-width sub-row so it never
-                                  dictates the Type column's width (prevents 1280px overflow). The
-                                  border-top divide is suppressed so it reads as part of the order row. */}
-                              {getPickupLine(order) && (
-                                <tr style={{ borderTopWidth: 0 }}>
-                                  <td colSpan={9} className="pt-0 pb-2.5 px-2.5">
-                                    <p className="text-[10px] font-semibold text-stone-500" title={getPickupLine(order) || undefined}>
-                                      {getPickupLine(order)}
-                                    </p>
-                                  </td>
-                                </tr>
-                              )}
-                              </Fragment>
                             ))}
                           </tbody>
                         </table>
@@ -1463,18 +1293,12 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       {/* MOBILE CARDS */}
                       <div className="md:hidden flex flex-col gap-3 p-2">
                         {filteredActive.map((order) => (
-                          <div key={order.id} className="bg-white rounded-xl border border-stone-200 p-4 shadow-sm flex flex-col gap-3">
+                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3">
                             <div className="flex justify-between items-start">
                               <div>
                                 <h3 className="font-bold text-[#800000]">{order.orderId}
                                 </h3>
                                 <p className="text-sm font-medium">{order.customerName || "Walk-in"}</p>
-                                {flagCustomerIdOf(order) && (
-                                  <FlagCustomerLink
-                                    onOpen={() => openFlagModal(order)}
-                                    className="mt-1 text-[10px]"
-                                  />
-                                )}
                               </div>
                               <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
                                 {order.orderType || "dine-in"}
@@ -1485,12 +1309,6 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                               <span className="text-muted truncate max-w-[60%]">{order.items}</span>
                               <span className="font-bold text-lg">₱{formatOrderTotal(order)}</span>
                             </div>
-
-                            {getPickupLine(order) && (
-                              <p className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                                {getPickupLine(order)}
-                              </p>
-                            )}
 
                             <div className="flex flex-col gap-2">
                               <div className="flex justify-between items-center">
@@ -1527,11 +1345,6 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                   <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Pending</span>
                                 )}
                               </div>
-                              {(order as any).paymentSyncPending && (
-                                <div className="flex justify-end">
-                                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200" title="Cash collected offline — will sync when reconnected">Sync pending</span>
-                                </div>
-                              )}
                               {canMarkCashPaid(order) && (
                                 <button
                                   type="button"
@@ -1556,23 +1369,23 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                     </>
                   )}
                 </div>
-              </StaffPanel>
+              </AdminPanel>
 
               {/* ORDER HISTORY */}
-              <StaffPanel icon={<Clock className="h-5 w-5 text-[#800000]" />} title="Customer Order History" subtitle="Fulfilled or cancelled records">
-                <div className="px-4 py-3 border-b border-stone-100 bg-white flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+              <AdminPanel title="Customer Order History" subtitle="Fulfilled or cancelled records">
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                   <div className="relative w-full md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
                       <input
                         type="text"
                         placeholder="Search history..."
-                        className={`${staffControl} w-full pl-9`}
+                        className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
                         value={orderHistorySearch}
                         onChange={(e) => { setOrderHistorySearch(e.target.value); setHistoryPage(1); }}
                       />
                   </div>
                   <select 
-                    className={`${staffControl} w-full md:w-auto`}
+                    className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium w-full md:w-auto"
                     value={orderHistoryStatusFilter}
                     onChange={(e) => { setOrderHistoryStatusFilter(e.target.value); setHistoryPage(1); }}
                   >
@@ -1581,7 +1394,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                     <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
-                <div className="p-2 overflow-x-auto">
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl overflow-x-auto">
                   {displayHistory.length === 0 ? (
                     <div className="text-center py-12 text-muted flex flex-col items-center">
                       <div className="h-12 w-12 rounded-full bg-accent/5 flex items-center justify-center mb-3">
@@ -1593,66 +1406,45 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                     <>
                       {/* DESKTOP TABLE */}
                       <OrderTableScroll className="hidden md:block overflow-x-auto">
-                        {/* Same tightening as the active table; min-w only matters below
-                            md where the horizontal-scroll fallback is still expected. */}
-                        <table className="w-full text-left text-sm min-w-[640px] [&_th]:px-2 [&_td]:px-2">
+                        <table className="w-full text-left text-sm min-w-[640px]">
                           <thead>
-                            <tr className={staffThead}>
-                              <th className={staffTh}>Order ID</th>
-                              <th className={staffTh}>Customer</th>
-                              <th className={staffTh}>Time</th>
-                              <th className={staffTh}>Type</th>
-                              <th className={staffTh}>Total</th>
-                              <th className={staffTh}>Final Status</th>
-                              <th className={`${staffTh} text-right`}>Action</th>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Order ID</th>
+                              <th className="px-4 py-3 font-medium">Customer</th>
+                              <th className="px-4 py-3 font-medium">Time</th>
+                              <th className="px-4 py-3 font-medium">Type</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
+                              <th className="px-4 py-3 font-medium">Final Status</th>
+                              <th className="px-4 py-3 font-medium text-right">Action</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-stone-100">
+                          <tbody>
                             {displayHistory.map((order) => (
-                              <Fragment key={order.id}>
-                              <tr className={staffRow}>
-                                <td className={`${staffTd} font-bold text-[11px] max-w-[130px] truncate`} title={order.orderId} aria-label={`Order ID ${order.orderId}`}>{order.orderId}
+                              <tr key={order.id} className="border-b border-accent/5 hover:bg-accent-light/10 text-[#2B2523]">
+                                <td className="px-4 py-3 font-bold">{order.orderId}
                                 </td>
-                                <td className={`${staffTd} font-medium text-stone-700`}>{order.customerName || "Walk-in"}</td>
-                                <td className={`${staffTd} text-xs text-stone-400 whitespace-nowrap`}>{formatOrderDateTime(order) || "—"}</td>
-                                <td className={staffTd}>
-                                  <span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase text-stone-500 border border-stone-200">
+                                <td className="px-4 py-3 font-medium">{order.customerName || "Walk-in"}</td>
+                                <td className="px-4 py-3 text-xs text-muted whitespace-nowrap">{formatOrderDateTime(order) || "—"}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-200">
                                     {order.orderType || "dine-in"}
                                   </span>
                                 </td>
-                                <td className={`${staffTd} font-semibold text-stone-800`}>₱{formatOrderTotal(order)}</td>
-                                <td className={staffTd}>
-                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${
-                                    order.status === 'completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-rose-100 text-rose-800 border-rose-300'
-                                  }`}>
+                                <td className="px-4 py-3 font-semibold">₱{formatOrderTotal(order)}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${order.status === 'completed' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} border`}>
                                     {order.status}
                                   </span>
                                 </td>
-                                <td className={`${staffTd} text-right`}>
-                                  {/* Icon-only Details: keeps the Actions column one
-                                      unbroken ~28px slot so it can never be clipped. */}
+                                <td className="px-4 py-3 text-right">
                                   <button
                                     onClick={() => setSelectedOrderDetails(order)}
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-stone-200 bg-white text-[#800000] shadow-sm transition-colors hover:bg-stone-50 cursor-pointer"
-                                    aria-label="Details"
-                                    title="Details"
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-accent hover:underline bg-white px-3 py-1.5 rounded-lg border border-accent/10 shadow-sm"
                                   >
-                                    <Eye className="h-3.5 w-3.5" />
+                                    <Eye className="h-3.5 w-3.5" /> Details
                                   </button>
                                 </td>
                               </tr>
-                              {/* Same sub-row pattern as the active table: pick-up info gets the full
-                                  width instead of squeezing the Type column (overflow fix). */}
-                              {getPickupLine(order) && (
-                                <tr style={{ borderTopWidth: 0 }}>
-                                  <td colSpan={7} className="pt-0 pb-2.5 px-2.5">
-                                    <p className="text-[10px] font-semibold text-stone-400" title={getPickupLine(order) || undefined}>
-                                      {getPickupLine(order)}
-                                    </p>
-                                  </td>
-                                </tr>
-                              )}
-                              </Fragment>
                             ))}
                           </tbody>
                         </table>
@@ -1661,7 +1453,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       {/* MOBILE HISTORY CARDS */}
                       <div className="md:hidden flex flex-col gap-3 p-2">
                         {displayHistory.map((order) => (
-                          <div key={order.id} className="bg-white rounded-xl border border-stone-200 p-4 shadow-sm flex flex-col gap-3">
+                          <div key={order.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 opacity-90">
                             <div className="flex justify-between items-start">
                               <div>
                                 <h3 className="font-bold text-[#800000]">{order.orderId}
@@ -1678,12 +1470,6 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                               <span className="font-bold text-lg">₱{formatOrderTotal(order)}</span>
                             </div>
 
-                            {getPickupLine(order) && (
-                              <p className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                                {getPickupLine(order)}
-                              </p>
-                            )}
-
                             <button
                               onClick={() => setSelectedOrderDetails(order)}
                               className="w-full mt-1 py-2 bg-white text-accent font-bold text-sm rounded-lg border border-accent/10 shadow-sm flex items-center justify-center gap-2"
@@ -1697,8 +1483,8 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                   )}
                 </div>
                 {historyPagination && (
-                  <div className="px-4 py-3 border-t border-stone-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <p className="text-xs font-semibold text-stone-400">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-accent/10 bg-white/40">
+                    <p className="text-xs font-semibold text-muted">
                       Page {historyPagination.page} of {historyPagination.totalPages} · {historyPagination.total} record{historyPagination.total === 1 ? "" : "s"}
                       {historyLoading ? " · Loading…" : ""}
                     </p>
@@ -1707,14 +1493,14 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                         type="button"
                         disabled={historyPagination.page <= 1 || historyLoading}
                         onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
-                        className="px-3 py-1.5 rounded-lg border border-stone-200 bg-white text-xs font-bold text-stone-600 disabled:opacity-40 hover:bg-stone-50 transition-colors"
+                        className="px-3 py-1.5 rounded-lg border border-accent/20 bg-white text-xs font-bold text-[#2B2523] disabled:opacity-40 hover:bg-accent-light/20 transition-colors"
                       >
                         ‹ Previous
                       </button>
                       {historyPageList.map((p, i, arr) => (
                         <span key={`${p}-${i}`} className="flex items-center gap-1.5">
                           {i > 0 && p - arr[i - 1] > 1 && (
-                            <span className="text-xs text-stone-400 px-0.5">…</span>
+                            <span className="text-xs text-muted px-0.5">…</span>
                           )}
                           <button
                             type="button"
@@ -1723,8 +1509,8 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                             aria-current={p === historyPagination.page ? "page" : undefined}
                             className={`min-w-[2rem] px-2 py-1.5 rounded-lg border text-xs font-bold transition-colors disabled:opacity-40 ${
                               p === historyPagination.page
-                                ? "bg-[#800000] text-white border-[#800000]"
-                                : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+                                ? "bg-accent text-white border-accent"
+                                : "border-accent/20 bg-white text-[#2B2523] hover:bg-accent-light/20"
                             }`}
                           >
                             {p}
@@ -1735,15 +1521,147 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                         type="button"
                         disabled={historyPagination.page >= historyPagination.totalPages || historyLoading}
                         onClick={() => setHistoryPage((p) => p + 1)}
-                        className="px-3 py-1.5 rounded-lg border border-stone-200 bg-white text-xs font-bold text-stone-600 disabled:opacity-40 hover:bg-stone-50 transition-colors"
+                        className="px-3 py-1.5 rounded-lg border border-accent/20 bg-white text-xs font-bold text-[#2B2523] disabled:opacity-40 hover:bg-accent-light/20 transition-colors"
                       >
                         Next ›
                       </button>
                     </div>
                   </div>
                 )}
-              </StaffPanel>
+              </AdminPanel>
 
+              {/* ORDER DETAILS MODAL */}
+              {selectedOrderDetails && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+                  <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
+                    {/* Header */}
+                    <div className="flex justify-between items-center p-4 sm:p-5 border-b border-accent/10 bg-white">
+                      <div>
+                        <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200 shadow-sm">
+                            {selectedOrderDetails.orderType || "Dine-in"}
+                          </span>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setSelectedOrderDetails(null)}
+                        className="p-2 text-muted hover:bg-gray-100 hover:text-[#2B2523] rounded-full transition-colors"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    
+                    {/* Body */}
+                    <div className="p-5 overflow-y-auto space-y-6">
+                      
+                      {/* Customer Info */}
+                      <div className="bg-white p-5 rounded-xl shadow-sm border border-accent/5 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-accent"></div>
+                        <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-4">Customer Details</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Name</p>
+                            <p className="font-medium mt-1">{selectedOrderDetails.customerName || "Walk-in Customer"}</p>
+                          </div>
+                          {selectedOrderDetails.phone && (
+                            <div>
+                              <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Contact</p>
+                              <p className="font-medium mt-1">{selectedOrderDetails.phone}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Ordered Time</p>
+                            <p className="font-medium mt-1">{formatOrderDateTime(selectedOrderDetails) || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Status</p>
+                            <p className="font-bold text-accent capitalize mt-1">{selectedOrderDetails.status}</p>
+                          </div>
+                        </div>
+                        {selectedOrderDetails.orderType === 'delivery' && selectedOrderDetails.address && (
+                          <div className="mt-5 pt-4 border-t border-accent/5">
+                            <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-accent" /> Delivery Address</p>
+                            <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.address}</p>
+                            <button
+                              onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.orderId); }}
+                              className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 bg-accent/5 text-accent font-bold text-sm rounded-lg border border-accent/10 hover:bg-accent/10 hover:shadow-sm transition-all"
+                            >
+                              <MessageCircle className="h-4 w-4" /> Chat with Customer
+                            </button>
+                          </div>
+                        )}
+                        <div className="mt-5 pt-4 border-t border-accent/5">
+                          <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5">Customer Notes</p>
+                          {typeof selectedOrderDetails.notes === 'string' && selectedOrderDetails.notes.trim() ? (
+                            <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.notes}</p>
+                          ) : (
+                            <p className="text-sm text-muted italic">No customer notes</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Order Items */}
+                      <div>
+                        <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-3 px-1">Order Summary</h3>
+                        <div className="bg-white rounded-xl shadow-sm border border-accent/5 overflow-hidden">
+                          <div className="p-5 space-y-4">
+                            <div className="flex flex-col gap-2 text-sm text-[#2B2523] font-medium leading-relaxed">
+                              {selectedOrderDetails.items}
+                            </div>
+                          </div>
+                          
+                          <div className="bg-accent-light/30 p-5 border-t border-accent/10 space-y-3 text-sm">
+                            {selectedOrderDetails.orderType === 'delivery' && (
+                              <>
+                                <div className="flex justify-between text-muted font-medium">
+                                  <span>Subtotal</span>
+                                  <span>₱{(selectedOrderDetails as any).subtotal?.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-muted font-medium">
+                                  <span>Delivery Fee</span>
+                                  <span>₱{(selectedOrderDetails as any).deliveryFee?.toFixed(2)}</span>
+                                </div>
+                                <div className="h-px bg-accent/10 w-full my-2"></div>
+                              </>
+                            )}
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-[#800000]">Total</span>
+                              <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{formatOrderTotal(selectedOrderDetails)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Payment Status */}
+                      <div className="flex justify-between items-center p-5 bg-white rounded-xl shadow-sm border border-accent/5">
+                        <span className="text-sm font-bold text-[#2B2523] uppercase tracking-wide">Payment Status</span>
+                        {selectedOrderDetails.paid ? (
+                          <span className="px-4 py-1.5 bg-green-50 text-green-700 font-bold text-xs rounded-full border border-green-200 shadow-sm flex items-center gap-1.5">
+                            <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Confirmed Paid
+                          </span>
+                        ) : (
+                          <div className="flex gap-3 items-center">
+                            <span className="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200 shadow-sm flex items-center gap-1.5">
+                              <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div> Pending Payment
+                            </span>
+                            <button
+                              onClick={() => {
+                                confirmStoreOrderPayment(selectedOrderDetails.id);
+                                setSelectedOrderDetails(null);
+                              }}
+                              className="px-4 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-lg shadow hover:bg-emerald-700 transition"
+                            >
+                              Confirm Payment
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1807,7 +1725,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                   { label: "Unavailable", value: summary.unavailable, color: "text-amber-600" },
                   { label: "Low Stock", value: summary.lowStock, color: "text-red-600" },
                 ].map(stat => (
-                  <div key={stat.label} className="bg-white rounded-xl p-4 border border-stone-200 shadow-sm flex flex-col">
+                  <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/40 shadow-sm flex flex-col">
                     <p className="text-xs font-bold text-muted uppercase tracking-wider">{stat.label}</p>
                     <p className={`text-2xl font-bold font-serif mt-1 ${stat.color}`}>{stat.value}</p>
                   </div>
@@ -1815,22 +1733,22 @@ function OrderTableScroll({ className, children }: { className?: string; childre
               </div>
 
               {/* MENU ITEMS PANEL */}
-              <StaffPanel icon={<UtensilsCrossed className="h-5 w-5 text-[#800000]" />} title="Menu Catalog" subtitle="Active menu items visible to customers">
+              <AdminPanel title="Menu Catalog" subtitle="Active menu items visible to customers">
                 {/* FILTERS TOOLBAR */}
-                <div className="px-4 py-3 border-b border-stone-100 bg-white flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
+                <div className="p-4 border-b border-accent/10 bg-white/40 flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
                   <div className="relative w-full lg:w-72 shrink-0">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
                     <input 
                       type="text" 
                       placeholder="Search menu items..." 
-                      className={`${staffControl} w-full pl-9`}
+                      className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none focus:ring-2 focus:ring-accent/50"
                       value={menuSearch}
                       onChange={(e) => setMenuSearch(e.target.value)}
                     />
                   </div>
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full lg:w-auto">
                     <select 
-                      className={`${staffControl} grow sm:grow-0`}
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
                       value={menuCatFilter}
                       onChange={(e) => setMenuCatFilter(e.target.value)}
                     >
@@ -1840,7 +1758,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       ))}
                     </select>
                     <select 
-                      className={`${staffControl} grow sm:grow-0`}
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
                       value={menuAvailFilter}
                       onChange={(e) => setMenuAvailFilter(e.target.value)}
                     >
@@ -1849,7 +1767,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       <option value="unavailable">Unavailable</option>
                     </select>
                     <select 
-                      className={`${staffControl} grow sm:grow-0`}
+                      className="py-2 px-3 text-sm rounded-lg border border-accent/20 bg-white focus:outline-none text-[#2B2523] font-medium grow sm:grow-0"
                       value={menuSort}
                       onChange={(e) => setMenuSort(e.target.value)}
                     >
@@ -1862,7 +1780,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                 </div>
 
                 {/* CONTENT AREA */}
-                <div className="p-2">
+                <div className="p-2 bg-white/40 backdrop-blur-sm rounded-b-xl">
                   {activeMenuItems.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 text-center">
                       <div className="h-16 w-16 rounded-full bg-accent/5 flex items-center justify-center mb-4">
@@ -1889,75 +1807,75 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left text-sm">
                           <thead>
-                            <tr className={staffThead}>
-                              <th className={staffTh}>Item</th>
-                              <th className={staffTh}>Category</th>
-                              <th className={staffTh}>Price</th>
-                              <th className={staffTh}>Stock</th>
-                              <th className={staffTh}>Availability</th>
-                              <th className={`${staffTh} text-right`}>Actions</th>
+                            <tr className="text-muted border-b border-accent/10">
+                              <th className="px-4 py-3 font-medium">Item</th>
+                              <th className="px-4 py-3 font-medium">Category</th>
+                              <th className="px-4 py-3 font-medium">Price</th>
+                              <th className="px-4 py-3 font-medium">Stock</th>
+                              <th className="px-4 py-3 font-medium">Availability</th>
+                              <th className="px-4 py-3 font-medium text-right">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-stone-100">
+                          <tbody>
                             {filteredMenu.map((item) => {
                               const relatedStock = stockItems.find(s => item.name.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(item.name.toLowerCase()));
                               const isLowStock = relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
 
                               return (
-                                <tr key={item.id} className={staffRow}>
-                                  <td className={staffTd}>
+                                <tr key={item.id} className="border-b border-accent/5 hover:bg-accent-light/20 transition-colors">
+                                  <td className="px-4 py-3">
                                     <div className="flex items-center gap-3">
                                       {item.image ? (
-                                        <img src={item.image} alt={item.name} className="h-10 w-10 shrink-0 rounded-lg object-cover border border-stone-200 shadow-sm" />
+                                        <img src={item.image} alt={item.name} className="h-10 w-10 shrink-0 rounded-lg object-cover border border-accent/10 shadow-sm" />
                                       ) : (
-                                        <div className="h-10 w-10 shrink-0 rounded-lg bg-stone-100 text-stone-500 flex items-center justify-center font-bold text-sm">
+                                        <div className="h-10 w-10 shrink-0 rounded-lg bg-accent/5 text-accent flex items-center justify-center font-bold text-sm">
                                           {item.name.charAt(0)}
                                         </div>
                                       )}
                                       <div>
                                         <p className="font-bold text-[#2B2523]">{item.name}</p>
-                                        <p className="text-[10px] text-stone-400 font-normal mt-0.5 line-clamp-1 max-w-[200px]">{item.description}</p>
+                                        <p className="text-[10px] text-muted font-normal mt-0.5 line-clamp-1 max-w-[200px]">{item.description}</p>
                                       </div>
                                     </div>
                                   </td>
-                                  <td className={staffTd}>
-                                    <span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-200">
+                                  <td className="px-4 py-3">
+                                    <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200">
                                       {getMenuCategoryName(item.categoryId)}
                                     </span>
                                   </td>
-                                  <td className={`${staffTd} font-serif font-bold text-[#800000] whitespace-nowrap`}>₱{item.price.toFixed(2)}</td>
-                                  <td className={staffTd}>
+                                  <td className="px-4 py-3 font-serif font-bold text-[#800000]">₱{item.price.toFixed(2)}</td>
+                                  <td className="px-4 py-3">
                                     {isLowStock ? (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700"><AlertTriangle className="h-3 w-3" /> Low Stock</span>
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600"><AlertTriangle className="h-3 w-3" /> Low Stock</span>
                                     ) : relatedStock ? (
-                                      <span className="text-[10px] text-stone-400">In Stock</span>
+                                      <span className="text-[10px] text-muted">In Stock</span>
                                     ) : (
-                                      <span className="text-[10px] text-stone-400">-</span>
+                                      <span className="text-[10px] text-gray-400">-</span>
                                     )}
                                   </td>
-                                  <td className={staffTd}>
+                                  <td className="px-4 py-3">
                                     {item.available ? (
-                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                        <div className="h-1.5 w-1.5 rounded-full bg-emerald-500"></div> Available
+                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-green-50 text-green-700 border border-green-200">
+                                        <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Available
                                       </span>
                                     ) : (
-                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-stone-100 text-stone-600 border border-stone-300">
-                                        <div className="h-1.5 w-1.5 rounded-full bg-stone-400"></div> Unavailable
+                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-gray-100 text-gray-600 border border-gray-200">
+                                        <div className="h-1.5 w-1.5 rounded-full bg-gray-400"></div> Unavailable
                                       </span>
                                     )}
                                   </td>
-                                  <td className={staffTd}>
+                                  <td className="px-4 py-3">
                                     <div className="flex justify-end items-center gap-2">
                                       <button
                                         onClick={() => handleToggleAvailability(item)}
-                                        className="p-1.5 text-stone-400 hover:text-[#2B2523] hover:bg-white rounded-md transition-colors"
+                                        className="p-1.5 text-muted hover:text-[#2B2523] hover:bg-white rounded-md transition-colors"
                                         title={item.available ? "Mark Unavailable" : "Mark Available"}
                                       >
                                         <Eye className={`h-4 w-4 ${!item.available ? "opacity-40" : ""}`} />
                                       </button>
                                       <button
                                         onClick={() => openEditMenu(item)}
-                                        className="p-1.5 text-[#800000] hover:bg-[#800000]/10 rounded-md transition-colors"
+                                        className="p-1.5 text-accent hover:bg-accent-light rounded-md transition-colors"
                                         title="Edit Item"
                                       >
                                         <Edit3 className="h-4 w-4" />
@@ -1985,7 +1903,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                           const isLowStock = relatedStock && relatedStock.quantity <= relatedStock.lowStockThreshold;
                           
                           return (
-                            <div key={item.id} className="bg-white rounded-xl border border-stone-200 p-4 shadow-sm flex flex-col gap-3 relative overflow-hidden">
+                            <div key={item.id} className="bg-white rounded-xl border border-accent/10 p-4 shadow-sm flex flex-col gap-3 relative overflow-hidden">
                               {!item.available && <div className="absolute top-0 left-0 w-1 h-full bg-gray-300"></div>}
                               <div className="flex gap-3">
                                 {item.image ? (
@@ -1999,7 +1917,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                   <div className="flex justify-between items-start">
                                     <h3 className={`font-bold ${item.available ? 'text-[#800000]' : 'text-gray-500'}`}>{item.name}</h3>
                                   </div>
-                                  <span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-200 mt-1">
+                                  <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 border border-gray-100 mt-1">
                                     {getMenuCategoryName(item.categoryId)}
                                   </span>
                                   <p className="text-xs text-muted font-normal mt-1 line-clamp-2">{item.description}</p>
@@ -2041,11 +1959,11 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                             </div>
                           );
                         })}
-</div>
-                      </>
-                    )}
+                      </div>
+                    </>
+                  )}
                 </div>
-              </StaffPanel>
+              </AdminPanel>
 
               {/* ARCHIVE CONFIRMATION MODAL */}
               {itemToArchive && (
@@ -2110,64 +2028,39 @@ function OrderTableScroll({ className, children }: { className?: string; childre
               <p className="text-sm text-muted">View delivery addresses, item manifests, and update progress status.</p>
             </div>
 
-              <StaffPanel icon={<Truck className="h-5 w-5 text-[#800000]" />} title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
-                <div className="px-4 py-3 border-b border-stone-100 bg-white flex flex-wrap items-center gap-2">
-                  <Search className="h-4 w-4 text-stone-400 shrink-0" />
-                  <input
-                    type="text"
-                    value={deliverySearch}
-                    onChange={(e) => setDeliverySearch(e.target.value)}
-                    placeholder="Search ID, customer, or address..."
-                    aria-label="Search delivery queue"
-                    className={`${staffControl} w-full sm:max-w-xs`}
-                  />
-                </div>
-                <div className="p-2 overflow-x-auto">
-                {/* Tighter cells + capped ID/manifest columns fit the widened container
-                    with no horizontal scroll from 1280px up; min-w preserves the
-                    sub-lg scroll fallback. */}
-                <table className="w-full text-left text-sm min-w-[640px] [&_th]:px-2 [&_td]:px-2">
+            <AdminPanel title="Active Deliveries Queue" subtitle="Monitoring cafeé home-deliveries">
+              <div className="overflow-x-auto p-2">
+                <table className="w-full text-left text-sm min-w-[640px]">
                   <thead>
-                    <tr className={staffThead}>
-                      <th className={staffTh}>Order ID</th>
-                      <th className={staffTh}>Customer Details</th>
-                      <th className={staffTh}>Manifest</th>
-                      <th className={staffTh}>Total Price</th>
-                      <th className={staffTh}>Ordered</th>
-                      <th className={staffTh}>Delivery Status</th>
-                      <th className={`${staffTh} text-right`}>Actions</th>
+                    <tr className="admin-table-head text-muted">
+                      <th className="px-4 py-3 font-medium rounded-l-lg">Order ID</th>
+                      <th className="px-4 py-3 font-medium">Customer Details</th>
+                      <th className="px-4 py-3 font-medium">Manifest</th>
+                      <th className="px-4 py-3 font-medium">Total Price</th>
+                      <th className="px-4 py-3 font-medium">Ordered</th>
+                      <th className="px-4 py-3 font-medium">Delivery Status</th>
+                      <th className="px-4 py-3 font-medium rounded-r-lg text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {deliveryOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled").length === 0 ? (
+                  <tbody>
+                    {deliveryOrders.filter(o => !o.archived).length === 0 ? (
                       <tr>
-                        <td colSpan={7} className={staffEmptyCell}>No delivery orders listed.</td>
+                        <td colSpan={7} className="text-center py-8 text-muted">No delivery orders listed.</td>
                       </tr>
                     ) : (
-                      [...deliveryOrders.filter(o => {
-                        if (o.archived || o.status === "completed" || o.status === "cancelled") return false;
-                        const q = deliverySearch.trim().toLowerCase();
-                        if (!q) return true;
-                        return (
-                          o.orderNumber.toLowerCase().includes(q) ||
-                          o.customerName.toLowerCase().includes(q) ||
-                          (o.phone ?? "").toLowerCase().includes(q) ||
-                          o.address.toLowerCase().includes(q) ||
-                          o.items.toLowerCase().includes(q)
-                        );
-                      })]
+                      [...deliveryOrders.filter(o => !o.archived)]
                         .sort((a, b) => orderEpoch(b) - orderEpoch(a))
                         .map((order) => (
-                        <tr key={order.id} className={staffRow}>
-                                  <td className={`${staffTd} font-bold text-[#800000] text-[11px] max-w-[130px] truncate`} title={order.orderNumber} aria-label={`Order ID ${order.orderNumber}`}>{order.orderNumber}</td>
-                          <td className={`${staffTd} text-xs leading-4`}>
-                            <p className="font-bold text-stone-900">{order.customerName}</p>
-                            <p className="text-stone-400">{order.phone}</p>
-                            <p className="text-stone-400 mt-0.5 max-w-[180px] truncate">{order.address}</p>
+                        <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-accent-light/10">
+                          <td className="px-4 py-3 font-bold text-[#800000]">{order.orderNumber}</td>
+                          <td className="px-4 py-3 text-xs leading-4">
+                            <p className="font-bold text-ink">{order.customerName}</p>
+                            <p className="text-muted">{order.phone}</p>
+                            <p className="text-muted mt-0.5">{order.address}</p>
                             <button
                               type="button"
-                              onClick={() => handleOpenChat(order.customerName, order.id, order.orderNumber)}
-                              className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#800000] hover:underline cursor-pointer focus:outline-none"
+                              onClick={() => handleOpenChat(order.customerName, order.orderNumber)}
+                              className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent hover:underline cursor-pointer focus:outline-none"
                             >
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3 w-3">
                                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -2175,49 +2068,33 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                               Chat with Customer
                             </button>
                           </td>
-                          <td className={`${staffTd} text-xs max-w-[150px] truncate`}>{order.items}</td>
-                          <td className={`${staffTd} font-semibold text-stone-800 whitespace-nowrap`}>₱{order.total}</td>
-                          <td className={`${staffTd} text-[10px] font-semibold text-stone-400 whitespace-nowrap`}>{formatPhDateTime(order.orderedAt) || "—"}</td>
-                          <td className={staffTd}>
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${
-                              order.status === "delivered" || order.status === "completed"
-                                ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                          <td className="px-4 py-3 text-xs">{order.items}</td>
+                          <td className="px-4 py-3 font-semibold">₱{order.total}</td>
+                          <td className="px-4 py-3 text-xs font-semibold text-muted whitespace-nowrap">{formatPhDateTime(order.orderedAt) || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
+                              order.status === "delivered"
+                                ? "bg-green-50 text-green-800 border-green-200"
                                 : order.status === "cancelled"
-                                ? "bg-stone-100 text-stone-600 border-stone-300"
-                                : "bg-rose-100 text-rose-800 border-rose-300"
+                                ? "bg-gray-50 text-gray-700 border-gray-200"
+                                : "bg-red-50 text-accent border-accent/15"
                             }`}>
                               {order.status.replace(/_/g, " ")}
                             </span>
                           </td>
-                          <td className={`${staffTd} text-right`}>
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* Read-only Details (same affordance as history
-                                  rows) opening the shared modal with the
-                                  normalized delivery row. Icon-only + aria-label
-                                  keeps this cell a floating ~28px slot. */}
-                              <button
-                                type="button"
-                                onClick={() => setSelectedOrderDetails(deliveryToDisplayRow(order))}
-                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-stone-200 bg-white text-[#800000] shadow-sm transition-colors hover:bg-stone-50 cursor-pointer"
-                                aria-label="Details"
-                                title="Details"
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </button>
-                              <AdminSelect
-                                value={order.status}
-                                onChange={(e) => updateDeliveryStatus(order.id, e.target.value as DeliveryStatus)}
-                                className="!py-1 !text-xs max-w-[112px] inline-block"
-                              >
-                                <option value="pending">Pending</option>
-                                <option value="confirmed">Confirmed</option>
-                                <option value="preparing">Preparing</option>
-                                <option value="out_for_delivery">Out for Delivery</option>
-                                <option value="delivered">Delivered</option>
-                                <option value="completed">Completed</option>
-                                <option value="cancelled">Cancelled</option>
-                              </AdminSelect>
-                            </div>
+                          <td className="px-4 py-3 text-right">
+                            <AdminSelect
+                              value={order.status}
+                              onChange={(e) => updateDeliveryStatus(order.id, e.target.value as DeliveryStatus)}
+                              className="!py-1 !text-xs max-w-32 inline-block"
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="confirmed">Confirmed</option>
+                              <option value="preparing">Preparing</option>
+                              <option value="out_for_delivery">Out for Delivery</option>
+                              <option value="delivered">Delivered</option>
+                              <option value="cancelled">Cancelled</option>
+                            </AdminSelect>
                           </td>
                         </tr>
                       ))
@@ -2225,102 +2102,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                   </tbody>
                 </table>
               </div>
-            </StaffPanel>
-
-              {/* DELIVERY HISTORY — read-only final states, derived from the same state as the queue. */}
-              {(() => {
-                const history = deliveryOrders
-                  .filter(o => !o.archived && (o.status === "completed" || o.status === "cancelled"))
-                  .sort((a, b) => orderEpoch(b) - orderEpoch(a));
-                const q = deliveryHistorySearch.trim().toLowerCase();
-                const filteredHistory = q
-                  ? history.filter(o =>
-                      o.orderNumber.toLowerCase().includes(q) ||
-                      o.customerName.toLowerCase().includes(q) ||
-                      (o.phone ?? "").toLowerCase().includes(q) ||
-                      o.address.toLowerCase().includes(q) ||
-                      o.items.toLowerCase().includes(q)
-                    )
-                  : history;
-                return (
-                  <StaffPanel icon={<Clock className="h-5 w-5 text-[#800000]" />} title="Delivery History" subtitle="Fulfilled or cancelled records">
-                    <div className="px-4 py-3 border-b border-stone-100 bg-white flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-                      <div className="relative w-full md:w-64">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
-                        <input
-                          type="text"
-                          placeholder="Search history..."
-                          aria-label="Search delivery history"
-                          className={`${staffControl} w-full pl-9`}
-                          value={deliveryHistorySearch}
-                          onChange={(e) => setDeliveryHistorySearch(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="p-2">
-                      <OrderTableScroll className="overflow-x-auto">
-                        {/* Same tightening as the delivery queue above. */}
-                        <table className="w-full text-left text-sm min-w-[640px] [&_th]:px-2 [&_td]:px-2">
-                          <thead>
-                            <tr className={staffThead}>
-                              <th className={staffTh}>Order ID</th>
-                              <th className={staffTh}>Customer Details</th>
-                              <th className={staffTh}>Total Price</th>
-                              <th className={staffTh}>Ordered</th>
-                              <th className={staffTh}>Final Status</th>
-                              <th className={`${staffTh} text-right`}>Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-stone-100">
-                            {filteredHistory.length === 0 ? (
-                              <tr>
-                                <td colSpan={6} className={staffEmptyCell}>No completed or cancelled deliveries yet.</td>
-                              </tr>
-                            ) : (
-                              filteredHistory.map((order) => (
-                                <tr key={order.id} className={staffRow}>
-                          <td className={`${staffTd} font-bold text-[#800000] text-[11px] max-w-[130px] truncate`} title={order.orderNumber} aria-label={`Order ID ${order.orderNumber}`}>{order.orderNumber}</td>
-                                  <td className={`${staffTd} text-xs leading-4`}>
-                                    <p className="font-bold text-stone-900">{order.customerName}</p>
-                                    <p className="text-stone-400">{order.phone}</p>
-                                    <p className="text-stone-400 mt-0.5 max-w-[180px] truncate">{order.address}</p>
-                                  </td>
-                                  <td className={`${staffTd} font-semibold text-stone-800 whitespace-nowrap`}>₱{order.total}</td>
-                                  <td className={`${staffTd} text-[10px] font-semibold text-stone-400 whitespace-nowrap`}>{formatPhDateTime(order.orderedAt) || "—"}</td>
-                                  <td className={staffTd}>
-                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${
-                                      order.status === "completed"
-                                        ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                                        : "bg-rose-100 text-rose-800 border-rose-300"
-                                    }`}>
-                                      {order.status}
-                                    </span>
-                                  </td>
-                                  <td className={`${staffTd} text-right`}>
-                                    <button
-                                      onClick={() => setSelectedOrderDetails(deliveryToDisplayRow(order))}
-                                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-stone-200 bg-white text-[#800000] shadow-sm transition-colors hover:bg-stone-50 cursor-pointer"
-                                      aria-label="Details"
-                                      title="Details"
-                                    >
-                                      <Eye className="h-3.5 w-3.5" />
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </OrderTableScroll>
-                    </div>
-                    <div className="px-4 py-3 border-t border-stone-100 bg-white">
-                      <p className="text-xs font-semibold text-stone-400">
-                        {filteredHistory.length} record{filteredHistory.length === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                  </StaffPanel>
-                );
-              })()}
+            </AdminPanel>
           </div>
         )}
 
@@ -2334,8 +2116,8 @@ function OrderTableScroll({ className, children }: { className?: string; childre
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
-              <StaffPanel icon={<User className="h-5 w-5 text-[#800000]" />} title="Profile Details" subtitle="Full Name and contact details">
-                <form onSubmit={handleProfileUpdate} className="space-y-4 p-5">
+              <AdminPanel title="Profile Details" subtitle="Full Name and contact details">
+                <form onSubmit={handleProfileUpdate} className="space-y-4 px-6 py-5">
                   {profileError && (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-800">
                       {profileError}
@@ -2387,10 +2169,10 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                     <AdminButton type="submit">Update Profile</AdminButton>
                   </div>
                 </form>
-              </StaffPanel>
+              </AdminPanel>
 
-              <StaffPanel icon={<Settings className="h-5 w-5 text-[#800000]" />} title="Security Settings" subtitle="Change account password">
-                <form onSubmit={handlePasswordUpdate} className="space-y-4 p-5">
+              <AdminPanel title="Security Settings" subtitle="Change account password">
+                <form onSubmit={handlePasswordUpdate} className="space-y-4 px-6 py-5">
                   {pwdError && (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-800">
                       {pwdError}
@@ -2444,13 +2226,16 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                     <AdminButton type="submit">Update Password</AdminButton>
                   </div>
                 </form>
-              </StaffPanel>
+              </AdminPanel>
             </div>
           </div>
         )}
 
         {/* TAB: POS CASHIER */}
         {activeTab === "pos" && <POSCashierTab />}
+
+        {/* TAB: CAFE QR */}
+        {activeTab === "qr" && <CafeQrPanel />}
 
       </main>
 
@@ -2580,212 +2365,14 @@ function OrderTableScroll({ className, children }: { className?: string; childre
         </div>
       </AdminModal>
 
-      {/* ORDER DETAILS MODAL — at the page root so every tab (Customer Orders,
-          Delivery queue, Delivery History) shares it; gated only by
-          selectedOrderDetails. X button / Escape / backdrop all close it.
-          Final states are read-only (no payment action, no chat), and
-          delivery rows have no payment state in this app so their Payment
-          Status block is hidden rather than faking one. */}
-      {selectedOrderDetails && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in"
-          onMouseDown={(e) => {
-            // Only a press on the backdrop itself closes the modal; presses
-            // inside the card bubble up with a different target.
-            if (e.target === e.currentTarget) setSelectedOrderDetails(null);
-          }}
-        >
-          <div className="bg-[#FFF8F0] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
-            {/* Header */}
-            <div className="flex justify-between items-center p-4 sm:p-5 border-b border-accent/10 bg-white">
-              <div>
-                <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#800000]">Order {selectedOrderDetails.orderId}</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="inline-flex rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200 shadow-sm">
-                    {selectedOrderDetails.orderType || "Dine-in"}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedOrderDetails(null)}
-                className="p-2 text-muted hover:bg-gray-100 hover:text-[#2B2523] rounded-full transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="p-5 overflow-y-auto space-y-6">
-
-              {/* Customer Info */}
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-accent/5 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-accent"></div>
-                <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-4">Customer Details</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Name</p>
-                    <p className="font-medium mt-1">{selectedOrderDetails.customerName || "Walk-in Customer"}</p>
-                  </div>
-                  {selectedOrderDetails.phone && (
-                    <div>
-                      <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Contact</p>
-                      <p className="font-medium mt-1">{selectedOrderDetails.phone}</p>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Ordered Time</p>
-                    <p className="font-medium mt-1">{formatOrderDateTime(selectedOrderDetails) || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted text-[10px] uppercase font-bold tracking-wide">Status</p>
-                    <p className="font-bold text-accent capitalize mt-1">{selectedOrderDetails.status}</p>
-                  </div>
-                </div>
-                {selectedOrderDetails.orderType === 'delivery' && selectedOrderDetails.address && (
-                  <div className="mt-5 pt-4 border-t border-accent/5">
-                    <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><MapPin className="h-3 w-3 text-accent" /> Delivery Address</p>
-                    <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.address}</p>
-                    {/* Chat stays available for active delivery rows; hidden for
-                        completed/cancelled rows so history is read-only. */}
-                    {!isFinalOrderStatus(selectedOrderDetails.status) && (
-                      <button
-                        onClick={() => { setSelectedOrderDetails(null); handleOpenChat(selectedOrderDetails.customerName, selectedOrderDetails.id, selectedOrderDetails.orderId); }}
-                        className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 bg-accent/5 text-accent font-bold text-sm rounded-lg border border-accent/10 hover:bg-accent/10 hover:shadow-sm transition-all"
-                      >
-                        <MessageCircle className="h-4 w-4" /> Chat with Customer
-                      </button>
-                    )}
-                  </div>
-                )}
-                {getPickupLine(selectedOrderDetails) && (
-                  <div className="mt-5 pt-4 border-t border-accent/5">
-                    <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5 flex items-center gap-1.5"><ShoppingBag className="h-3 w-3 text-accent" /> Pick-Up / Take-Out</p>
-                    <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
-                      {getPickupLine(selectedOrderDetails)}
-                    </p>
-                  </div>
-                )}
-                <div className="mt-5 pt-4 border-t border-accent/5">
-                  <p className="text-muted text-[10px] uppercase font-bold tracking-wide mb-1.5">Customer Notes</p>
-                  {typeof selectedOrderDetails.notes === 'string' && selectedOrderDetails.notes.trim() ? (
-                    <p className="font-medium text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">{selectedOrderDetails.notes}</p>
-                  ) : (
-                    <p className="text-sm text-muted italic">No customer notes</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Order Items */}
-              <div>
-                <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-3 px-1">Order Summary</h3>
-                <div className="bg-white rounded-xl shadow-sm border border-accent/5 overflow-hidden">
-                  <div className="p-5 space-y-4">
-                    <div className="flex flex-col gap-2 text-sm text-[#2B2523] font-medium leading-relaxed">
-                      {selectedOrderDetails.items}
-                    </div>
-                  </div>
-
-                  <div className="bg-accent-light/30 p-5 border-t border-accent/10 space-y-3 text-sm">
-                    {selectedOrderDetails.orderType === 'delivery' && (
-                      <>
-                        <div className="flex justify-between text-muted font-medium">
-                          <span>Subtotal</span>
-                          <span>₱{(selectedOrderDetails as any).subtotal?.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-muted font-medium">
-                          <span>Delivery Fee</span>
-                          <span>₱{(selectedOrderDetails as any).deliveryFee?.toFixed(2)}</span>
-                        </div>
-                        <div className="h-px bg-accent/10 w-full my-2"></div>
-                      </>
-                    )}
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-[#800000]">Total</span>
-                      <span className="font-serif font-bold text-2xl text-[#2B2523]">₱{formatOrderTotal(selectedOrderDetails)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Timeline — read-only progression derived from the
-                  row's own fields (status/orderedAt/deliveredAt) only. */}
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-accent/5">
-                <h3 className="text-[10px] font-bold uppercase text-muted tracking-wider mb-4">Status Timeline</h3>
-                <ol className="space-y-2.5">
-                  {getOrderTimeline(selectedOrderDetails).map((step, i) => (
-                    <li key={`${step.label}-${i}`} className="flex items-center gap-3">
-                      <span
-                        className={`h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
-                          step.done
-                            ? step.cancelled
-                              ? "bg-rose-500 border-rose-500"
-                              : "bg-emerald-500 border-emerald-500"
-                            : "bg-white border-stone-200"
-                        }`}
-                      />
-                      <span className={`text-[10px] font-bold uppercase tracking-wide ${step.done ? "text-[#2B2523]" : "text-stone-400"}`}>
-                        {step.label}
-                      </span>
-                      {step.at ? <span className="ml-auto text-[10px] font-semibold text-stone-400">{step.at}</span> : null}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-
-              {/* Payment Status — hidden entirely for delivery rows because
-                  DeliveryOrder carries no payment state in this app; nothing
-                  is inferred. Final states stay read-only: Confirm Payment is
-                  never offered for completed/cancelled orders. */}
-              {!(selectedOrderDetails.orderType === 'delivery' && selectedOrderDetails.paid == null) && (
-                <div className="flex justify-between items-center p-5 bg-white rounded-xl shadow-sm border border-accent/5">
-                  <span className="text-sm font-bold text-[#2B2523] uppercase tracking-wide">Payment Status</span>
-                  {selectedOrderDetails.paid ? (
-                    <span className="px-4 py-1.5 bg-green-50 text-green-700 font-bold text-xs rounded-full border border-green-200 shadow-sm flex items-center gap-1.5">
-                      <div className="h-1.5 w-1.5 rounded-full bg-green-500"></div> Confirmed Paid
-                    </span>
-                  ) : (
-                    <div className="flex gap-3 items-center">
-                      <span className="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200 shadow-sm flex items-center gap-1.5">
-                        <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div> Pending Payment
-                      </span>
-                      {!isFinalOrderStatus(selectedOrderDetails.status) && (
-                        <button
-                          onClick={() => {
-                            confirmStoreOrderPayment(selectedOrderDetails.id);
-                            setSelectedOrderDetails(null);
-                          }}
-                          className="px-4 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-lg shadow hover:bg-emerald-700 transition"
-                        >
-                          Confirm Payment
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-            </div>
-          </div>
-        </div>
-      )}
-
       {activeChatOrder && (
         <AdminChatModal
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           customerName={activeChatOrder.customerName}
-          orderId={activeChatOrder.orderId}
-          orderNumber={activeChatOrder.orderNumber}
+          orderId={activeChatOrder.orderNumber}
         />
       )}
-
-      {/* Flag customer report dialog (staff / head_staff / admin report
-          entry). No other capability rides along: this page stays staff. */}
-      <FlagCustomerModal
-        open={!!flagTarget}
-        target={flagTarget}
-        onClose={() => setFlagTarget(null)}
-      />
     </div>
   );
 }

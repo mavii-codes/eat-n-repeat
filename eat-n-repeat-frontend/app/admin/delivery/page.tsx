@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Search } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { AdminPanel } from "@/components/admin/AdminForm";
 import { DeliveryOrdersTable } from "@/components/admin/DeliveryOrdersTable";
@@ -23,37 +22,14 @@ export default function DeliveryPage() {
     getServiceAreaName,
     getActiveDeliveryOrders,
     getDeliveryHistory,
-    refreshBackendOrders,
   } = useAdminData();
 
-  // Poll shared orders from backend on mount and every 10s so delivery status
-  // updates made by Staff on other devices/tabs appear automatically.
-  useEffect(() => {
-    let mounted = true;
-    const refresh = () => {
-      if (mounted && document.visibilityState === "visible") {
-        refreshBackendOrders();
-      }
-    };
-    refresh();
-    const interval = setInterval(refresh, 10000);
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshBackendOrders]);
-
   const [tab, setTab] = useState<Tab>("all");
-  const [searchQuery, setSearchQuery] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
-  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderId: string; orderNumber: string } | null>(null);
+  const [activeChatOrder, setActiveChatOrder] = useState<{ customerName: string; orderNumber: string } | null>(null);
 
-  const handleOpenChat = (customerName: string, orderId: string, orderNumber: string) => {
-    setActiveChatOrder({ customerName, orderId, orderNumber });
+  const handleOpenChat = (customerName: string, orderNumber: string) => {
+    setActiveChatOrder({ customerName, orderNumber });
     setChatOpen(true);
   };
 
@@ -62,19 +38,10 @@ export default function DeliveryPage() {
   const activeDeliveryList = deliveryOrders.filter((order) => !order.archived);
 
   const displayedOrders = useMemo(() => {
-    const base =
-      tab === "active" ? activeOrders : tab === "history" ? historyOrders : activeDeliveryList;
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter(
-      (order) =>
-        order.orderNumber.toLowerCase().includes(q) ||
-        order.customerName.toLowerCase().includes(q) ||
-        order.phone.toLowerCase().includes(q) ||
-        order.address.toLowerCase().includes(q) ||
-        order.items.toLowerCase().includes(q)
-    );
-  }, [tab, activeDeliveryList, activeOrders, historyOrders, searchQuery]);
+    if (tab === "active") return activeOrders;
+    if (tab === "history") return historyOrders;
+    return activeDeliveryList;
+  }, [tab, activeDeliveryList, activeOrders, historyOrders]);
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: "all", label: "All Orders", count: activeDeliveryList.length },
@@ -109,18 +76,6 @@ export default function DeliveryPage() {
           </div>
         ))}
       </section>
-
-      <div className="relative mb-5">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 pointer-events-none" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search order number, customer, address..."
-          aria-label="Search delivery orders"
-          className="w-full sm:max-w-md pl-11 pr-4 py-2.5 rounded-xl border border-stone-200 bg-white text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#800000]/20 focus:border-[#800000]/40 transition shadow-sm"
-        />
-      </div>
 
       <div className="mb-5 flex flex-wrap gap-2">
         {tabs.map((item) => (
@@ -176,7 +131,7 @@ export default function DeliveryPage() {
           getServiceAreaName={getServiceAreaName}
           showStatusControl={tab === "active"}
           onStatusChange={updateDeliveryStatus}
-          onChat={(order) => handleOpenChat(order.customerName, order.id, order.orderNumber)}
+          onChat={(order) => handleOpenChat(order.customerName, order.orderNumber)}
           onArchive={
             tab === "history"
               ? (order) => {
@@ -235,8 +190,7 @@ export default function DeliveryPage() {
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           customerName={activeChatOrder.customerName}
-          orderId={activeChatOrder.orderId}
-          orderNumber={activeChatOrder.orderNumber}
+          orderId={activeChatOrder.orderNumber}
         />
       )}
     </>

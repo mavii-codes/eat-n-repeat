@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAdminData } from "@/context/AdminDataContext";
-import { StaffPanel, staffThead, staffTh, staffTd, staffRow, staffEmptyCell } from "@/components/staff/StaffPanel";
+import { AdminPanel } from "@/components/admin/AdminForm";
 import { Coffee, RotateCcw, Package, ShoppingBag, Truck, Archive } from "lucide-react";
 
 export function ArchiveTab() {
@@ -87,24 +87,27 @@ export function ArchiveTab() {
 
       {/* ARCHIVED MENU ITEMS */}
       {(activeFilter === "all" || activeFilter === "menu") && (
-        <StaffPanel icon={<Coffee className="h-5 w-5 text-[#800000]" />} title="Archived Menu Items" subtitle={`${archivedMenuItems.length} item(s) hidden from the active menu`}>
+        <AdminPanel
+          title="Archived Menu Items"
+          subtitle={`${archivedMenuItems.length} item(s) hidden from the active menu`}
+        >
           <div className="overflow-x-auto p-2">
             {archivedMenuItems.length === 0 ? (
-              <p className={staffEmptyCell}>No archived menu items.</p>
+              <p className="py-8 text-center text-sm text-muted">No archived menu items.</p>
             ) : (
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className={staffThead}>
-                    <th className={staffTh}>Item</th>
-                    <th className={staffTh}>Category</th>
-                    <th className={staffTh}>Price</th>
-                    <th className={`${staffTh} text-right`}>Actions</th>
+                  <tr className="border-b border-accent/10 text-muted">
+                    <th className="px-4 py-3 font-medium">Item</th>
+                    <th className="px-4 py-3 font-medium">Category</th>
+                    <th className="px-4 py-3 font-medium">Price</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-100">
+                <tbody>
                   {archivedMenuItems.map((item) => (
-                    <tr key={item.id} className={staffRow}>
-                      <td className={staffTd}>
+                    <tr key={item.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           {item.image ? (
                             <img
@@ -123,9 +126,9 @@ export function ArchiveTab() {
                           </div>
                         </div>
                       </td>
-                      <td className={staffTd}><span className="text-xs text-muted">{getCategoryName(item.categoryId)}</span></td>
-                      <td className={staffTd}><span className="font-bold text-[#800000]">₱{item.price}</span></td>
-                      <td className={`${staffTd} text-right`}>
+                      <td className="px-4 py-3 text-xs text-muted">{getCategoryName(item.categoryId)}</td>
+                      <td className="px-4 py-3 font-bold text-[#800000]">₱{item.price}</td>
+                      <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => handleRestoreMenu(item.id)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-stone-200 text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-50 transition-colors shadow-sm"
@@ -139,34 +142,41 @@ export function ArchiveTab() {
               </table>
             )}
           </div>
-        </StaffPanel>
+        </AdminPanel>
       )}
 
       {/* ARCHIVED STORE ORDERS */}
       {(activeFilter === "all" || activeFilter === "store_orders") && (
-        <StaffPanel icon={<ShoppingBag className="h-5 w-5 text-[#800000]" />} title="Archived In-Store Orders" subtitle={`${archivedStoreOrders.length} order record(s)`}>
+        <AdminPanel
+          title="Archived In-Store Orders"
+          subtitle={`${archivedStoreOrders.length} order record(s)`}
+        >
           <div className="overflow-x-auto p-2">
             {archivedStoreOrders.length === 0 ? (
-              <p className={staffEmptyCell}>No archived in-store orders.</p>
+              <p className="py-8 text-center text-sm text-muted">No archived in-store orders.</p>
             ) : (
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className={staffThead}>
-                    <th className={staffTh}>Order ID</th>
-                    <th className={staffTh}>Items</th>
-                    <th className={staffTh}>Total</th>
-                    <th className={staffTh}>Status</th>
-                    <th className={`${staffTh} text-right`}>Actions</th>
+                  <tr className="border-b border-accent/10 text-muted">
+                    <th className="px-4 py-3 font-medium">Order ID</th>
+                    <th className="px-4 py-3 font-medium">Items</th>
+                    <th className="px-4 py-3 font-medium">Total</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-100">
+                <tbody>
                   {archivedStoreOrders.map((order) => (
-                    <tr key={order.id} className={staffRow}>
-                      <td className={`${staffTd} font-bold text-[#800000]`}>{order.orderId}</td>
-                      <td className={`${staffTd} text-xs text-muted max-w-[200px] truncate`}>{order.items}</td>
-                      <td className={`${staffTd} font-bold text-[#24753c]`}>₱{order.total}</td>
-                      <td className={staffTd}><span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold capitalize text-stone-600 border border-stone-200">{order.status}</span></td>
-                      <td className={`${staffTd} text-right`}>
+                    <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
+                      <td className="px-4 py-3 font-bold text-[#800000]">{order.orderId}</td>
+                      <td className="px-4 py-3 text-xs text-muted max-w-[200px] truncate">{order.items}</td>
+                      <td className="px-4 py-3 font-bold text-[#24753c]">₱{order.total}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold capitalize text-stone-700">
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => handleRestoreStoreOrder(order.id)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-stone-200 text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-50 transition-colors shadow-sm"
@@ -180,34 +190,41 @@ export function ArchiveTab() {
               </table>
             )}
           </div>
-        </StaffPanel>
+        </AdminPanel>
       )}
 
       {/* ARCHIVED DELIVERY ORDERS */}
       {(activeFilter === "all" || activeFilter === "delivery_orders") && (
-        <StaffPanel icon={<Truck className="h-5 w-5 text-[#800000]" />} title="Archived Delivery Orders" subtitle={`${archivedDeliveryOrders.length} order record(s)`}>
+        <AdminPanel
+          title="Archived Delivery Orders"
+          subtitle={`${archivedDeliveryOrders.length} order record(s)`}
+        >
           <div className="overflow-x-auto p-2">
             {archivedDeliveryOrders.length === 0 ? (
-              <p className={staffEmptyCell}>No archived delivery orders.</p>
+              <p className="py-8 text-center text-sm text-muted">No archived delivery orders.</p>
             ) : (
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className={staffThead}>
-                    <th className={staffTh}>Order Number</th>
-                    <th className={staffTh}>Customer</th>
-                    <th className={staffTh}>Total</th>
-                    <th className={staffTh}>Status</th>
-                    <th className={`${staffTh} text-right`}>Actions</th>
+                  <tr className="border-b border-accent/10 text-muted">
+                    <th className="px-4 py-3 font-medium">Order Number</th>
+                    <th className="px-4 py-3 font-medium">Customer</th>
+                    <th className="px-4 py-3 font-medium">Total</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-100">
+                <tbody>
                   {archivedDeliveryOrders.map((order) => (
-                    <tr key={order.id} className={staffRow}>
-                      <td className={`${staffTd} font-bold text-[#800000]`}>{order.orderNumber}</td>
-                      <td className={`${staffTd} text-xs font-medium text-ink`}>{order.customerName}</td>
-                      <td className={`${staffTd} font-bold text-[#24753c]`}>₱{order.total}</td>
-                      <td className={staffTd}><span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold capitalize text-stone-600 border border-stone-200">{order.status}</span></td>
-                      <td className={`${staffTd} text-right`}>
+                    <tr key={order.id} className="border-b border-accent/5 last:border-0 hover:bg-white/50">
+                      <td className="px-4 py-3 font-bold text-[#800000]">{order.orderNumber}</td>
+                      <td className="px-4 py-3 text-xs font-medium text-ink">{order.customerName}</td>
+                      <td className="px-4 py-3 font-bold text-[#24753c]">₱{order.total}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold capitalize text-stone-700">
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => handleRestoreDeliveryOrder(order.id)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-stone-200 text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-50 transition-colors shadow-sm"
@@ -221,7 +238,7 @@ export function ArchiveTab() {
               </table>
             )}
           </div>
-        </StaffPanel>
+        </AdminPanel>
       )}
     </div>
   );

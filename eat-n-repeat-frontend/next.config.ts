@@ -18,16 +18,6 @@ function getLocalIps() {
 const nextConfig: NextConfig = {
   // Allow dev resources (HMR, webpack) from LAN IPs so phones on the same Wi-Fi work
   allowedDevOrigins: getLocalIps(),
-  // User Management restructure: the tabbed /admin/users page and the old
-  // standalone Staff Accounts / Customers pages became sidebar sub-pages
-  // (mirroring the Inventory section). Real HTTP redirects before render.
-  async redirects() {
-    return [
-      { source: "/admin/users", destination: "/admin/users/staff", permanent: false },
-      { source: "/admin/staff", destination: "/admin/users/staff", permanent: false },
-      { source: "/admin/customers", destination: "/admin/users/customers", permanent: false },
-    ];
-  },
   images: {
     unoptimized: true,
     remotePatterns: [

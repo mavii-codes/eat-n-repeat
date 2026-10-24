@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
-import { useNetworkStatus } from '@/context/NetworkStatusContext';
+import { useCustomerPortalMode } from '@/lib/config';
 import { MENU_IMAGE_FALLBACK } from '@/lib/menu-image';
 
 type CartCheckoutItem = {
@@ -39,9 +39,11 @@ const defaultCheckoutItems: CartCheckoutItem[] = [
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { addDeliveryOrder } = useAdminData();
+  const { addDeliveryOrder, addStoreOrder } = useAdminData();
   const { data: session, status } = useSession();
-  const { isOffline } = useNetworkStatus();
+  // Portal variant: 'local' preserves counter/offline behavior (LAN,
+  // Electron); 'online' on loopback only when the dev override flag is set.
+  const isLocalMode = useCustomerPortalMode() === 'local';
 
   // Cart State
   const [items, setItems] = useState<CartCheckoutItem[]>(defaultCheckoutItems);
@@ -161,24 +163,38 @@ export default function CheckoutPage() {
     }).join(', ');
     const checkoutOrderId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     
-    if (isOffline) {
-      alert('Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.');
-      return;
+    if (isLocalMode) {
+      addStoreOrder({
+        orderId: checkoutOrderId,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        // ISO stamp for reliable newest-first sorting (display uses `time`).
+        orderedAt: new Date().toISOString(),
+        items: orderItemsSummary,
+        total,
+        status: 'awaiting_payment',
+        paid: false,
+        paymentMethod: 'cash',
+        orderType: 'dine-in'
+      });
+      // NOTE: no journalOrder here — local-mode orders are already persisted
+      // by the LAN backend. Journaling them would queue a replay that inserts
+      // a second (customer-less) row with the same order number.
+    } else {
+      addDeliveryOrder({
+        orderNumber: checkoutOrderId,
+        customerName: `${firstName.trim()} ${lastName.trim()}`,
+        phone: mobileNumber.trim(),
+        address: 'Near Aby Road, Poblacion, Cordova, Cebu',
+        serviceAreaId: 'sa-2',
+        items: orderItemsSummary,
+        subtotal,
+        deliveryFee: 0,
+        total,
+        status: 'pending',
+        orderedAt: new Date().toISOString(),
+      });
     }
-
-    addDeliveryOrder({
-      orderNumber: checkoutOrderId,
-      customerName: `${firstName.trim()} ${lastName.trim()}`,
-      phone: mobileNumber.trim(),
-      address: 'Near Aby Road, Poblacion, Cordova, Cebu',
-      serviceAreaId: 'sa-2',
-      items: orderItemsSummary,
-      subtotal,
-      deliveryFee: 0,
-      total,
-      status: 'pending',
-      orderedAt: new Date().toISOString(),
-    });
 
     localStorage.removeItem('eat-n-repeat-cart');
     setOrderSuccess(true);
@@ -192,14 +208,14 @@ export default function CheckoutPage() {
             ✓
           </div>
           <h2 className="text-2xl font-black text-stone-900">
-            {paymentMethod === 'cod' ? 'Order Placed — Pay Rider on Delivery' : 'Order Placed Successfully!'}
+            {isLocalMode ? 'Payment Required' : 'Order Placed Successfully!'}
           </h2>
           <p className="text-sm text-stone-600">
-            {paymentMethod === 'cod' ? (
+            {isLocalMode ? (
               <>
                 Thank you, <strong className="text-stone-900">{firstName}</strong>! Your order totaling{' '}
-                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received by our Cordova kitchen.<br /><br />
-                <strong className="text-stone-900 text-base">Payment: Cash on Delivery</strong> — Pay the rider when your order arrives.
+                <strong className="text-[#B91C1C] font-black">₱{total.toFixed(2)}</strong> has been received. <br /><br />
+                <strong className="text-stone-900 text-base">Please proceed to the cashier to complete your payment.</strong>
               </>
             ) : (
               <>
@@ -372,7 +388,9 @@ export default function CheckoutPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-lg">💳</span>
                     <span>
-                      {paymentMethod === 'cod'
+                      {isLocalMode
+                        ? 'Cash (Pay at Cashier)'
+                        : paymentMethod === 'cod'
                         ? 'Cash on Delivery (COD)'
                         : paymentMethod === 'gcash'
                         ? 'GCash E-Wallet'
@@ -386,7 +404,19 @@ export default function CheckoutPage() {
 
                 {showPaymentOptions && (
                   <div className="mt-2 bg-white rounded-xl border border-stone-200 shadow-lg p-2 space-y-1">
-                    {[
+                    {isLocalMode ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentMethod('cod');
+                          setShowPaymentOptions(false);
+                        }}
+                        className={`w-full text-left px-4 py-2.5 rounded-lg text-xs font-bold transition bg-rose-50 text-[#B91C1C]`}
+                      >
+                        💵 Cash (Pay at Cashier)
+                      </button>
+                    ) : (
+                      [
                         { id: 'cod', label: '💵 Cash on Delivery (COD)' },
                         { id: 'gcash', label: '📱 GCash E-Wallet' },
                         { id: 'maya', label: '📱 Maya E-Wallet' },
@@ -407,7 +437,8 @@ export default function CheckoutPage() {
                         >
                           {opt.label}
                         </button>
-                      ))}
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -526,23 +557,12 @@ export default function CheckoutPage() {
               </p>
 
               {/* Main Submit Button */}
-              {isOffline && (
-                <div className="mb-2 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-center gap-2">
-                  <span>⚠️</span>
-                  <span>Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.</span>
-                </div>
-              )}
               <button
                 type="button"
                 onClick={() => handlePlaceOrder()}
-                disabled={isOffline}
-                className={`w-full py-3.5 text-white font-extrabold text-sm rounded-lg shadow-md transition ${
-                  isOffline
-                    ? 'bg-stone-400 cursor-not-allowed'
-                    : 'bg-[#B91C1C] hover:bg-[#991B1B] hover:scale-[1.01] active:scale-95'
-                }`}
+                className="w-full py-3.5 bg-[#B91C1C] hover:bg-[#991B1B] text-white font-extrabold text-sm rounded-lg shadow-md transition hover:scale-[1.01] active:scale-95"
               >
-                {isOffline ? 'Online Ordering Unavailable Offline' : `Place Order - ₱${total.toFixed(2)}`}
+                Place Order - ₱{total.toFixed(2)}
               </button>
             </div>
           </div>
@@ -550,7 +570,7 @@ export default function CheckoutPage() {
         </div>
       </main>
 
-      {status === 'unauthenticated' && (
+      {status === 'unauthenticated' && !isLocalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-amber-200/80 shadow-2xl space-y-6 text-center animate-in fade-in-50 zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-[#FFF1E0] text-[#E85A1C] rounded-full flex items-center justify-center text-3xl mx-auto shadow-2xs">

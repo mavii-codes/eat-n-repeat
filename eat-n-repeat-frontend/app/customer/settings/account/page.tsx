@@ -83,6 +83,7 @@ export default function AccountSettingsPage() {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
         body: JSON.stringify({
           name: profile.name,
+          phone: profile.phone,
           avatar_url: profile.avatar_url,
           notification_preferences: profile.notification_preferences
         })
@@ -128,7 +129,7 @@ export default function AccountSettingsPage() {
             </div>
             <div>
               <h1 className="text-2xl font-black text-[#451a03]">Account Information</h1>
-              <p className="text-stone-500 mt-1">Update your name and view your permanent mobile number</p>
+              <p className="text-stone-500 mt-1">Update your name, email, and phone number</p>
             </div>
           </div>
         </div>
@@ -158,14 +159,13 @@ export default function AccountSettingsPage() {
 
           <div>
             <label className="block text-xs font-bold text-stone-700 mb-1.5 uppercase tracking-wider">Mobile Number</label>
-            <input
-              type="tel"
-              value={profile.phone}
-              disabled
-              placeholder="Saved at your first checkout"
-              className="w-full px-4 py-3 rounded-xl border border-stone-100 bg-stone-50 text-stone-500 text-sm cursor-not-allowed"
+            <input 
+              type="tel" 
+              required
+              value={profile.phone} 
+              onChange={e => setProfile({...profile, phone: e.target.value})}
+              className="w-full px-4 py-3 rounded-xl border border-stone-200 text-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all outline-none"
             />
-            <p className="text-[11px] text-stone-400 mt-1.5">Your mobile number is permanent once saved. Only an admin can change it — please contact the café if it needs updating.</p>
           </div>
 
           <div className="pt-4 border-t border-stone-100">

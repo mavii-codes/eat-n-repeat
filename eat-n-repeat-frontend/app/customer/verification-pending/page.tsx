@@ -1,65 +1,28 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Logo } from '@/components/brand/Logo';
 import { Coffee, Mail, Edit3, Send } from 'lucide-react';
 import { getApiUrl } from "@/lib/config";
-import { maskEmail } from '@/lib/mask-email';
 
-const RESEND_COOLDOWN_SECONDS = 60;
 
 function VerificationPendingContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const emailParam = searchParams.get('email') || '';
   
   const [email, setEmail] = useState(emailParam);
-  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [isChangingEmail, setIsChangingEmail] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   
   const [loading, setLoading] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [cooldownLeft, setCooldownLeft] = useState(0);
   const [message, setMessage] = useState<{type: 'error'|'success', text: string} | null>(null);
 
-  useEffect(() => {
-    if (cooldownLeft <= 0) return;
-    const timer = setTimeout(() => setCooldownLeft((s) => s - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [cooldownLeft]);
-
-  async function handleVerifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email || code.trim().length !== 6) return;
-    setVerifying(true);
-    setMessage(null);
-    try {
-      const res = await fetch(`${getApiUrl()}/api/customer-auth/verify-email-code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: code.trim() }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setMessage({ type: 'error', text: data?.message || 'Verification failed. Please try again.' });
-      } else {
-        setMessage({ type: 'success', text: 'Email verified! Taking you to sign in…' });
-        setTimeout(() => router.replace('/customer/login'), 1200);
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Something went wrong.' });
-    } finally {
-      setVerifying(false);
-    }
-  }
-
   async function handleResend() {
-    if (!email || cooldownLeft > 0) return;
+    if (!email) return;
     setLoading(true);
     setMessage(null);
     try {
@@ -72,8 +35,7 @@ function VerificationPendingContent() {
       if (!res.ok) {
         setMessage({ type: 'error', text: data.message || 'Failed to resend.' });
       } else {
-        setCooldownLeft(RESEND_COOLDOWN_SECONDS);
-        setMessage({ type: 'success', text: 'Verification code has been resent! Please check your inbox.' });
+        setMessage({ type: 'success', text: 'Verification link has been resent! Please check your inbox.' });
       }
     } catch {
       setMessage({ type: 'error', text: 'Something went wrong.' });
@@ -96,9 +58,8 @@ function VerificationPendingContent() {
       if (!res.ok) {
         setMessage({ type: 'error', text: data.message || 'Failed to change email.' });
       } else {
-        setMessage({ type: 'success', text: 'Email successfully updated! A new code has been sent.' });
+        setMessage({ type: 'success', text: 'Email successfully updated! A new link has been sent.' });
         setEmail(newEmail);
-        setCode('');
         setIsChangingEmail(false);
         setPassword('');
         setNewEmail('');
@@ -118,11 +79,8 @@ function VerificationPendingContent() {
           <Mail className="w-8 h-8 text-[#B91C1C]" />
         </h1>
         <p className="mt-2 text-sm text-stone-600 font-medium leading-relaxed">
-          We sent a 6-digit verification code to <br/>
-          <span className="font-bold text-stone-900">{maskEmail(email) || email}</span>
-        </p>
-        <p className="mt-1 text-[11px] text-stone-400 font-medium">
-          The code expires in 10 minutes.
+          We sent a verification link to <br/>
+          <span className="font-bold text-stone-900">{email}</span>
         </p>
       </div>
 
@@ -139,45 +97,14 @@ function VerificationPendingContent() {
           <p className="text-xs text-stone-500 text-center px-4">
             You must verify your email address before you can sign in and place orders.
           </p>
-          <form onSubmit={handleVerifyCode} className="space-y-3">
-            <div>
-              <label htmlFor="verification-code" className="block text-[11px] font-black text-stone-600 uppercase tracking-wider mb-1 text-center">
-                Enter the 6-digit code
-              </label>
-              <input
-                id="verification-code"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                minLength={6}
-                maxLength={6}
-                pattern="[0-9]{6}"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="••••••"
-                className="w-full px-4 py-3 rounded-2xl border border-amber-200/90 bg-[#FFF8F0] text-center text-2xl font-black tracking-[0.5em] text-stone-900 placeholder:text-stone-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={verifying || code.trim().length !== 6}
-              className="w-full py-3.5 rounded-full bg-[#B91C1C] hover:bg-[#991B1B] disabled:bg-stone-300 text-white font-extrabold text-sm shadow-md shadow-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-            >
-              {verifying ? 'Verifying…' : 'Verify Email'}
-            </button>
-          </form>
-          <div className="text-center">
-            <p className="text-xs text-stone-500 font-medium mb-2">Didn&apos;t receive the code?</p>
-            <button
-              onClick={handleResend}
-              disabled={loading || cooldownLeft > 0}
-              className="w-full py-3 rounded-full bg-stone-100 hover:bg-stone-200 disabled:bg-stone-100 disabled:text-stone-400 text-stone-800 font-extrabold text-sm transition-all flex items-center justify-center gap-2"
-            >
-              {loading ? 'Sending...' : cooldownLeft > 0 ? `Resend Code (${cooldownLeft}s)` : 'Resend Code'}
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={handleResend}
+            disabled={loading}
+            className="w-full py-3.5 rounded-full bg-[#B91C1C] hover:bg-[#991B1B] disabled:bg-stone-300 text-white font-extrabold text-sm shadow-md shadow-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            {loading ? 'Sending...' : 'Resend Verification Link'}
+            <Send className="w-4 h-4" />
+          </button>
           <button
             onClick={() => { setIsChangingEmail(true); setMessage(null); }}
             className="w-full py-3.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-800 font-extrabold text-sm transition-all flex items-center justify-center gap-2"
