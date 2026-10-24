@@ -50,15 +50,23 @@ export async function POST(req: NextRequest) {
 
     const uploadDir = path.join(process.cwd(), "public", "uploads");
 
-    // Ensure uploads directory exists
-    if (!fs.existsSync(uploadDir)) {
-      await mkdir(uploadDir, { recursive: true });
+    try {
+      // Ensure uploads directory exists if writable
+      if (!fs.existsSync(uploadDir)) {
+        await mkdir(uploadDir, { recursive: true });
+      }
+
+      const filePath = path.join(uploadDir, filename);
+      await writeFile(filePath, buffer);
+
+      return NextResponse.json({ url: `/uploads/${filename}` });
+    } catch (fsErr) {
+      // Serverless environments (e.g. Vercel read-only filesystem) cannot write to public/uploads
+      console.warn("Filesystem write unavailable, using base64 fallback:", fsErr);
+      const mime = file.type || "image/jpeg";
+      const base64 = buffer.toString("base64");
+      return NextResponse.json({ url: `data:${mime};base64,${base64}` });
     }
-
-    const filePath = path.join(uploadDir, filename);
-    await writeFile(filePath, buffer);
-
-    return NextResponse.json({ url: `/uploads/${filename}` });
   } catch (error) {
     console.error("Upload Error:", error);
     return NextResponse.json(

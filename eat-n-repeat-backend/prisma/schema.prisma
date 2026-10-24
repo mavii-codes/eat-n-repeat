@@ -97,8 +97,8 @@ model Order {
   syncStatus            String    @default("pending") @db.VarChar(10) @map("sync_status")
 
   // Proof of Delivery (ONLINE ONLY, orderType = delivery)
-  proofOfDeliveryPhoto       String?   @db.Text @map("proof_of_delivery_photo")
-  proofOfDeliverySignature   String?   @db.Text @map("proof_of_delivery_signature")
+  proofOfDeliveryPhoto       String?   @db.LongText @map("proof_of_delivery_photo")
+  proofOfDeliverySignature   String?   @db.LongText @map("proof_of_delivery_signature")
   proofOfDeliveryNote        String?   @db.Text @map("proof_of_delivery_note")
   proofOfDeliverySubmittedAt DateTime? @db.Timestamp(0) @map("proof_of_delivery_submitted_at")
   proofOfDeliverySubmittedBy String?   @db.VarChar(120) @map("proof_of_delivery_submitted_by")
