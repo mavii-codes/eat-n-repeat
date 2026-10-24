@@ -6,9 +6,13 @@ export { EndShiftService, endShiftService } from "./end-shift";
 export { GetAllShiftsService, getAllShiftsService, type GetAllShiftsInput } from "./get-all-shifts";
 export { GetShiftDetailsService, getShiftDetailsService } from "./get-shift-details";
 export { AddFloatService, addFloatService } from "./add-float";
+<<<<<<< HEAD
 export { AddShiftExpenseService, addShiftExpenseService } from "./add-shift-expense";
 export { VerifyShiftService, FlagShiftService, EditAuditSignoffService, verifyShiftService, flagShiftService, editAuditSignoffService } from "./verify-shift";
 export { GetPosSalesTodayService, getPosSalesTodayService } from "./get-pos-sales-today";
+=======
+export { VerifyShiftService, FlagShiftService, EditAuditSignoffService, verifyShiftService, flagShiftService, editAuditSignoffService } from "./verify-shift";
+>>>>>>> fix/realtime-live
 
 // Re-export helpers
 export { mapShift, mapTransaction } from "./helpers";
@@ -21,10 +25,14 @@ import { endShiftService } from "./end-shift";
 import { getAllShiftsService, type GetAllShiftsInput } from "./get-all-shifts";
 import { getShiftDetailsService } from "./get-shift-details";
 import { addFloatService } from "./add-float";
+<<<<<<< HEAD
 import { addShiftExpenseService } from "./add-shift-expense";
 import { verifyShiftService, flagShiftService, editAuditSignoffService } from "./verify-shift";
 import { getPosSalesTodayService } from "./get-pos-sales-today";
 import type { DrawerExpenseInput } from "@/schema/expenses/expenses.schema";
+=======
+import { verifyShiftService, flagShiftService, editAuditSignoffService } from "./verify-shift";
+>>>>>>> fix/realtime-live
 
 export async function isAdminUser(userId: string): Promise<boolean> {
   return cashIsAdminUserService.execute(userId);
@@ -54,8 +62,13 @@ export async function editAuditSignoff(shiftId: string, adminId: string, status:
   return editAuditSignoffService.execute(shiftId, adminId, status, reason);
 }
 
+<<<<<<< HEAD
 export async function getAllShifts(filters?: GetAllShiftsInput) {
   return getAllShiftsService.execute(filters);
+=======
+export async function getAllShifts() {
+  return getAllShiftsService.execute();
+>>>>>>> fix/realtime-live
 }
 
 export async function getShiftDetails(shiftId: string) {
