@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   AdminButton,
@@ -24,6 +25,7 @@ export default function SettingsPage() {
   const [confirmNewPwd, setConfirmNewPwd] = useState("");
   const [pwdError, setPwdError] = useState<string | null>(null);
   const [pwdSuccess, setPwdSuccess] = useState<string | null>(null);
+  const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
 
   useEffect(() => {
     setForm(systemSettings);
@@ -208,43 +210,76 @@ export default function SettingsPage() {
               </div>
             )}
             <AdminField label="Current Password">
-              <AdminInput
-                type="password"
-                value={currentPwd}
-                onChange={(e) => {
-                  setCurrentPwd(e.target.value);
-                  setPwdError(null);
-                  setPwdSuccess(null);
-                }}
-                placeholder="••••••••"
-                required
-              />
+              <div className="relative">
+                <AdminInput
+                  type={showPw.current ? "text" : "password"}
+                  value={currentPwd}
+                  onChange={(e) => {
+                    setCurrentPwd(e.target.value);
+                    setPwdError(null);
+                    setPwdSuccess(null);
+                  }}
+                  placeholder="••••••••"
+                  required
+                  className="w-full rounded-xl border border-accent/15 bg-white px-3 pr-11 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((s) => ({ ...s, current: !s.current }))}
+                  className="absolute inset-y-0 right-0 flex items-center px-3.5 text-[#96908A] transition-colors hover:text-[#800000] focus:outline-none"
+                  aria-label={showPw.current ? "Hide current password" : "Show current password"}
+                >
+                  {showPw.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </AdminField>
             <AdminField label="New Password">
-              <AdminInput
-                type="password"
-                value={newPwd}
-                onChange={(e) => {
-                  setNewPwd(e.target.value);
-                  setPwdError(null);
-                  setPwdSuccess(null);
-                }}
-                placeholder="••••••••"
-                required
-              />
+              <div className="relative">
+                <AdminInput
+                  type={showPw.next ? "text" : "password"}
+                  value={newPwd}
+                  onChange={(e) => {
+                    setNewPwd(e.target.value);
+                    setPwdError(null);
+                    setPwdSuccess(null);
+                  }}
+                  placeholder="••••••••"
+                  required
+                  className="w-full rounded-xl border border-accent/15 bg-white px-3 pr-11 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((s) => ({ ...s, next: !s.next }))}
+                  className="absolute inset-y-0 right-0 flex items-center px-3.5 text-[#96908A] transition-colors hover:text-[#800000] focus:outline-none"
+                  aria-label={showPw.next ? "Hide new password" : "Show new password"}
+                >
+                  {showPw.next ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </AdminField>
             <AdminField label="Confirm New Password">
-              <AdminInput
-                type="password"
-                value={confirmNewPwd}
-                onChange={(e) => {
-                  setConfirmNewPwd(e.target.value);
-                  setPwdError(null);
-                  setPwdSuccess(null);
-                }}
-                placeholder="••••••••"
-                required
-              />
+              <div className="relative">
+                <AdminInput
+                  type={showPw.confirm ? "text" : "password"}
+                  value={confirmNewPwd}
+                  onChange={(e) => {
+                    setConfirmNewPwd(e.target.value);
+                    setPwdError(null);
+                    setPwdSuccess(null);
+                  }}
+                  placeholder="••••••••"
+                  required
+                  className="w-full rounded-xl border border-accent/15 bg-white px-3 pr-11 py-2.5 text-sm text-ink outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((s) => ({ ...s, confirm: !s.confirm }))}
+                  className="absolute inset-y-0 right-0 flex items-center px-3.5 text-[#96908A] transition-colors hover:text-[#800000] focus:outline-none"
+                  aria-label={showPw.confirm ? "Hide confirm password" : "Show confirm password"}
+                >
+                  {showPw.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </AdminField>
             <div className="pt-2 flex justify-end">
               <AdminButton type="submit">Update Password</AdminButton>

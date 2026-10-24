@@ -21,18 +21,18 @@ export default function CustomerLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="customer-portal min-h-screen bg-[#FFF8F0] text-stone-900 flex flex-col font-sans">
-      <OfflineCustomerGuard>
-        <NextAuthProvider>
-          <CartProvider>
-            <ReviewsProvider>
-              <CustomerNotificationProvider>
+      <NextAuthProvider>
+        <CartProvider>
+          <ReviewsProvider>
+            <CustomerNotificationProvider>
+              <OfflineCustomerGuard>
                 {children}
                 <CustomerChatBot />
-              </CustomerNotificationProvider>
-            </ReviewsProvider>
-          </CartProvider>
-        </NextAuthProvider>
-      </OfflineCustomerGuard>
+              </OfflineCustomerGuard>
+            </CustomerNotificationProvider>
+          </ReviewsProvider>
+        </CartProvider>
+      </NextAuthProvider>
     </div>
   );
 }

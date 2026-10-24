@@ -1,12 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { useAdminData } from '@/context/AdminDataContext';
 
 type WriteReviewModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (rating: number, comment: string, menuItemId: string, menuItemName: string, customerName: string) => void;
+  onSubmit: (
+    rating: number,
+    comment: string,
+    menuItemId: string,
+    menuItemName: string,
+  ) => Promise<void>;
   orderNumber: string;
   orderItems: { name: string; quantity: number }[];
   alreadyReviewed: boolean;
@@ -21,12 +27,13 @@ export function WriteReviewModal({
   alreadyReviewed,
 }: WriteReviewModalProps) {
   const { menuItems } = useAdminData();
+  const { data: session } = useSession();
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
-  const [customerName, setCustomerName] = useState('Satisfied Customer');
   const [rating, setRating] = useState(0);
   const [hoveredStar, setHoveredStar] = useState(0);
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
@@ -34,6 +41,7 @@ export function WriteReviewModal({
       setSelectedItemIndex(0);
       setRating(0);
       setComment('');
+      setSubmitError(null);
       setShowSuccess(false);
     }
   }, [isOpen]);
@@ -56,19 +64,16 @@ export function WriteReviewModal({
   );
   const menuItemId = matchedMenuItem ? matchedMenuItem.id : `mi-order-${currentItem.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
 
-  const handleSubmit = () => {
-    if (rating === 0 || alreadyReviewed) return;
-    setIsSubmitting(true);
+  const accountName =
+    (session?.user?.name as string | undefined)?.trim() || 'Customer';
 
-    setTimeout(() => {
-      onSubmit(
-        rating,
-        comment.trim(),
-        menuItemId,
-        currentItem.name,
-        customerName.trim() || 'Satisfied Customer'
-      );
-      setIsSubmitting(false);
+  const handleSubmit = async () => {
+    if (rating === 0 || alreadyReviewed || isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      await onSubmit(rating, comment.trim(), menuItemId, currentItem.name);
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
@@ -76,12 +81,19 @@ export function WriteReviewModal({
         setComment('');
         onClose();
       }, 1500);
-    }, 400);
+    } catch (e: any) {
+      // Duplicate-review protection surfaces here (one review per customer
+      // per item): the message explains why the second submit was refused.
+      setSubmitError(e?.message || 'Could not submit your review. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
     setRating(0);
     setComment('');
+    setSubmitError(null);
     setShowSuccess(false);
     onClose();
   };
@@ -151,18 +163,12 @@ export function WriteReviewModal({
             )}
           </div>
 
-          {/* Customer Name */}
-          <div>
-            <label className="block text-xs font-black text-stone-500 uppercase tracking-wider mb-1.5">
-              Your Name
-            </label>
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Enter your name"
-              className="w-full px-3.5 py-2 bg-white border border-amber-200 rounded-xl text-xs font-semibold text-stone-800 focus:outline-none focus:ring-2 focus:ring-[#B91C1C]"
-            />
+          {/* Reviewing as (account-derived, read-only) */}
+          <div className="bg-amber-50/70 border border-amber-200/70 rounded-xl px-3.5 py-2.5">
+            <p className="text-[10px] font-black text-stone-500 uppercase tracking-wider">
+              Reviewing as
+            </p>
+            <p className="text-xs font-bold text-[#451a03]">{accountName}</p>
           </div>
 
           {/* Star Rating */}
@@ -213,6 +219,12 @@ export function WriteReviewModal({
             />
             <p className="text-right text-[10px] text-stone-400 mt-0.5">{comment.length}/500</p>
           </div>
+
+          {submitError && (
+            <p className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5">
+              {submitError}
+            </p>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-1">

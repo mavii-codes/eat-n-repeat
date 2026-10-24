@@ -3,9 +3,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { NextAuthProvider } from "@/providers/NextAuthProvider";
 import { ReviewsProvider } from "@/context/ReviewsContext";
 import { StaffNotificationProvider } from "@/context/StaffNotificationContext";
 import { ConfirmProvider } from "@/components/shared/ConfirmDialog";
+import { sessionMustChangePassword } from "@/lib/admin/auth-token";
 
 export default function StaffLayout({
   children,
@@ -16,8 +18,17 @@ export default function StaffLayout({
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.replace("/login");
+    if (!loading) {
+      // Forced password change wins over the normal login redirect so a
+      // flagged session never reaches the staff portal (customer flows use
+      // their own routes and never pass this layout).
+      if (user && sessionMustChangePassword()) {
+        router.replace("/change-password");
+        return;
+      }
+      if (!user) {
+        router.replace("/login");
+      }
     }
   }, [user, loading, router]);
 
@@ -34,11 +45,13 @@ export default function StaffLayout({
 
   return (
     <ConfirmProvider>
+      <NextAuthProvider>
       <ReviewsProvider>
         <StaffNotificationProvider>
           {children}
         </StaffNotificationProvider>
       </ReviewsProvider>
+      </NextAuthProvider>
     </ConfirmProvider>
   );
 }

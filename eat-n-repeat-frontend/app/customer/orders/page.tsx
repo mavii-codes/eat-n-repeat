@@ -6,73 +6,9 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { CustomerHeader } from '@/components/customer/CustomerHeader';
 import { OrderCard, type OrderCardProps } from '@/components/customer/OrderCard';
-import { CartDrawer, type CartItem } from '@/components/customer/CartDrawer';
+import { CartDrawer, type CartItem, type CustomerMenuItem } from '@/components/customer/CartDrawer';
 import { useAdminData } from '@/context/AdminDataContext';
-import { Package, Bike, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
-
-// Realistic sample orders for Cordova branch customer portal
-const fallbackOrders: OrderCardProps[] = [
-  {
-    id: 'ord-101',
-    orderNumber: '20240716001',
-    date: 'Today • 10:30 AM',
-    status: 'pending',
-    subtotal: 334.00,
-    deliveryFee: 45.00,
-    discount: 0,
-    total: 379.00,
-    paymentMethod: 'Cash on Delivery',
-    customerName: 'Maria Santos',
-    customerPhone: '0917 123 4567',
-    customerAddress: 'Suba-Basbas, Cordova, Cebu',
-    items: [
-      { name: 'Signature Chicken Inasal Rice Bowl', quantity: 1, price: 189.00 },
-      { name: 'House Special Latte', quantity: 1, price: 145.00 },
-    ],
-    estimatedTime: '~30-40 mins',
-    deliveryType: 'delivery',
-  },
-  {
-    id: 'ord-102',
-    orderNumber: '20240716002',
-    date: 'Today • 9:15 AM',
-    status: 'preparing',
-    subtotal: 274.00,
-    deliveryFee: 45.00,
-    discount: 0,
-    total: 319.00,
-    paymentMethod: 'GCash e-Wallet',
-    customerName: 'Juan Dela Cruz',
-    customerPhone: '0922 987 6543',
-    customerAddress: 'Poblacion, Cordova, Cebu',
-    items: [
-      { name: 'Uji Matcha Milktea', quantity: 1, price: 165.00 },
-      { name: 'Garlic Parmesan Truffle Fries', quantity: 1, price: 109.00 },
-    ],
-    estimatedTime: '~15-20 mins',
-    deliveryType: 'delivery',
-  },
-  {
-    id: 'ord-103',
-    orderNumber: '20240715002',
-    date: 'Yesterday • 2:45 PM',
-    status: 'delivered',
-    subtotal: 423.00,
-    deliveryFee: 0,
-    discount: 30.00,
-    total: 393.00,
-    paymentMethod: 'Cash on Delivery',
-    customerName: 'Maria Santos',
-    customerPhone: '0917 123 4567',
-    customerAddress: 'Suba-Basbas, Cordova, Cebu',
-    items: [
-      { name: 'Spam & Egg Comfort Bowl', quantity: 1, price: 165.00 },
-      { name: 'Brown Sugar Boba Milk', quantity: 1, price: 149.00 },
-      { name: 'Garlic Parmesan Truffle Fries', quantity: 1, price: 109.00 },
-    ],
-    deliveryType: 'delivery',
-  },
-];
+import { Package, Bike, CheckCircle2, XCircle, RefreshCw, Search } from 'lucide-react';
 
 type OrderFilterStatus = 'all' | 'active' | 'completed' | 'cancelled';
 
@@ -81,9 +17,19 @@ function OrdersPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedStatus, setSelectedStatus] = useState<OrderFilterStatus>('all');
+  const [orderSearch, setOrderSearch] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup' | 'dine-in'>('delivery');
+
+  // Mount-gated hydration: false on server + first client render (matches SSR),
+  // then reconciles to real session after useEffect commits. Prevents React
+  // #310 hydration mismatch when session.data is null on server but populated
+  // on client initial render.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   // Payment redirect banner state
   const [paymentBanner, setPaymentBanner] = useState<{
@@ -106,8 +52,9 @@ function OrdersPageContent() {
     }
   }, [searchParams]);
 
-  // Retry failed GCash payment
+  // Retry failed GCash payment — session accessed only after hydration
   const handleRetryPayment = async (orderNumber: string) => {
+    if (!hydrated) return;
     setIsRetrying(true);
     try {
       const { getApiUrl } = await import('@/lib/config');
@@ -144,7 +91,7 @@ function OrdersPageContent() {
     }
   }, [status, router]);
 
-  const { updateDeliveryStatus, menuItems } = useAdminData();
+  const { menuItems } = useAdminData();
   const [liveOrders, setLiveOrders] = useState<OrderCardProps[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   // Distinguishes "API loaded, customer genuinely has no orders" (show the
@@ -153,9 +100,15 @@ function OrdersPageContent() {
   // stand in for a successful empty response.
   const [ordersFetchFailed, setOrdersFetchFailed] = useState(false);
 
+  // Cancellation state — must be before early return to keep hook order stable
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  // Manual refresh trigger for the offline retry button below.
+  const [retryTick, setRetryTick] = useState(0);
+
   // Fetch real customer orders from the backend
   useEffect(() => {
     if (status !== 'authenticated') return;
+    if (!hydrated) return;
 
     let mounted = true;
     const fetchOrders = async () => {
@@ -201,11 +154,22 @@ function OrdersPageContent() {
                 subtotal: o.subtotal,
                 deliveryFee: o.deliveryFee,
                 total: o.total,
+                // Real promo snapshot (backend maps legacy rows to zero).
+                discount: Number(o.discount) || 0,
+                promoCode: o.promoCode ?? null,
+                subtotalBeforeDiscount:
+                  o.subtotalBeforeDiscount != null
+                    ? Number(o.subtotalBeforeDiscount)
+                    : Number(o.subtotal) || 0,
                 paymentMethod: o.paymentMethod || 'Unknown',
                 paymentStatus: o.paymentStatus ?? null,
                 customerName: o.customerName || 'Valued Customer',
                 customerPhone: o.phone || '',
                 customerAddress: o.address || '',
+                // Pick-Up / Take-Out details (null for delivery/dine-in and
+                // legacy pickup rows; OrderCard falls back to customerName).
+                pickupName: o.pickupName ?? null,
+                pickupAt: o.pickupAt ?? null,
                 items: [{ name: o.items ? o.items.replace(/^,\s*/, '') : 'Signature Menu Items', quantity: 1, price: o.subtotal }],
                 deliveryType: o.type === 'dine-in' ? 'dine-in' : o.type === 'pickup' ? 'pickup' : 'delivery',
               };
@@ -246,7 +210,7 @@ function OrdersPageContent() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [status, session]);
+  }, [status, session, retryTick]);
 
   if (status === 'loading' || status === 'unauthenticated' || isLoadingOrders) {
     return (
@@ -256,13 +220,19 @@ function OrdersPageContent() {
     );
   }
 
-  // Successful-but-empty API responses render the real empty state below.
-  // Demo fallback rows appear ONLY when the API failed (offline/error), so a
-  // successful empty history can never show another customer's demo data.
-  const allOrdersList =
-    liveOrders.length > 0 ? liveOrders : ordersFetchFailed ? fallbackOrders : [];
+  // Orders come ONLY from the backend. When the API is unreachable the
+  // page shows an honest offline notice (never demo/fallback rows that
+  // could be mistaken for the customer's real history).
+  const allOrdersList = liveOrders;
 
   const filteredOrders = allOrdersList.filter((order) => {
+    const q = orderSearch.trim().toLowerCase();
+    if (q) {
+      const matchesSearch =
+        order.orderNumber.toLowerCase().includes(q) ||
+        order.items.some((item) => item.name.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+    }
     if (selectedStatus === 'all') return true;
     if (selectedStatus === 'active') return !['delivered', 'cancelled'].includes(order.status);
     if (selectedStatus === 'completed') return order.status === 'delivered';
@@ -310,9 +280,39 @@ function OrdersPageContent() {
     setIsCartOpen(true);
   };
 
-  // Order Cancellation Handler
-  const handleCancelOrder = (orderId: string) => {
-    updateDeliveryStatus(orderId, 'cancelled');
+  // Order Cancellation Handler — customer-owned endpoint (pending orders
+  // only, ownership enforced server-side). Strict: the UI flips to Cancelled
+  // only after the backend confirms; failures keep Pending with an alert.
+  // Offline cancels are refused outright (nothing is journaled — a queued
+  // cancel could never be ordered safely against later server state).
+  const handleCancelOrder = async (orderId: string) => {
+    if (cancellingId) return;
+    setCancellingId(orderId);
+    try {
+      const { getApiUrl } = await import('@/lib/config');
+      const accessToken = (session as any)?.accessToken as string | undefined;
+      const response = await fetch(
+        `${getApiUrl()}/api/customer-orders/${encodeURIComponent(orderId)}/cancel`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+          },
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || 'Cancellation was not accepted by the server.');
+      }
+      setLiveOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' as const } : o)),
+      );
+    } catch (error: any) {
+      alert(error?.message || 'Could not cancel this order. Please try again.');
+    } finally {
+      setCancellingId(null);
+    }
   };
 
   const handleUpdateQuantity = (id: string, delta: number) => {
@@ -334,6 +334,19 @@ function OrdersPageContent() {
   };
 
   const handleClearCart = () => setCartItems([]);
+
+  const handleAddToCart = (item: CustomerMenuItem) => {
+    const incoming = `addon-${item.id}::${item.id}::`;
+    setCartItems((prev) => {
+      const existing = prev.find((ci) => ci.menuItem.id === item.id);
+      if (existing) {
+        return prev.map((ci) =>
+          ci.menuItem.id === item.id ? { ...ci, quantity: ci.quantity + 1 } : ci
+        );
+      }
+      return [...prev, { menuItem: item, quantity: 1 }];
+    });
+  };
 
   const totalCartCount = cartItems.reduce((acc, ci) => acc + ci.quantity, 0);
   const totalCartSubtotal = cartItems.reduce((acc, ci) => acc + ci.menuItem.price * ci.quantity, 0);
@@ -449,6 +462,19 @@ function OrdersPageContent() {
             </div>
           </div>
 
+          {/* Search Bar */}
+          <div className="relative max-w-md mb-4">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 pointer-events-none" />
+            <input
+              type="text"
+              value={orderSearch}
+              onChange={(e) => setOrderSearch(e.target.value)}
+              placeholder="Search by order number or item..."
+              aria-label="Search orders"
+              className="w-full pl-11 pr-4 py-3 rounded-2xl border border-amber-200/80 bg-white text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-[#B91C1C] transition shadow-sm"
+            />
+          </div>
+
           {/* Filter Tabs */}
           <div className="flex gap-2 sm:gap-3 mb-8 overflow-x-auto no-scrollbar pb-2">
             {(['all', 'active', 'completed', 'cancelled'] as const).map((status) => {
@@ -472,6 +498,34 @@ function OrdersPageContent() {
             })}
           </div>
 
+          {/* Offline notice — the list below only ever shows real
+              backend orders; when the API is unreachable we say so instead
+              of rendering placeholder rows. */}
+          {ordersFetchFailed && (
+            <div className="rounded-2xl p-5 mb-6 border shadow-sm bg-amber-50 border-amber-200 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="flex items-center gap-3 flex-1">
+                <RefreshCw className="w-6 h-6 text-amber-600 shrink-0" />
+                <div>
+                  <h3 className="text-sm font-black">You&apos;re offline</h3>
+                  <p className="text-xs font-medium opacity-80 mt-0.5">
+                    Couldn&apos;t reach the server, so your orders can&apos;t be shown right now. New orders you place are saved on this device and sync automatically.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLoadingOrders(true);
+                  setOrdersFetchFailed(false);
+                  setRetryTick((t) => t + 1);
+                }}
+                className="px-5 py-2.5 rounded-xl text-xs font-black bg-amber-600 text-white hover:bg-amber-700 shadow-sm transition shrink-0"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* Orders List */}
           {filteredOrders.length > 0 ? (
             <div className="space-y-6 mb-12">
@@ -489,11 +543,21 @@ function OrdersPageContent() {
               <Package className="w-12 h-12 text-stone-400 mx-auto mb-4" />
               <h3 className="text-xl font-extrabold text-[#451a03] mb-1">No orders found</h3>
               <p className="text-xs sm:text-sm text-stone-600 mb-6">
-                {selectedStatus === 'active' && "You don't have any active orders right now."}
-                {selectedStatus === 'completed' && "You haven't completed any orders yet."}
-                {selectedStatus === 'cancelled' && "You don't have any cancelled orders."}
-                {selectedStatus === 'all' && 'Start by exploring our handcrafted menu!'}
+                {orderSearch.trim() && 'No orders match your search.'}
+                {!orderSearch.trim() && selectedStatus === 'active' && "You don't have any active orders right now."}
+                {!orderSearch.trim() && selectedStatus === 'completed' && "You haven't completed any orders yet."}
+                {!orderSearch.trim() && selectedStatus === 'cancelled' && "You don't have any cancelled orders."}
+                {!orderSearch.trim() && selectedStatus === 'all' && 'Start by exploring our handcrafted menu!'}
               </p>
+              {orderSearch.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setOrderSearch('')}
+                  className="inline-block px-8 py-3 mb-4 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-full font-black text-xs sm:text-sm transition"
+                >
+                  Clear Search
+                </button>
+              )}
               <Link
                 href="/customer"
                 className="inline-block px-8 py-3 bg-[#B91C1C] hover:bg-[#991B1B] text-white rounded-full font-black text-xs sm:text-sm shadow-md transition hover:scale-105"
@@ -512,6 +576,20 @@ function OrdersPageContent() {
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
+        onAddRecommendedAddon={(addon) => {
+          const addonMenuItem: CustomerMenuItem = {
+            id: `addon-${addon.id}`,
+            name: addon.name,
+            description: '',
+            price: addon.price,
+            image: addon.image || '',
+            category: 'Add-ons',
+            rating: 5,
+            reviews: 0,
+            available: true,
+          };
+          handleAddToCart(addonMenuItem);
+        }}
         fulfillmentType={fulfillmentType}
         setFulfillmentType={setFulfillmentType}
       />

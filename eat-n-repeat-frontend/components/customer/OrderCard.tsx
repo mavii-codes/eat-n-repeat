@@ -3,12 +3,14 @@
 import { useState } from 'react';
 import { WriteReviewModal } from './WriteReviewModal';
 import { CustomerReceiptModal } from './CustomerReceiptModal';
+import { CustomerOrderChat } from './CustomerOrderChat';
 import { useReviews } from '@/context/ReviewsContext';
+import { formatPickupLine } from '@/lib/pickup';
 import { 
   Hourglass, Check, ChefHat, CheckCheck, Bike, BadgeCheck, 
   XCircle, PartyPopper, Utensils, Zap, FileText, Lock, 
   Bell, Receipt, RefreshCw, Star, ChevronUp, ChevronDown, Banknote,
-  ShoppingBag
+  ShoppingBag, MessageSquare
 } from 'lucide-react';
 export type OrderStatus =
   | 'pending'
@@ -29,6 +31,9 @@ export type OrderCardProps = {
   subtotal?: number;
   deliveryFee?: number;
   discount?: number;
+  // Promo snapshot (normalizes legacy rows to "no discount").
+  promoCode?: string | null;
+  subtotalBeforeDiscount?: number;
   paymentMethod?: string;
   // Raw backend payment status (PENDING / PAID / null when no payment row
   // exists yet). Lets the card show true Unpaid vs Paid instead of inferring
@@ -37,6 +42,9 @@ export type OrderCardProps = {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  // Pick-Up / Take-Out details (pickup orders only; absent on legacy rows).
+  pickupName?: string | null;
+  pickupAt?: string | null;
   items: {
     id?: string;
     name: string;
@@ -149,11 +157,15 @@ export function OrderCard({
   subtotal: propSubtotal,
   deliveryFee: propDeliveryFee,
   discount = 0,
+  promoCode = null,
+  subtotalBeforeDiscount,
   paymentMethod = 'Cash on Delivery',
   paymentStatus = null,
   customerName = 'Valued Customer',
   customerPhone = '(032) 492-0000',
   customerAddress = 'Poblacion, Cordova, Cebu',
+  pickupName,
+  pickupAt,
   items,
   estimatedTime: propEstTime,
   deliveryType,
@@ -167,6 +179,7 @@ export function OrderCard({
   outForDeliveryAt,
   deliveredAt,
 }: OrderCardProps) {
+  const [showChat, setShowChat] = useState(false);
   const config = statusConfig[status] || statusConfig.pending;
   const currentStageIndex = getStageIndex(status);
   const isPending = status === 'pending';
@@ -180,6 +193,19 @@ export function OrderCard({
   const isPaymentPaid =
     typeof paymentStatus === "string" && paymentStatus.toUpperCase() === "PAID";
   const isPaymentUnpaid = !isPaymentPaid;
+
+  // Pick-Up / Take-Out line for pickup orders: prefers the explicit pickup
+  // fields; falls back to the order's customer name for legacy rows without
+  // them (guarding against the display placeholder); renders nothing when
+  // neither exists — the "Pick-Up / Take-Out" badge above is the label.
+  const pickupLine =
+    deliveryType === 'pickup'
+      ? formatPickupLine(
+          pickupName,
+          pickupAt,
+          customerName !== 'Valued Customer' ? customerName : null,
+        )
+      : null;
   const isDelivered = status === 'delivered';
   const isCancelled = status === 'cancelled';
   const isActive = !isDelivered && !isCancelled;
@@ -188,6 +214,9 @@ export function OrderCard({
     propSubtotal ?? items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const calculatedDeliveryFee =
     propDeliveryFee ?? (deliveryType === 'delivery' ? (calculatedSubtotal > 350 ? 0 : 45) : 0);
+  // Receipt header subtotal: the real before-discount amount when the order
+  // carried a promo (the plain `subtotal` may already be read as that).
+  const receiptSubtotal = subtotalBeforeDiscount ?? calculatedSubtotal;
 
   const currentTimelineStages = (deliveryType === 'dine-in' && paymentMethod !== 'GCash') ? [
     { key: 'pending', label: 'Payment Req.', icon: <Banknote className="w-4 h-4" /> },
@@ -226,19 +255,18 @@ export function OrderCard({
     deliveredAt && { title: 'Order Completed', desc: 'Delivered to customer. Enjoy your meal!', time: formatTime(deliveredAt), stage: 4 },
   ].filter(Boolean) as { title: string; desc: string; time: string; stage: number }[];
 
-  const handleReviewSubmit = (
+  const handleReviewSubmit = async (
     rating: number,
     comment: string,
     menuItemId: string,
     menuItemName: string,
-    reviewerName: string
   ) => {
-    addReview({
+    // Reviewer identity comes from the signed-in account (backend derives the
+    // display name); only the global rating inputs travel over the wire.
+    await addReview({
       orderId: id,
       menuItemId,
       menuItemName,
-      customerName: reviewerName,
-      customerEmail: '',
       rating,
       comment,
     });
@@ -290,6 +318,14 @@ export function OrderCard({
               </span>
             </div>
           </div>
+
+          {/* Pick-Up / Take-Out details: collector's name + promised time */}
+          {pickupLine && (
+            <div className="mb-6 flex items-center gap-3 rounded-xl bg-amber-50/70 border border-amber-200/80 px-4 py-3">
+              <ShoppingBag className="w-4 h-4 text-amber-700 shrink-0" />
+              <p className="text-xs font-bold text-[#451a03]">{pickupLine}</p>
+            </div>
+          )}
 
           {/* Cash Unpaid Payment Notice (all fulfillment types) */}
           {isActive && isPaymentUnpaid && paymentMethod !== 'GCash' && (
@@ -421,7 +457,7 @@ export function OrderCard({
               )}
               {discount > 0 && (
                 <div className="flex justify-between text-xs text-emerald-600 font-semibold">
-                  <span>Discount</span>
+                  <span>Discount{promoCode ? ` · ${promoCode}` : ''}</span>
                   <span>-₱{discount.toFixed(2)}</span>
                 </div>
               )}
@@ -463,7 +499,7 @@ export function OrderCard({
           {/* Cancellation Rules & Notice */}
           {!isCancelled && !isDelivered && (
             <div className="mb-4">
-              {isPending ? (
+              {(isPending || isAwaitingPayment) ? (
                 <div className="flex items-center justify-between bg-amber-50 p-3 rounded-xl border border-amber-200">
                   <p className="text-xs text-amber-800 font-semibold">
                     Order is currently Pending. You can cancel if needed.
@@ -554,6 +590,17 @@ export function OrderCard({
               <Receipt className="w-4 h-4" /> View / Print Receipt
             </button>
 
+            {/* Chat Button (Customer -> Staff, Delivery Orders) */}
+            {deliveryType === 'delivery' && !isDelivered && !isCancelled && (
+              <button
+                type="button"
+                onClick={() => setShowChat(true)}
+                className="py-2.5 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-black text-xs shadow-sm flex items-center gap-1.5 transition"
+              >
+                <MessageSquare className="w-4 h-4" /> Chat with Staff
+              </button>
+            )}
+
             {/* RepEat Order Button (Completed Orders) */}
             {isDelivered && onReorder && (
               <button
@@ -606,14 +653,27 @@ export function OrderCard({
         customerName={customerName}
         customerPhone={customerPhone}
         customerAddress={customerAddress}
+        pickupName={pickupName}
+        pickupAt={pickupAt}
         deliveryType={deliveryType}
         paymentMethod={paymentMethod}
         items={items}
-        subtotal={calculatedSubtotal}
+        subtotal={receiptSubtotal}
         deliveryFee={calculatedDeliveryFee}
         discount={discount}
+        promoCode={promoCode}
         total={total}
       />
+
+      {/* Staff Chat Modal (Customer -> Staff) */}
+      {deliveryType === 'delivery' && (
+        <CustomerOrderChat
+          orderId={id}
+          orderNumber={orderNumber}
+          isOpen={showChat}
+          onClose={() => setShowChat(false)}
+        />
+      )}
     </>
   );
 }
