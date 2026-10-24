@@ -25,7 +25,7 @@ services:
     name: eat-n-repeat-backend
     runtime: node
     rootDir: eat-n-repeat-backend
-    buildCommand: npm install && npx prisma generate && npm run build && npx prisma db push
+    buildCommand: npm install && npx prisma generate && npm run build && npx prisma db push --accept-data-loss
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true

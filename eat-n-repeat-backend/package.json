@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && tsup src/server.ts --format esm --clean",
     "start": "node dist/server.js",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
+    "db:push": "prisma db push --accept-data-loss",
     "db:seed": "prisma db seed",
     "db:seed:menu": "tsx prisma/seed-menu.ts",
     "menu:copy": "node prisma/copy-menu.cjs",
