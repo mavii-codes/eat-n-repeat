@@ -95,23 +95,7 @@ async function main() {
     });
   }
 
-  // Seed default stock items
-  const defaultStockItems = [
-    { id: 'st-1', name: 'Matcha Milktea powder', categoryId: 'sc-6', quantity: 3, unit: 'kg', lowStockThreshold: 5 },
-    { id: 'st-2', name: 'Spam', categoryId: 'sc-3', quantity: 8, unit: 'cans', lowStockThreshold: 10 },
-    { id: 'st-3', name: 'Arabica Coffee Beans', categoryId: 'sc-4', quantity: 12, unit: 'kg', lowStockThreshold: 5 },
-    { id: 'st-4', name: 'Whole Milk', categoryId: 'sc-5', quantity: 20, unit: 'L', lowStockThreshold: 8 },
-    { id: 'st-5', name: 'Jasmine Rice', categoryId: 'sc-2', quantity: 25, unit: 'kg', lowStockThreshold: 10 },
-    { id: 'st-6', name: 'Frozen Fries', categoryId: 'sc-1', quantity: 15, unit: 'kg', lowStockThreshold: 6 },
-  ];
-
-  for (const item of defaultStockItems) {
-    await prisma.stockItem.upsert({
-      where: { id: item.id },
-      update: {},
-      create: item,
-    });
-  }
+  // Stock items are linked directly with menu items (One Source of Truth)
 
   console.log('Seed complete.');
 }

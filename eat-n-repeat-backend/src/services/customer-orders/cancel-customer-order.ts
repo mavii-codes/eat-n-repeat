@@ -1,6 +1,7 @@
 import { customerOrdersRepository } from "@/repositories/customer-orders.repository";
 import { adminFlagsService } from "@/services/admin-flags";
 import { releaseRedemptionForOrder } from "@/services/promos/promos.service";
+import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
 import { emitAdminEvent } from "@/lib/sse";
 
 // Customer-initiated cancellation. Ownership is enforced in the lookup
@@ -44,6 +45,11 @@ export class CancelCustomerOrderService {
       await releaseRedemptionForOrder(order.id);
     } catch (promoError) {
       console.error("[cancel-customer-order] promo release failed:", promoError);
+    }
+    try {
+      await releaseStockForOrder(order.id, "Customer cancelled order", { id: customerId, name: "Customer" });
+    } catch (stockError) {
+      console.error("[cancel-customer-order] stock release failed:", stockError);
     }
 
     // Phase 3 signal: consecutive cancelled-no-PAID online orders (this path

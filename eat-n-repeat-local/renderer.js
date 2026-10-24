@@ -4,9 +4,7 @@
 var btnStart = document.getElementById("btn-start");
 var btnStop = document.getElementById("btn-stop");
 var btnPortal = document.getElementById("btn-portal");
-var btnQR = document.getElementById("btn-qr");
 var btnClearLog = document.getElementById("btn-clear-log");
-var btnCloseQR = document.getElementById("btn-close-qr");
 var btnLocate = document.getElementById("btn-locate");
 var projectRootEl = document.getElementById("project-root");
 
@@ -14,10 +12,6 @@ var pillInternet = document.getElementById("pill-internet");
 var pillDatabase = document.getElementById("pill-database");
 var pillSystem = document.getElementById("pill-system");
 var lanInfoEl = document.getElementById("lan-info");
-
-var qrPanel = document.getElementById("qr-panel");
-var qrImage = document.getElementById("qr-image");
-var qrURL = document.getElementById("qr-url");
 
 var logArea = document.getElementById("log-area");
 
@@ -50,17 +44,14 @@ function setButtons(state) {
     btnStart.disabled = true;
     btnStop.disabled = false;
     btnPortal.disabled = false;
-    btnQR.disabled = false;
   } else if (state === "starting") {
     btnStart.disabled = true;
     btnStop.disabled = false;
     btnPortal.disabled = true;
-    btnQR.disabled = true;
   } else {
     btnStart.disabled = false;
     btnStop.disabled = true;
     btnPortal.disabled = true;
-    btnQR.disabled = true;
   }
 }
 
@@ -148,7 +139,6 @@ btnStop.addEventListener("click", async function () {
     appendLogLine("[UI] Stop failed: " + e.message);
   }
   btnStop.textContent = "STOP";
-  qrPanel.style.display = "none";
   refreshStatus();
 });
 
@@ -156,25 +146,6 @@ btnPortal.addEventListener("click", function () {
   var portalURL = "http://" + currentLanIP + ":3000/login";
   window.electronAPI.openURL(portalURL);
   appendLogLine("[UI] Opening staff/admin portal: " + portalURL);
-});
-
-btnQR.addEventListener("click", async function () {
-  try {
-    var result = await window.electronAPI.getQR();
-    if (result.ok) {
-      qrImage.src = result.dataURL;
-      qrURL.textContent = result.url;
-      qrPanel.style.display = "block";
-    } else {
-      appendLogLine("[UI] QR error: " + result.message);
-    }
-  } catch (e) {
-    appendLogLine("[UI] QR failed: " + e.message);
-  }
-});
-
-btnCloseQR.addEventListener("click", function () {
-  qrPanel.style.display = "none";
 });
 
 async function locateProject() {

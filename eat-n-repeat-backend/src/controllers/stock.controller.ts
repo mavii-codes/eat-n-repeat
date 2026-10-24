@@ -236,8 +236,18 @@ export class StockController {
 
     const parsed = stockInSchema.safeParse(req.body);
     if (!parsed.success) {
+      const issues = parsed.error.issues;
+      const firstIssue = issues[0];
+      const field = firstIssue?.path[0] != null ? String(firstIssue.path[0]) : undefined;
+      const message = firstIssue?.message ?? "Invalid stock-in details.";
+      const errors = issues.map((issue) => ({
+        field: issue.path[0] != null ? String(issue.path[0]) : "general",
+        message: issue.message,
+      }));
       return res.status(400).json({
-        message: parsed.error.issues[0]?.message ?? "Invalid stock-in details.",
+        message,
+        field,
+        errors,
       });
     }
 
@@ -274,8 +284,18 @@ export class StockController {
 
     const parsed = adjustSchema.safeParse(req.body);
     if (!parsed.success) {
+      const issues = parsed.error.issues;
+      const firstIssue = issues[0];
+      const field = firstIssue?.path[0] != null ? String(firstIssue.path[0]) : undefined;
+      const message = firstIssue?.message ?? "Invalid adjustment details.";
+      const errors = issues.map((issue) => ({
+        field: issue.path[0] != null ? String(issue.path[0]) : "general",
+        message: issue.message,
+      }));
       return res.status(400).json({
-        message: parsed.error.issues[0]?.message ?? "Invalid adjustment details.",
+        message,
+        field,
+        errors,
       });
     }
 
@@ -307,8 +327,18 @@ export class StockController {
   async listMovements(req: AuthenticatedRequest, res: Response) {
     const parsed = movementsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
+      const issues = parsed.error.issues;
+      const firstIssue = issues[0];
+      const field = firstIssue?.path[0] != null ? String(firstIssue.path[0]) : undefined;
+      const message = firstIssue?.message ?? "Invalid movement filters.";
+      const errors = issues.map((issue) => ({
+        field: issue.path[0] != null ? String(issue.path[0]) : "general",
+        message: issue.message,
+      }));
       return res.status(400).json({
-        message: parsed.error.issues[0]?.message ?? "Invalid movement filters.",
+        message,
+        field,
+        errors,
       });
     }
 
@@ -374,6 +404,16 @@ export class StockController {
       return res.json(result);
     } catch (error: any) {
       console.error("Error loading stock dashboard:", error);
+      return res.status(500).json({ message: "Internal server error." });
+    }
+  }
+
+  async consistencyCheck(_req: AuthenticatedRequest, res: Response) {
+    try {
+      const result = await service.runStockConsistencyCheck();
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Error running consistency check:", error);
       return res.status(500).json({ message: "Internal server error." });
     }
   }

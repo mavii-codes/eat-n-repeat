@@ -12,7 +12,7 @@ import {
   Settings, CircleHelp, LogOut, LogIn, MapPin, Truck, ShoppingBag, Store, 
   X, Menu as MenuIcon, BellOff, ChevronDown, Search, Key
 } from 'lucide-react';
-import { useCustomerPortalMode } from '@/lib/config';
+import { useNetworkStatus } from '@/context/NetworkStatusContext';
 
 type CustomerHeaderProps = {
   cartCount?: number;
@@ -53,17 +53,10 @@ export function CustomerHeader({
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('');
   const [showAuthModal, setShowAuthModal] = useState(false);
-  // Portal variant: 'local' preserves counter/offline behavior (LAN,
-  // Electron); 'online' on loopback only when the dev override flag is set.
-  const isLocalMode = useCustomerPortalMode() === 'local';
+  const { isOffline } = useNetworkStatus();
 
   const handleRestrictedNavClick = (e: React.MouseEvent, href: string) => {
-    // In local mode, we allow access to orders without auth (since they are guest orders)
-    // Wait, the user said "allow guest ordering". Tracking orders without an account is hard 
-    // since we don't have an account, but the user explicitly said:
-    // "No Sign In required. No Sign Up required." 
-    // For now, let's just bypass auth modal for orders in local mode.
-    if (href === '/customer/orders' && !session?.user && !isLocalMode) {
+    if (href === '/customer/orders' && !session?.user) {
       e.preventDefault();
       setShowAuthModal(true);
       setIsMobileDrawerOpen(false); // Close mobile drawer if open
@@ -72,6 +65,12 @@ export function CustomerHeader({
 
   return (
     <>
+      {isOffline && (
+        <div className="bg-amber-500 text-stone-950 text-xs font-bold py-2 px-4 text-center shadow-xs flex items-center justify-center gap-2">
+          <span>⚠️</span>
+          <span>Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.</span>
+        </div>
+      )}
       <header className="sticky top-0 z-40 bg-[#FFF8F0]/95 backdrop-blur-md border-b border-amber-100/80 shadow-xs w-full max-w-full">
         <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 w-full">
           {/* Top Header Row */}
@@ -157,7 +156,7 @@ export function CustomerHeader({
 
 
               {/* Desktop Profile Icon & Dropdown */}
-              {isLocalMode ? null : isSessionLoading ? (
+              {isSessionLoading ? (
                 <div className="hidden md:flex items-center justify-center p-2 sm:p-2.5" aria-label="Checking sign-in status">
                   <div className="h-4 w-4 sm:h-5 sm:w-5 animate-spin rounded-full border-2 border-stone-300 border-t-[#B91C1C]" />
                 </div>
@@ -440,7 +439,7 @@ export function CustomerHeader({
       )}
 
       {/* Guest Authentication Modal for Restricted Routes */}
-      {showAuthModal && !isLocalMode && (
+      {showAuthModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-amber-200/80 shadow-2xl space-y-6 text-center animate-in fade-in-50 zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-[#FFF1E0] text-[#B91C1C] rounded-full flex items-center justify-center mx-auto shadow-2xs">

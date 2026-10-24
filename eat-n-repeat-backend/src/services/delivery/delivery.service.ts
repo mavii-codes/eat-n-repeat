@@ -2,6 +2,7 @@ import { deliveryRepository } from "@/repositories/delivery.repository";
 import { adminFlagsService } from "@/services/admin-flags";
 import { notifyAllStaff } from "@/services/staff-notifications";
 import { releaseRedemptionForOrder } from "@/services/promos/promos.service";
+import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
 import { emitAdminEvent } from "@/lib/sse";
 import crypto from "crypto";
 
@@ -232,6 +233,11 @@ export class DeliveryService {
       await releaseRedemptionForOrder(order.id);
     } catch (promoError) {
       console.error("[delivery] promo release failed:", promoError);
+    }
+    try {
+      await releaseStockForOrder(order.id, "Delivery cancelled", { id: cancelledBy ?? "delivery-service", name: "Delivery" });
+    } catch (stockError) {
+      console.error("[delivery] stock release failed:", stockError);
     }
 
     // Phase 3 signal: only a cancellation without a PAID payment feeds the

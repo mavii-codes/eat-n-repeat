@@ -1,6 +1,7 @@
 import { adminOrdersRepository } from "@/repositories/admin-orders.repository";
 import { adminFlagsService } from "@/services/admin-flags";
 import { applyRedemptionForOrder, releaseRedemptionForOrder } from "@/services/promos/promos.service";
+import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
 import { v4 as uuidv4 } from "uuid";
 import type { HistoryQueryInput } from "@/schema/admin-orders/admin-orders.schema";
 import { emitAdminEvent } from "@/lib/sse";
@@ -125,6 +126,7 @@ export async function updateAdminOrderStatus(orderIdParam: string, status: strin
   try {
     if (status === "cancelled") {
       await releaseRedemptionForOrder(order.id);
+      await releaseStockForOrder(order.id, "Admin cancelled order", { id: "admin", name: "Admin" });
     } else if (status === "delivered" || status === "completed") {
       await applyRedemptionForOrder(order.id);
     }

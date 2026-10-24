@@ -12,6 +12,18 @@ export class PaymentsController {
       const { orderDetails, paymentMethod, orderMode, cashReceived } = req.body;
       const safeOrderMode = orderMode === "local" ? "local" : "online";
 
+      // Invariant: Customer checkout is strictly unavailable on the local backend.
+      if (process.env.LOCAL_BACKEND === "true" || process.env.LOCAL_BACKEND === "1") {
+        const isStaff = req.auth?.kind === "user" && (req.auth.role === "staff" || req.auth.role === "admin");
+        if (!isStaff) {
+          return res.status(503).json({
+            success: false,
+            message: "Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.",
+            error: "Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.",
+          });
+        }
+      }
+
       const result = await paymentsService.checkout(
         { orderDetails, paymentMethod, orderMode: safeOrderMode, cashReceived },
         customerId,
@@ -55,6 +67,18 @@ export class PaymentsController {
         return res.status(400).json({
           success: false,
           error: error.message,
+        });
+      }
+
+      // Tracked inventory insufficient stock (D1 enforcement)
+      if (
+        error?.name === "StockMovementError" ||
+        error?.constructor?.name === "StockMovementError" ||
+        (typeof error?.message === "string" && error.message.includes("Insufficient stock"))
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Some items in your order are currently unavailable or have insufficient stock.",
         });
       }
 

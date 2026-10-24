@@ -28,6 +28,7 @@ import adminCafeAvailabilityRouter from "./routes/admin-cafe-availability.routes
 import orderChatRouter from "./routes/order-chat.routes";
 import promosRouter from "./routes/promos.routes";
 import adminPromosRouter from "./routes/admin-promos.routes";
+import { gateCustomerOnLocalBackend } from "./middleware/auth.middleware";
 
 export const routes = Router();
 
@@ -36,17 +37,17 @@ routes.use("/stock", stockRouter);
 routes.use("/payments", paymentsRouter);
 routes.use("/webhooks", webhooksRouter);
 routes.use("/events", eventsRouter);
-routes.use("/customer-auth", customerAuthRouter);
-routes.use("/customer-settings", customerSettingsRouter);
-routes.use("/customer-notifications", customerNotificationsRouter);
-routes.use("/customer-addresses", customerAddressesRouter);
-routes.use("/customer-orders", customerOrdersRouter);
+routes.use("/customer-auth", gateCustomerOnLocalBackend, customerAuthRouter);
+routes.use("/customer-settings", gateCustomerOnLocalBackend, customerSettingsRouter);
+routes.use("/customer-notifications", gateCustomerOnLocalBackend, customerNotificationsRouter);
+routes.use("/customer-addresses", gateCustomerOnLocalBackend, customerAddressesRouter);
+routes.use("/customer-orders", gateCustomerOnLocalBackend, customerOrdersRouter);
 routes.use("/delivery", deliveryRouter);
 routes.use("/staff", staffRouter);
 routes.use("/staff-notifications", staffNotificationsRouter);
 routes.use("/admin-orders", adminOrdersRouter);
 routes.use("/addons", addonsRouter);
-routes.use("/customer-favorites", customerFavoritesRouter);
+routes.use("/customer-favorites", gateCustomerOnLocalBackend, customerFavoritesRouter);
 routes.use("/sync", syncRouter);
 routes.use("/cash", cashRouter);
 routes.use("/expenses", expensesRouter);

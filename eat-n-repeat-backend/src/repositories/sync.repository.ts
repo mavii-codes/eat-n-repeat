@@ -121,26 +121,27 @@ export class SyncRepository {
       console.warn(`[offline-sync] payment for unknown order "${orderIdParam}" — dropped.`);
       return "skipped";
     }
-    if (await this.hasPaidPayment(tx, order.id)) {
-      console.info(`[offline-sync] order ${order.orderNumber} already PAID — replay skipped.`);
-      return "skipped";
-    }
-    const existing = await tx.$queryRaw<any[]>`
-      SELECT id FROM payments WHERE order_id = ${order.id} ORDER BY created_at DESC LIMIT 1
-    `;
+    const alreadyPaid = await this.hasPaidPayment(tx, order.id);
     const safeMethod = (method || "Cash").slice(0, 50);
-    if (existing.length > 0) {
-      await tx.$executeRaw`
-        UPDATE payments SET status = 'PAID', paid_at = ${paidAt}, payment_method = ${safeMethod}
-        WHERE id = ${existing[0].id}
+    if (!alreadyPaid) {
+      const existing = await tx.$queryRaw<any[]>`
+        SELECT id FROM payments WHERE order_id = ${order.id} ORDER BY created_at DESC LIMIT 1
       `;
+      if (existing.length > 0) {
+        await tx.$executeRaw`
+          UPDATE payments SET status = 'PAID', paid_at = ${paidAt}, payment_method = ${safeMethod}
+          WHERE id = ${existing[0].id}
+        `;
+      } else {
+        await tx.$executeRaw`
+          INSERT INTO payments (id, order_id, payment_method, amount, status, paid_at, created_at)
+          VALUES (${crypto.randomUUID()}, ${order.id}, ${safeMethod}, ${Number(order.total) || 0}, 'PAID', ${paidAt}, ${new Date()})
+        `;
+      }
+      console.info(`[offline-sync] order ${order.orderNumber} marked PAID (${safeMethod}).`);
     } else {
-      await tx.$executeRaw`
-        INSERT INTO payments (id, order_id, payment_method, amount, status, paid_at, created_at)
-        VALUES (${crypto.randomUUID()}, ${order.id}, ${safeMethod}, ${Number(order.total) || 0}, 'PAID', ${paidAt}, ${new Date()})
-      `;
+      console.info(`[offline-sync] order ${order.orderNumber} already PAID in payments table — verifying drawer attribution.`);
     }
-    console.info(`[offline-sync] order ${order.orderNumber} marked PAID (${safeMethod}).`);
     // Drawer attribution for offline cash: prefer the originating
     // cashier's still-open shift, else the draining operator's open shift.
     // GCash never touches the drawer. Duplicate-guarded by order id.
@@ -195,10 +196,33 @@ export class SyncRepository {
     console.info(`[offline-sync] order ${orderNumber} has no open shift to attribute — payment recorded without drawer row.`);
   }
 
+  private async claimIdempotency(
+    tx: any,
+    key: string,
+    category: string,
+    recordId: string,
+  ): Promise<boolean> {
+    if (!key) return false;
+    try {
+      const existing = await tx.$queryRaw<any[]>`
+        SELECT \`key\` FROM sync_idempotency_keys WHERE \`key\` = ${key} LIMIT 1
+      `;
+      if (existing.length > 0) return false;
+      await tx.$executeRaw`
+        INSERT INTO sync_idempotency_keys (\`key\`, category, record_id, created_at)
+        VALUES (${key}, ${category}, ${recordId}, NOW())
+      `;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async executeOfflineSync(
     offline_orders: any[],
     offline_stock_transactions: any[],
     offline_payments: any[] = [],
+    offline_expenses: any[] = [],
     offline_status_changes: any[] = [],
     offline_shifts: any[] = [],
     drainingUserId?: string | null,
@@ -208,9 +232,10 @@ export class SyncRepository {
     let orderChanged = false;
     let paymentChanged = false;
     let stockChanged = false;
+    let expenseChanged = false;
 
     await prisma.$transaction(async (tx) => {
-      // Shift starts replay FIRST so later steps can attribute to them.
+      // 1. Shift starts replay FIRST so later steps can attribute to them.
       // Starts are idempotent (existing id skipped) and never duplicate an
       // already-open shift for the same staff.
       const shiftStarts = (offline_shifts || []).filter((o: any) => o?.kind === "start");
@@ -222,6 +247,11 @@ export class SyncRepository {
             console.warn("[offline-sync] shift start missing id/staff — dropped.");
             continue;
           }
+          const claimed = await this.claimIdempotency(tx, "shift-start:" + shiftId, "shift_start", shiftId);
+          if (!claimed) {
+            console.info(`[offline-sync] shift start ${shiftId} already processed — replay skipped.`);
+            continue;
+          }
           const staff = await tx.$queryRaw<any[]>`
             SELECT id, name, default_opening_float FROM users WHERE id = ${staffId} LIMIT 1
           `;
@@ -230,10 +260,12 @@ export class SyncRepository {
             continue;
           }
           // Float always comes from the admin-configured staff profile —
-          // client-supplied values are ignored, same as the online path.
-          const float = Number(staff[0].default_opening_float);
+          let float = Number(staff[0].default_opening_float);
           if (!Number.isFinite(float) || float <= 0) {
-            console.warn(`[offline-sync] no opening float configured for staff "${staffId}" — start ${shiftId} dropped.`);
+            float = Number(op?.startingFloat ?? 0);
+          }
+          if (!Number.isFinite(float) || float <= 0) {
+            console.warn(`[offline-sync] no opening float configured for staff "${staffId}" and no valid op float — start ${shiftId} dropped.`);
             continue;
           }
           const byId = await tx.$queryRaw<any[]>`
@@ -262,9 +294,15 @@ export class SyncRepository {
         }
       }
 
-      // Sync Offline Orders (INSERT IGNORE)
+      // 2. Sync Offline Orders (INSERT IGNORE + Idempotency)
       if (offline_orders && offline_orders.length > 0) {
         for (const order of offline_orders) {
+          const claimed = await this.claimIdempotency(tx, "order:" + order.id, "order", order.id);
+          if (!claimed) {
+            console.info(`[offline-sync] order ${order.id} already processed — replay skipped.`);
+            continue;
+          }
+
           // Idempotency guard: the offline queue must never resurrect an
           // order the server already created (e.g. an online checkout whose
           // journal entry outlived the success). order_number has no UNIQUE
@@ -326,15 +364,21 @@ export class SyncRepository {
         }
       }
 
-      // Sync Offline Stock Deductions idempotently
+      // 3. Sync Offline Stock Deductions idempotently
       if (offline_stock_transactions && offline_stock_transactions.length > 0) {
         for (const txItem of offline_stock_transactions) {
           const transactionDate = txItem.timestamp || new Date();
           try {
+            const stockItemId = String(txItem.stockItemId ?? "");
+            const claimed = await this.claimIdempotency(tx, "stock:" + txItem.id, "stock_deduction", stockItemId);
+            if (!claimed) {
+              console.info(`[offline-sync] stock transaction ${txItem.id} already processed — replay skipped.`);
+              continue;
+            }
+
             // Item-row lock FIRST (engine invariant), inside the already-open
             // outer transaction. The clamp means a journaled quantity larger
             // than on-hand can never drive stock negative.
-            const stockItemId = String(txItem.stockItemId ?? "");
             const locked = await lockItemForUpdate(tx, stockItemId);
 
             if (!locked) {
@@ -409,7 +453,7 @@ export class SyncRepository {
         }
       }
 
-      // Queued mark-paid collections (Gap 1). Each row is independent:
+      // 4. Queued mark-paid collections (Gap 1). Each row is independent:
       // one bad row is logged and skipped, never failing the batch.
       if (offline_payments && offline_payments.length > 0) {
         for (const pay of offline_payments) {
@@ -417,6 +461,11 @@ export class SyncRepository {
             const identifier = String(pay?.orderId ?? pay?.order_id ?? "");
             if (!identifier) {
               console.warn("[offline-sync] payment entry without order id — dropped.");
+              continue;
+            }
+            const claimed = await this.claimIdempotency(tx, "payment:" + identifier, "payment", identifier);
+            if (!claimed) {
+              console.info(`[offline-sync] payment ${identifier} already processed — replay skipped.`);
               continue;
             }
             const paidAt = pay?.paidAt ? new Date(pay.paidAt) : new Date();
@@ -431,6 +480,69 @@ export class SyncRepository {
             if (paymentResult === "applied") paymentChanged = true;
           } catch (e: any) {
             console.warn(`[offline-sync] payment replay failed: ${e?.message ?? e}`);
+          }
+        }
+      }
+
+      // 5. Queued drawer expenses (paid-outs). Must replay BEFORE shift closes so Expected Cash balances.
+      if (offline_expenses && offline_expenses.length > 0) {
+        for (const exp of offline_expenses) {
+          try {
+            const expId = String(exp?.id ?? "");
+            const shiftId = String(exp?.shiftId ?? "");
+            const amount = Number(exp?.amount);
+            if (!expId || !shiftId || !Number.isFinite(amount) || amount <= 0) {
+              console.warn("[offline-sync] expense missing id/shiftId/valid amount — dropped.");
+              continue;
+            }
+            const claimed = await this.claimIdempotency(tx, "expense:" + expId, "expense", expId);
+            if (!claimed) {
+              console.info(`[offline-sync] expense ${expId} already processed — replay skipped.`);
+              continue;
+            }
+            const dup = await tx.$queryRaw<any[]>`
+              SELECT id FROM expenses WHERE id = ${expId} LIMIT 1
+            `;
+            if (dup.length > 0) {
+              console.info(`[offline-sync] expense ${expId} already exists in DB — replay skipped.`);
+              continue;
+            }
+
+            // Find shift: by shiftId or fallback to staff's open shift
+            let targetShiftId = shiftId;
+            const shiftRow = await tx.$queryRaw<any[]>`
+              SELECT id, expected_cash, staff_id FROM cash_shifts WHERE id = ${shiftId} LIMIT 1
+            `;
+            if (shiftRow.length === 0 && exp?.staffId) {
+              const fallback = await tx.$queryRaw<any[]>`
+                SELECT id FROM cash_shifts WHERE staff_id = ${exp.staffId} AND status = 'open'
+                ORDER BY start_time DESC LIMIT 1
+              `;
+              if (fallback.length > 0) targetShiftId = fallback[0].id;
+            }
+
+            const staffUser = exp?.staffId ? await tx.$queryRaw<any[]>`
+              SELECT id, name, role FROM users WHERE id = ${exp.staffId} LIMIT 1
+            ` : [];
+            const staffName = staffUser.length > 0 ? staffUser[0].name : "Staff";
+            const staffRole = staffUser.length > 0 ? staffUser[0].role : "staff";
+            const expDate = exp?.at ? new Date(exp.at) : new Date();
+
+            await tx.$executeRaw`
+              INSERT INTO expenses (id, source, payment_source, shift_id, category, amount, reason, note, status, expense_date, created_by_id, created_by_name, created_by_role, created_at)
+              VALUES (${expId}, 'drawer', 'cash_drawer', ${targetShiftId}, ${String(exp?.category ?? "General").slice(0, 100)}, ${amount}, ${String(exp?.reason ?? "Drawer paid-out").slice(0, 500)}, ${exp?.note ? String(exp.note).slice(0, 1000) : null}, 'active', ${Number.isNaN(expDate.getTime()) ? new Date() : expDate}, ${exp?.staffId ? String(exp.staffId) : drainingUserId ?? "offline-staff"}, ${staffName}, ${staffRole}, ${new Date()})
+            `;
+
+            // Decrement Expected Cash on the target shift
+            await tx.$executeRaw`
+              UPDATE cash_shifts
+              SET expected_cash = GREATEST(0, expected_cash - ${amount})
+              WHERE id = ${targetShiftId}
+            `;
+            expenseChanged = true;
+            console.info(`[offline-sync] drawer expense ${expId} ₱${amount} recorded and deducted from shift ${targetShiftId}.`);
+          } catch (e: any) {
+            console.warn(`[offline-sync] expense replay failed: ${e?.message ?? e}`);
           }
         }
       }
@@ -472,14 +584,19 @@ export class SyncRepository {
         }
       }
 
-      // Shift closes replay LAST so expectedCash already includes every
-      // replayed sale above. Owner-only, open-only, computed server-side.
+      // 7. Shift closes replay LAST so expectedCash already includes every
+      // replayed sale and expense above. Owner-only, open-only, computed server-side.
       const shiftCloses = (offline_shifts || []).filter((o: any) => o?.kind === "close");
       for (const op of shiftCloses) {
         try {
           const shiftId = String(op?.shiftId ?? "");
           if (!shiftId) {
             console.warn("[offline-sync] shift close without id — dropped.");
+            continue;
+          }
+          const claimed = await this.claimIdempotency(tx, "shift-close:" + shiftId, "shift_close", shiftId);
+          if (!claimed) {
+            console.info(`[offline-sync] shift close ${shiftId} already processed — replay skipped.`);
             continue;
           }
           const rows = await tx.$queryRaw<any[]>`
@@ -521,7 +638,7 @@ export class SyncRepository {
           console.warn(`[offline-sync] shift close replay failed: ${e?.message ?? e}`);
         }
       }
-    });
+    }, { timeout: 30000, maxWait: 10000 });
 
     // Emit once per replayed batch, only after the transaction committed.
     try {
@@ -541,6 +658,14 @@ export class SyncRepository {
     try {
       if (stockChanged) {
         emitAdminEvent({ type: "STOCK_UPDATED", at: new Date().toISOString() });
+      }
+    } catch {
+      /* event must never break the write */
+    }
+    try {
+      if (expenseChanged) {
+        emitAdminEvent({ type: "EXPENSE_CREATED", at: new Date().toISOString() });
+        emitAdminEvent({ type: "CASH_SHIFT_UPDATED", at: new Date().toISOString() });
       }
     } catch {
       /* event must never break the write */

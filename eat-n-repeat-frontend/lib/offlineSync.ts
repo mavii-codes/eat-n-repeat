@@ -70,6 +70,19 @@ export interface OfflineShiftOp {
   timestamp: string;
 }
 
+export interface OfflineExpense {
+  id: string; // exp-<uuid>
+  shiftId: string;
+  amount: number;
+  category: string;
+  reason: string;
+  note?: string | null;
+  staffId?: string | null;
+  at: string;
+  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed';
+  timestamp: string;
+}
+
 interface EatNRepeatOfflineDB extends DBSchema {
   offline_orders: {
     key: string;
@@ -84,6 +97,11 @@ interface EatNRepeatOfflineDB extends DBSchema {
   offline_payments: {
     key: string;
     value: OfflinePayment;
+    indexes: { 'by-status': string };
+  };
+  offline_expenses: {
+    key: string;
+    value: OfflineExpense;
     indexes: { 'by-status': string };
   };
   offline_status_changes: {
@@ -101,7 +119,7 @@ interface EatNRepeatOfflineDB extends DBSchema {
 let dbPromise: Promise<IDBPDatabase<EatNRepeatOfflineDB>> | null = null;
 
 if (typeof window !== 'undefined') {
-  dbPromise = openDB<EatNRepeatOfflineDB>('eat-n-repeat-offline-db', 3, {
+  dbPromise = openDB<EatNRepeatOfflineDB>('eat-n-repeat-offline-db', 4, {
     upgrade(db) {
       if (!db.objectStoreNames.contains('offline_orders')) {
         const orderStore = db.createObjectStore('offline_orders', { keyPath: 'id' });
@@ -115,6 +133,10 @@ if (typeof window !== 'undefined') {
       if (!db.objectStoreNames.contains('offline_payments')) {
         const payStore = db.createObjectStore('offline_payments', { keyPath: 'orderId' });
         payStore.createIndex('by-status', 'syncStatus');
+      }
+      if (!db.objectStoreNames.contains('offline_expenses')) {
+        const expStore = db.createObjectStore('offline_expenses', { keyPath: 'id' });
+        expStore.createIndex('by-status', 'syncStatus');
       }
       if (!db.objectStoreNames.contains('offline_status_changes')) {
         const statusStore = db.createObjectStore('offline_status_changes', { keyPath: 'orderId' });
@@ -140,10 +162,43 @@ export async function saveOfflineOrder(order: Omit<OfflineOrder, 'syncStatus' | 
   });
 }
 
-export async function getPendingOfflineOrders() {
+export async function getPendingOfflineOrders(): Promise<OfflineOrder[]> {
   if (!dbPromise) return [];
   const db = await dbPromise;
-  return db.getAllFromIndex('offline_orders', 'by-status', 'pending');
+  const all = await db.getAllFromIndex('offline_orders', 'by-status', 'pending');
+  // Panel recommendation: Customer offline orders MUST NEVER sync.
+  // Only walk-in POS orders (POS- prefix) sync to the online backend.
+  return all.filter((o) => o.id.startsWith('POS-') && o.notes !== 'cart-offline');
+}
+
+/**
+ * Audit and review legacy customer offline orders in browser storage.
+ * Does NOT delete or upload. Exports to localStorage for owner review.
+ */
+export async function reviewLegacyCustomerOfflineOrders(): Promise<{
+  count: number;
+  orders: OfflineOrder[];
+}> {
+  if (!dbPromise) return { count: 0, orders: [] };
+  const db = await dbPromise;
+  const all = await db.getAll('offline_orders');
+  const legacy = all.filter(
+    (o) => !o.id.startsWith('POS-') || o.notes === 'cart-offline'
+  );
+  if (typeof window !== 'undefined' && legacy.length > 0) {
+    try {
+      window.localStorage.setItem(
+        'legacy_customer_offline_orders_review',
+        JSON.stringify(legacy, null, 2)
+      );
+      console.warn(
+        `[OFFLINE CLEANUP AUDIT] Found ${legacy.length} legacy customer offline order(s). Saved to localStorage 'legacy_customer_offline_orders_review' for review. Not purged.`
+      );
+    } catch {
+      // Storage full / unavailable
+    }
+  }
+  return { count: legacy.length, orders: legacy };
 }
 
 export async function markOrdersSynced(ids: string[]) {
@@ -423,6 +478,66 @@ export function journalShiftOp(op: {
 }): void {
   try {
     const q = saveOfflineShiftOp({ ...op, at: new Date().toISOString() });
+    if (q && typeof (q as any).catch === "function") (q as any).catch(() => {});
+  } catch { /* journaling must never break the UI */ }
+}
+
+// ── EXPENSES (DRAWER PAID-OUTS) ─────────────
+
+export async function saveOfflineExpense(expense: Omit<OfflineExpense, 'syncStatus' | 'timestamp'>) {
+  if (!dbPromise) return;
+  const db = await dbPromise;
+  await db.put('offline_expenses', {
+    ...expense,
+    syncStatus: 'pending',
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export async function getPendingOfflineExpenses(): Promise<OfflineExpense[]> {
+  if (!dbPromise) return [];
+  const db = await dbPromise;
+  return db.getAllFromIndex('offline_expenses', 'by-status', 'pending');
+}
+
+export async function markExpensesSynced(ids: string[]) {
+  if (!dbPromise) return;
+  const db = await dbPromise;
+  const tx = db.transaction('offline_expenses', 'readwrite');
+  for (const id of ids) {
+    const item = await tx.store.get(id);
+    if (item) {
+      item.syncStatus = 'synced';
+      await tx.store.put(item);
+    }
+  }
+  await tx.done;
+}
+
+export async function clearSyncedOfflineExpenses() {
+  if (!dbPromise) return;
+  const db = await dbPromise;
+  const tx = db.transaction('offline_expenses', 'readwrite');
+  const index = tx.store.index('by-status');
+  const keys = await index.getAllKeys('synced');
+  for (const key of keys) {
+    await tx.store.delete(key);
+  }
+  await tx.done;
+}
+
+/** Queue a drawer paid-out expense while offline. Never throws. */
+export function journalExpense(e: {
+  id: string;
+  shiftId: string;
+  amount: number;
+  category: string;
+  reason: string;
+  note?: string | null;
+  staffId?: string | null;
+}): void {
+  try {
+    const q = saveOfflineExpense({ ...e, at: new Date().toISOString() });
     if (q && typeof (q as any).catch === "function") (q as any).catch(() => {});
   } catch { /* journaling must never break the UI */ }
 }

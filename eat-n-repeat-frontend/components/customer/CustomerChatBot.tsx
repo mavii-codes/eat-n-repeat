@@ -128,6 +128,9 @@ export function CustomerChatBot() {
     const text = userText.toLowerCase();
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    const isOffline = typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && !navigator.onLine;
+    const offlineNotice = (isLocal || isOffline) ? "\n\n⚠️ Note: Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café." : "";
+
     if (text.includes('order') || text.includes('cart') || text.includes('my items') || text.includes('what') && text.includes('in') && (text.includes('cart') || text.includes('order'))) {
       try {
         const savedCart = window.localStorage.getItem('eat-n-repeat-cart');
@@ -144,7 +147,7 @@ export function CustomerChatBot() {
             return {
               id: Date.now().toString(),
               sender: 'bot',
-              text: `Your current order contains:\n\n${itemsList}\n\nTotal: ₱${total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`,
+              text: `Your current order contains:\n\n${itemsList}\n\nTotal: ₱${total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}${offlineNotice}`,
               timestamp: now,
             };
           }
@@ -155,7 +158,7 @@ export function CustomerChatBot() {
       return {
         id: Date.now().toString(),
         sender: 'bot',
-        text: "Your cart is currently empty. Want me to recommend some of our best sellers?",
+        text: `Your cart is currently empty. Want me to recommend some of our best sellers?${offlineNotice}`,
         timestamp: now,
       };
     }

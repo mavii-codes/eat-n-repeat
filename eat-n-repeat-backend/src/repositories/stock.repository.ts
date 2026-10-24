@@ -34,8 +34,15 @@ export class StockRepository {
   // Stock Items
   // ---------------------------------------------------------------------------
 
-  async findManyItems() {
+  /**
+   * Active stock items only (archived rows are hidden from the dashboard,
+   * pickers, lists, and counts). History/movement endpoints query movements
+   * directly, so archived items remain queryable there. Pass
+   * { includeArchived: true } only for maintenance/admin tooling.
+   */
+  async findManyItems(opts?: { includeArchived?: boolean }) {
     return prisma.stockItem.findMany({
+      where: opts?.includeArchived ? undefined : { archived: false },
       orderBy: { name: "asc" },
     });
   }
@@ -47,6 +54,7 @@ export class StockRepository {
     quantity: number;
     unit: string;
     lowStockThreshold: number;
+    kind?: string;
   }) {
     return prisma.stockItem.create({ data });
   }
@@ -131,20 +139,24 @@ export class StockRepository {
   }
 
   /**
-   * Layer-based expiring stock: unconsumed layers whose expiry falls inside
-   * the window. Ordered nearest-expiry first in JS (nullable column).
+   * Layer-based expiring stock: unconsumed layers whose expiry falls on or before
+   * maxExpiry. Ordered nearest-expiry first in JS (nullable column).
    */
-  async listExpiringLayers(from: Date, to: Date) {
+  async listExpiringLayers(maxExpiry: Date) {
     const layers = await prisma.stockLayer.findMany({
       where: {
         remaining: { gt: 0 },
-        expiryDate: { not: null, gte: from, lte: to },
+        expiryDate: { not: null, lte: maxExpiry },
       },
       select: {
         id: true,
         stockItemId: true,
+        remaining: true,
+        unitCost: true,
+        receivedAt: true,
         expiryDate: true,
         createdAt: true,
+        sourceRef: true,
       },
     });
     return layers.sort((a, b) => {

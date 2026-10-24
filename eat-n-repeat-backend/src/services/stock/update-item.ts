@@ -22,6 +22,16 @@ export class UpdateItemService {
     data: UpdateItemData,
     actor?: { id: string; name: string },
   ) {
+    const linkedMenu = await prisma.menuItem.findUnique({ where: { stockItemId: id } });
+    if (linkedMenu) {
+      if (data.name && data.name.trim().toLowerCase() !== linkedMenu.name.trim().toLowerCase()) {
+        throw new StockMovementError(
+          `Managed from the menu item: This stock item is linked to "${linkedMenu.name}". Rename it from the Menu Items page.`,
+          409,
+        );
+      }
+    }
+
     // Omitted quantity = plain field update (the legacy CRUD contract).
     if (data.quantity === undefined) {
       const item = await stockRepository.updateItem(id, data);

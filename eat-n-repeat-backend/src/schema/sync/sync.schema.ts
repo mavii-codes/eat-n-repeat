@@ -130,11 +130,25 @@ export const offlineShiftOpSchema = z
   })
   .passthrough();
 
+export const offlineExpenseSchema = z
+  .object({
+    id: z.string().min(1).max(64),
+    shiftId: z.string().min(1).max(64),
+    amount: z.coerce.number().positive(),
+    category: z.string().min(1).max(100),
+    reason: z.string().min(1).max(500),
+    note: z.string().max(1000).nullable().optional(),
+    staffId: z.string().max(64).nullable().optional(),
+    at: z.coerce.date().nullable().optional(),
+  })
+  .passthrough();
+
 export const offlineSyncSchema = z
   .object({
     offline_orders: z.array(offlineOrderSchema).optional().default([]),
     offline_stock_transactions: z.array(offlineStockTransactionSchema).optional().default([]),
     offline_payments: z.array(offlinePaymentSchema).optional().default([]),
+    offline_expenses: z.array(offlineExpenseSchema).optional().default([]),
     offline_status_changes: z.array(offlineStatusChangeSchema).optional().default([]),
     offline_shifts: z.array(offlineShiftOpSchema).optional().default([]),
   })

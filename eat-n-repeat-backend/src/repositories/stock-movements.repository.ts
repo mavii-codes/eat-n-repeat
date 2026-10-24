@@ -8,6 +8,7 @@ export type LockedStockItemRow = {
   name: string;
   unit: string;
   low_stock_threshold: Prisma.Decimal | number | string;
+  archived: number | boolean;
 };
 
 export class StockMovementsRepository {
@@ -17,7 +18,7 @@ export class StockMovementsRepository {
    */
   async findItemForUpdate(tx: Prisma.TransactionClient, id: string) {
     const rows = await tx.$queryRaw<LockedStockItemRow[]>`
-      SELECT id, quantity, name, unit, low_stock_threshold
+      SELECT id, quantity, name, unit, low_stock_threshold, archived
       FROM stock_items
       WHERE id = ${id}
       FOR UPDATE

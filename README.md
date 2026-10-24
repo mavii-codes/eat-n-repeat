@@ -32,8 +32,7 @@ Backend health check: `GET http://localhost:4000/api/health`.
    (port `3306`, `root` with empty password, matching `eat-n-repeat-backend/.env`).
 2. Open `eat-n-repeat-local/`, run `npm install`, then `npm start`.
 3. Click **START** and wait for the status pills to turn green.
-4. Use the **STAFF** / **ADMIN** buttons, or share the **QR** code so customers
-   on the café Wi-Fi can order from their phones.
+4. Click **STAFF / ADMIN PORTAL** to launch the POS cashier and manager portals.
 
 First run bootstraps automatically (dependencies, `prisma generate`,
 `prisma db push`, seed) and writes an `.initialized` stamp file — delete it

@@ -66,6 +66,8 @@ export class MenuRepository {
     available: boolean;
     image: string | null;
     sizes: { name: string; price: number }[];
+    stockItemId?: string | null;
+    stockMode?: string;
   }) {
     return prisma.menuItem.create({ data });
   }
@@ -80,6 +82,8 @@ export class MenuRepository {
       available: boolean;
       image: string | null;
       sizes: { name: string; price: number }[];
+      stockItemId?: string | null;
+      stockMode?: string;
     },
   ) {
     return prisma.menuItem.update({ where: { id }, data });

@@ -8,9 +8,7 @@ import { useSession } from 'next-auth/react';
 import { ShoppingCart, Truck, ShoppingBag, Utensils, Check, FileText, CreditCard, Banknote, Key, Package, Users, Sparkles } from 'lucide-react';
 import { useAdminData } from '@/context/AdminDataContext';
 import { useNetworkStatus } from '@/context/NetworkStatusContext';
-import { useCustomerPortalMode } from '@/lib/config';
 import { resolveMenuImage } from '@/lib/menu-image';
-import { journalOrder, removeOfflineOrder } from '@/lib/offlineSync';
 import { getApiUrl } from '@/lib/config';
 import { parse2 } from '@/lib/customer/promo-format';
 import {
@@ -92,12 +90,7 @@ export function CartDrawer({
   const router = useRouter();
   const { data: session } = useSession();
   const [showAuthModal, setShowAuthModal] = useState(false);
-  // Id of an order journaled after a failed submit. On a later successful
-  // submit it is removed from the queue so the order cannot sync twice.
-  const lastJournaledId = useRef<string | null>(null);
-  // Portal variant: 'local' preserves counter/offline behavior (LAN,
-  // Electron); 'online' on loopback only when the dev override flag is set.
-  const isLocalMode = useCustomerPortalMode() === 'local';
+  const { isOffline } = useNetworkStatus();
 
   // People Also Ordered / Recommended Add-ons
   const [recommendedAddons, setRecommendedAddons] = useState<{ id: string; name: string; price: number; image?: string | null }[]>([]);
@@ -126,14 +119,8 @@ export function CartDrawer({
     };
   }, []);
 
-  useEffect(() => {
-    if (isLocalMode && fulfillmentType !== 'dine-in') {
-      setFulfillmentType('dine-in');
-    }
-  }, [isLocalMode, fulfillmentType, setFulfillmentType]);
-
   const handleGoToCheckout = () => {
-    if (!session?.user && !isLocalMode) {
+    if (!session?.user) {
       setShowAuthModal(true);
       return;
     }
@@ -175,12 +162,6 @@ export function CartDrawer({
   const [pickupTimeErrorText, setPickupTimeErrorText] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'gcash' | 'cod' | null>(null);
   
-  useEffect(() => {
-    if (isLocalMode) {
-      setPaymentMethod('cod'); // Force cash in local mode
-    }
-  }, [isLocalMode]);
-
   const sessionUserId = (session as any)?.user?.id as string | undefined;
   const sessionAccessToken = (session as any)?.accessToken as string | undefined;
 
@@ -188,10 +169,9 @@ export function CartDrawer({
   const isPhoneFormatValid = (v: string) => /^09\d{9}$/.test(normalizePhoneInput(v));
 
   // Load the permanent number + address book when the drawer opens for a
-  // signed-in online customer. Guests and local counter mode keep the
-  // legacy manual-entry behavior below.
+  // signed-in online customer.
   const refreshCheckoutContact = async () => {
-    if (isLocalMode || !session?.user || !sessionAccessToken) return;
+    if (!session?.user || !sessionAccessToken) return;
     try {
       const [profileRes, addrRes] = await Promise.all([
         fetch(`${getApiUrl()}/api/customer-settings`, {
@@ -228,7 +208,7 @@ export function CartDrawer({
         }
       }
     } catch {
-      // Backend unreachable — fall back to manual entry (offline journal).
+      // Backend unreachable
     } finally {
       setContactLoaded(true);
     }
@@ -236,6 +216,7 @@ export function CartDrawer({
 
   useEffect(() => {
     if (!isOpen) return;
+    setCheckoutError(null);
     setPhoneError(null);
     setConfirmPhoneError(null);
     setAddressError(null);
@@ -243,7 +224,7 @@ export function CartDrawer({
     setPickupTimeErrorText(null);
     refreshCheckoutContact();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, isLocalMode, sessionUserId, sessionAccessToken]);
+  }, [isOpen, sessionUserId, sessionAccessToken]);
 
   // Pick-Up prefill: default the collector's name to the signed-in account
   // name once the session is available; the customer can always edit it.
@@ -290,6 +271,7 @@ export function CartDrawer({
   // cleared. Never derive it from live cartItems here — they are empty by
   // the time this screen renders, which previously displayed ₱0.00.
   const [completedOrder, setCompletedOrder] = useState<{ id: string; type: string; paymentMethod: string; orderNumber: string; amountDue: number } | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Calculations
   useEffect(() => {
@@ -308,8 +290,6 @@ export function CartDrawer({
       }
     };
   }, [isOpen]);
-
-  if (!isOpen) return null;
 
   const getCashDescription = () => {
     if (fulfillmentType === 'delivery') return 'Pay when your order arrives';
@@ -369,7 +349,7 @@ export function CartDrawer({
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (sessionAccessToken) headers.Authorization = `Bearer ${sessionAccessToken}`;
-      const channel = isLocalMode ? 'pos' : 'online';
+      const channel = 'online';
       const res = await fetch(`${getApiUrl()}/api/promos/validate`, {
         method: 'POST',
         headers,
@@ -413,8 +393,9 @@ export function CartDrawer({
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (sessionAccessToken) headers.Authorization = `Bearer ${sessionAccessToken}`;
-        const channel = isLocalMode ? 'pos' : 'online';
-        const res = await fetch(`${getApiUrl()}/api/promos/validate`, {
+        const channel = 'online';
+        const res = await fetch
+        (`${getApiUrl()}/api/promos/validate`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ code: promoAppliedCode, subtotal, channel }),
@@ -450,59 +431,61 @@ export function CartDrawer({
     e.preventDefault();
     if (cartItems.length === 0) return;
 
-    // Prevent duplicate submissions
-    if (isSubmitting) return;
-
-    const finalCustomerName = isLocalMode ? (customerName.trim() || 'Local Guest') : customerName.trim();
-
-    if (!finalCustomerName) {
-      alert('Please enter your name');
+    if (isOffline) {
+      setCheckoutError('Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.');
       return;
     }
 
-    // Phase 3: permanent mobile number (online checkout only — local
-    // counter mode keeps its legacy behavior). A saved number needs no
-    // input; first-timers must enter + confirm a valid 09 number.
-    const usingSavedPhone = !isLocalMode && !!savedPhone;
-    if (!isLocalMode) {
-      if (usingSavedPhone) {
-        setPhoneError(null);
-        setConfirmPhoneError(null);
-      } else {
-        const clean = normalizePhoneInput(phone);
-        const cleanConfirm = normalizePhoneInput(confirmPhone);
-        let blocked = false;
-        if (!clean) {
-          setPhoneError('Mobile number is required.');
-          blocked = true;
-        } else if (!isPhoneFormatValid(phone)) {
-          setPhoneError('Mobile number must be 11 digits starting with 09.');
-          blocked = true;
-        } else {
-          setPhoneError(null);
-        }
-        if (!cleanConfirm) {
-          setConfirmPhoneError('Please confirm your mobile number.');
-          blocked = true;
-        } else if (clean && cleanConfirm !== clean) {
-          setConfirmPhoneError('Mobile numbers do not match.');
-          blocked = true;
-        } else {
-          setConfirmPhoneError(null);
-        }
-        if (blocked) return;
-      }
+    // Prevent duplicate submissions
+    if (isSubmitting) return;
+
+    setCheckoutError(null);
+
+    const finalCustomerName = customerName.trim();
+
+    if (!finalCustomerName) {
+      setCheckoutError('Please enter your name.');
+      return;
     }
 
-    // Phase 3: address book (online delivery for signed-in customers).
-    const useAddressBook = !isLocalMode && !!session?.user && fulfillmentType === 'delivery';
+    const usingSavedPhone = !!savedPhone;
+    if (usingSavedPhone) {
+      setPhoneError(null);
+      setConfirmPhoneError(null);
+    } else {
+      const clean = normalizePhoneInput(phone);
+      const cleanConfirm = normalizePhoneInput(confirmPhone);
+      let blocked = false;
+      if (!clean) {
+        setPhoneError('Mobile number is required.');
+        blocked = true;
+      } else if (!isPhoneFormatValid(phone)) {
+        setPhoneError('Mobile number must be 11 digits starting with 09.');
+        blocked = true;
+      } else {
+        setPhoneError(null);
+      }
+      if (!cleanConfirm) {
+        setConfirmPhoneError('Please confirm your mobile number.');
+        blocked = true;
+      } else if (clean && cleanConfirm !== clean) {
+        setConfirmPhoneError('Mobile numbers do not match.');
+        blocked = true;
+      } else {
+        setConfirmPhoneError(null);
+      }
+      if (blocked) return;
+    }
+
+    // Address book (online delivery for signed-in customers).
+    const useAddressBook = !!session?.user && fulfillmentType === 'delivery';
     const selectedSaved =
       useAddressBook && !addingNewAddress
         ? savedAddresses.find((a) => a.id === selectedAddressId) ?? null
         : null;
     if (fulfillmentType === 'delivery') {
       if (!selectedServiceAreaId) {
-        alert('Please select your Delivery Area (Barangay/City)');
+        setCheckoutError('Please select your Delivery Area (Barangay/City)');
         return;
       }
       if (useAddressBook && selectedSaved) {
@@ -539,7 +522,7 @@ export function CartDrawer({
     }
 
     if (!paymentMethod) {
-      alert('Please select a payment method');
+      setCheckoutError('Please select a payment method');
       return;
     }
 
@@ -566,15 +549,12 @@ export function CartDrawer({
     const orderNumber = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
 
     try {
-      const { getApiUrl } = await import('@/lib/config');
       const accessToken = (session as any)?.accessToken as string | undefined;
 
-      const resolvedPhone = isLocalMode
-        ? phone.trim() || 'LocalGuest'
-        : usingSavedPhone
-          ? (savedPhone as string)
-          : normalizePhoneInput(phone) || '09170000000';
-      // Snapshot text for the order row + offline journal. For saved
+      const resolvedPhone = usingSavedPhone
+        ? (savedPhone as string)
+        : normalizePhoneInput(phone) || '09170000000';
+      // Snapshot text for the order row. For saved
       // addresses the backend re-reads the book row (ownership-checked);
       // the text here only feeds local displays.
       const resolvedAddressText =
@@ -604,6 +584,17 @@ export function CartDrawer({
         pickupAt: fulfillmentType === 'pickup' ? pickupTime : null,
         type: fulfillmentType,
         items: orderItemsSummary,
+        orderItems: cartItems.map((ci) => {
+          const size = resolveCartSize(ci);
+          const price = size ? size.price : Number(ci.menuItem.price) || 0;
+          return {
+            menuItemId: ci.menuItem.id,
+            id: ci.menuItem.id,
+            name: ci.menuItem.name,
+            quantity: ci.quantity,
+            price,
+          };
+        }),
         subtotal,
         // Promos travel as the raw code string only. The backend resolves
         // validity and computes the discount; totals sent here are ignored.
@@ -626,24 +617,13 @@ export function CartDrawer({
           'Content-Type': 'application/json',
           ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
         },
-        // Orders placed through the café LAN backend are local: they skip the
-        // cloud-availability gate (cash + dine-in/pickup only, enforced
-        // server-side) so local ordering survives an Internet outage.
-        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod, orderMode: isLocalMode ? 'local' : 'online' }),
+        body: JSON.stringify({ orderDetails, paymentMethod: backendPaymentMethod, orderMode: 'online' }),
       });
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to process checkout');
-      }
-
-      // A previous failed attempt may have journaled this cart under another
-      // id — drop it now that the server accepted the order. Runs on ALL
-      // success paths (including the GCash redirect below).
-      if (lastJournaledId.current) {
-        removeOfflineOrder(lastJournaledId.current);
-        lastJournaledId.current = null;
       }
 
       if (paymentMethod === 'gcash' && data.invoiceUrl) {
@@ -666,16 +646,13 @@ export function CartDrawer({
           status: 'pending',
           orderedAt: new Date().toISOString(),
         });
-        // NOTE: no journalOrder here — the server just accepted this order.
-        // Journaling a successful order would queue it for offline replay and
-        // insert a second (customer-less) row with the same order number.
       } else {
         addStoreOrder({
           orderId: data.orderNumber || orderNumber,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           // ISO stamp for reliable newest-first sorting (display uses `time`).
           orderedAt: new Date().toISOString(),
-          items: `${isLocalMode ? '[GUEST] ' : ''}${finalCustomerName} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up / Take-Out'}): ${orderItemsSummary}`,
+          items: `${finalCustomerName} (${fulfillmentType === 'dine-in' ? `Table ${tableNumber || '1'}` : 'Pick-Up / Take-Out'}): ${orderItemsSummary}`,
           total,
           status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
           paid: false,
@@ -689,9 +666,6 @@ export function CartDrawer({
             ? { pickupName: normalizePickupName(pickupName), pickupAt: pickupTime }
             : {}),
         });
-        // NOTE: no journalOrder here — the server just accepted this order
-        // (see delivery branch above). Offline journaling happens only in the
-        // network-failure catch below.
       }
 
       setIsSubmitting(false);
@@ -720,10 +694,6 @@ export function CartDrawer({
       console.error('Checkout error:', error);
       setIsSubmitting(false);
       const msg = typeof error?.message === 'string' ? error.message : '';
-      // Offline fingerprints only: browser-offline state, fetch TypeErrors,
-      // and the per-engine network failure messages. Deliberately NOT matching
-      // generic substrings like "network" — a server-side refusal mentioning
-      // networks must never be mistaken for an offline client.
       const offlineBrowser =
         typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && !navigator.onLine;
       const isNetworkFailure =
@@ -732,37 +702,20 @@ export function CartDrawer({
         msg.includes('Failed to fetch') ||
         msg.includes('NetworkError') ||
         msg.includes('Load failed');
-      if (isNetworkFailure) {
-        // Offline: the backend never saw this order, so journal it locally
-        // for the background sync. Same id => retries overwrite, never duplicate.
-        // Address + customer notes mirror orderDetails above so the replayed
-        // order keeps them (the drain writes both columns). Promo codes stay
-        // UNJOURNALED: discounts are only valid online, so the replayed total
-        // is the plain (undiscounted) amount and the code is cleared here.
-        journalOrder({
-          id: orderNumber,
-          time: new Date().toISOString(),
-          items: orderItemsSummary,
-          total: Math.max(0, subtotal + deliveryFee),
-          status: fulfillmentType === 'dine-in' ? 'awaiting_payment' : 'pending',
-          paid: false,
-          notes: 'cart-offline',
-          address: fulfillmentType === 'dine-in' ? (tableNumber || 'Counter') : (address.trim() || null),
-          customerNotes: cartItems.filter(ci => ci.notes).map(ci => `${ci.menuItem.name}: ${ci.notes}`).join('; ') || null,
-        });
-        lastJournaledId.current = orderNumber;
-        alert("You're offline — order saved on this device and will sync automatically when you reconnect. Your cart is kept so you can review it.");
+      if (isNetworkFailure || msg.includes('ONLINE_ORDERING_UNAVAILABLE')) {
+        setCheckoutError('Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.');
       } else {
         const raw = error.message || 'Something went wrong. Please try again.';
-        // Never expose internal availability codes to customers.
-        alert(
-          raw.includes('ONLINE_ORDERING_UNAVAILABLE')
-            ? 'Online ordering is currently unavailable. Please try again later.'
-            : raw
-        );
+        const friendly =
+          raw.toLowerCase().includes('insufficient') || raw.toLowerCase().includes('unavailable')
+            ? 'Some items in your order are currently unavailable or have insufficient stock.'
+            : raw;
+        setCheckoutError(friendly);
       }
     }
   };
+
+  if (!isOpen) return null;
 
 
   return (
@@ -801,32 +754,28 @@ export function CartDrawer({
               Fulfillment Type
             </label>
             <div className="grid grid-cols-3 gap-2 bg-white p-1 rounded-xl border border-amber-200 shadow-inner">
-              {!isLocalMode && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setFulfillmentType('delivery')}
-                    className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
-                      fulfillmentType === 'delivery'
-                        ? 'bg-rose-900 text-white shadow-sm'
-                        : 'text-stone-700 hover:bg-amber-100/50'
-                    }`}
-                  >
-                    <Truck className="w-4 h-4" /> Delivery
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFulfillmentType('pickup')}
-                    className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
-                      fulfillmentType === 'pickup'
-                        ? 'bg-rose-900 text-white shadow-sm'
-                        : 'text-stone-700 hover:bg-amber-100/50'
-                    }`}
-                  >
-                    <ShoppingBag className="w-4 h-4" /> Pick-Up / Take-Out
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                onClick={() => setFulfillmentType('delivery')}
+                className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
+                  fulfillmentType === 'delivery'
+                    ? 'bg-rose-900 text-white shadow-sm'
+                    : 'text-stone-700 hover:bg-amber-100/50'
+                }`}
+              >
+                <Truck className="w-4 h-4" /> Delivery
+              </button>
+              <button
+                type="button"
+                onClick={() => setFulfillmentType('pickup')}
+                className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 ${
+                  fulfillmentType === 'pickup'
+                    ? 'bg-rose-900 text-white shadow-sm'
+                    : 'text-stone-700 hover:bg-amber-100/50'
+                }`}
+              >
+                <ShoppingBag className="w-4 h-4" /> Pick-Up / Take-Out
+              </button>
               <button
                 type="button"
                 onClick={() => setFulfillmentType('dine-in')}
@@ -834,7 +783,7 @@ export function CartDrawer({
                   fulfillmentType === 'dine-in'
                     ? 'bg-rose-900 text-white shadow-sm'
                     : 'text-stone-700 hover:bg-amber-100/50'
-                } ${isLocalMode ? 'col-span-3' : ''}`}
+                }`}
               >
                 <Utensils className="w-4 h-4" /> Dine-In
               </button>
@@ -899,17 +848,15 @@ export function CartDrawer({
                   </div>
                   
                   <div className="pt-2 flex flex-col gap-2">
-                    {!isLocalMode && (
-                      <button
-                        onClick={() => { setCompletedOrder(null); onClose(); router.push('/customer/orders'); }}
-                        className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-stone-950 transition text-center"
-                      >
-                        Track Order Status <Package className="w-4 h-4 inline ml-1" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => { setCompletedOrder(null); onClose(); router.push('/customer/orders'); }}
+                      className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold text-sm shadow-md hover:bg-stone-950 transition text-center"
+                    >
+                      Track Order Status <Package className="w-4 h-4 inline ml-1" />
+                    </button>
                     <button
                       onClick={() => { setCompletedOrder(null); onClose(); }}
-                      className={`w-full py-2.5 text-xs font-semibold ${isLocalMode ? 'bg-stone-900 text-white py-3 rounded-xl hover:bg-stone-950' : 'text-stone-600 hover:text-stone-900'}`}
+                      className="w-full py-2.5 text-xs font-semibold text-stone-600 hover:text-stone-900"
                     >
                       Close Window
                     </button>
@@ -1126,9 +1073,9 @@ export function CartDrawer({
                       <button
                         type="button"
                         onClick={() => applyPromo(promoCode)}
-                        disabled={promoValidating || !promoCode.trim()}
+                        disabled={promoValidating || !promoCode.trim() || isOffline}
                         className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                          promoValidating || !promoCode.trim()
+                          promoValidating || !promoCode.trim() || isOffline
                             ? 'bg-stone-300 text-stone-500 cursor-not-allowed'
                             : 'bg-stone-900 text-white hover:bg-stone-800'
                         }`}
@@ -1140,8 +1087,17 @@ export function CartDrawer({
                   {promoMessage && <p className="text-[11px] font-semibold text-rose-600 mt-1">{promoMessage}</p>}
                 </div>
 
+                {isOffline && (
+                  <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-start gap-2 shadow-xs">
+                    <span className="text-amber-600 font-bold shrink-0">⚠️</span>
+                    <div className="flex-1 leading-snug">
+                      Online ordering is currently unavailable because there is no internet connection. Please place your order directly at the café.
+                    </div>
+                  </div>
+                )}
+
                 {/* Customer Checkout Form */}
-                {session?.user || isLocalMode ? (
+                {session?.user ? (
                 <form id="checkout-form" onSubmit={handleCheckout} className="space-y-3 pt-2 border-t border-stone-200">
                   <h3 className="font-bold text-sm text-stone-900">Customer & Delivery Details</h3>
 
@@ -1150,15 +1106,14 @@ export function CartDrawer({
                     <input
                       type="text"
                       required
-                      placeholder={isLocalMode ? "Enter your name (Guest)" : "Enter your name"}
+                      placeholder="Enter your name"
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
                       className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-rose-900 focus:outline-none"
                     />
                   </div>
 
-                  {!isLocalMode &&
-                    (savedPhone ? (
+                  {savedPhone ? (
                       <div>
                         <label className="text-xs font-semibold text-stone-700 block mb-1">
                           Mobile Number
@@ -1237,7 +1192,7 @@ export function CartDrawer({
                           </p>
                         </div>
                       </>
-                    ))}
+                    )}
 
                   {fulfillmentType === 'delivery' && (
                     <>
@@ -1292,7 +1247,7 @@ export function CartDrawer({
                                 ‹ Use saved address
                               </button>
                             )}
-                            {session?.user && !isLocalMode && (
+                            {session?.user && (
                               <input
                                 type="text"
                                 placeholder="Label (e.g. Home, Work, School)"
@@ -1436,26 +1391,24 @@ export function CartDrawer({
                       {isPaymentExpanded && (
                         <div className="p-3 border-t border-stone-100 space-y-2 bg-stone-50/50">
                           <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-2 pl-1">Choose Payment Method</p>
-                          {!isLocalMode && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); setPaymentMethod('gcash'); }}
-                              className={`w-full p-3 border rounded-xl flex items-center justify-between transition-colors ${paymentMethod === 'gcash' ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600' : 'border-stone-200 hover:border-blue-300 bg-white'}`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-xs shadow-sm">G</div>
-                                <div className="text-left">
-                                  <p className="text-sm font-bold text-stone-800">GCash</p>
-                                  <p className="text-[10px] text-stone-500 font-medium">Powered by Xendit</p>
-                                </div>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); setPaymentMethod('gcash'); }}
+                            className={`w-full p-3 border rounded-xl flex items-center justify-between transition-colors ${paymentMethod === 'gcash' ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600' : 'border-stone-200 hover:border-blue-300 bg-white'}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-xs shadow-sm">G</div>
+                              <div className="text-left">
+                                <p className="text-sm font-bold text-stone-800">GCash</p>
+                                <p className="text-[10px] text-stone-500 font-medium">Powered by Xendit</p>
                               </div>
-                              {paymentMethod === 'gcash' ? (
-                                <div className="w-4 h-4 rounded-full border-[4px] border-blue-600 bg-white shadow-sm flex-shrink-0"></div>
-                              ) : (
-                                <div className="w-4 h-4 rounded-full border-2 border-stone-300 flex-shrink-0"></div>
-                              )}
-                            </button>
-                          )}
+                            </div>
+                            {paymentMethod === 'gcash' ? (
+                              <div className="w-4 h-4 rounded-full border-[4px] border-blue-600 bg-white shadow-sm flex-shrink-0"></div>
+                            ) : (
+                              <div className="w-4 h-4 rounded-full border-2 border-stone-300 flex-shrink-0"></div>
+                            )}
+                          </button>
 
                           <button
                             type="button"
@@ -1541,13 +1494,27 @@ export function CartDrawer({
                 </div>
               </div>
 
-              {session?.user || isLocalMode ? (
+              {checkoutError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shadow-xs animate-in fade-in">
+                  <span className="text-rose-600 font-bold shrink-0">⚠️</span>
+                  <div className="flex-1 leading-snug">{checkoutError}</div>
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutError(null)}
+                    className="text-stone-400 hover:text-stone-600 font-bold text-xs ml-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {session?.user ? (
                 <button
                   type="submit"
                   form="checkout-form"
-                  disabled={isSubmitting || pickupIncomplete}
+                  disabled={isSubmitting || pickupIncomplete || isOffline}
                   className={`w-full py-3.5 px-4 text-white rounded-xl font-black text-sm shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2 ${
-                    isSubmitting || pickupIncomplete
+                    isSubmitting || pickupIncomplete || isOffline
                       ? 'bg-stone-400 cursor-not-allowed' 
                       : 'bg-[#B91C1C] hover:bg-[#991B1B]'
                   }`}
@@ -1557,6 +1524,8 @@ export function CartDrawer({
                       <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       Processing...
                     </>
+                  ) : isOffline ? (
+                    'Online Ordering Unavailable Offline'
                   ) : paymentMethod === 'gcash' ? (
                     `Pay with GCash - ₱${total.toFixed(2)}`
                   ) : (

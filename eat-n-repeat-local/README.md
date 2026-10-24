@@ -31,10 +31,8 @@ Desktop Electron application that manages the local Eat n RepEat system. It star
 3. The system will start the backend on port 4000 and frontend on port 3000
 
 ### Accessing Portals
-
-- **STAFF** - Opens the staff dashboard in your default browser (`/staff`)
-- **ADMIN** - Opens the admin dashboard in your default browser (`/admin`)
-- **QR** - Displays a QR code that customers can scan to access the ordering menu
+ 
+- **STAFF / ADMIN PORTAL** - Opens the staff POS and admin management portal in your default browser (`/login` or `/staff`).
 
 ### Stopping the System
 

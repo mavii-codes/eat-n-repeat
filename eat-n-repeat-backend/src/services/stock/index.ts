@@ -147,3 +147,5 @@ export async function setLayerCost(itemId: string, layerId: string, unitCost: nu
 export async function stockDashboard() {
   return stockDashboardService.execute();
 }
+
+export { runStockConsistencyCheck } from "./consistency-check";

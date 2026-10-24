@@ -119,7 +119,18 @@ export type MenuItem = {
   categoryId: string;
   available: boolean;
   image?: string;
-  stockItemId?: string;
+  stockItemId?: string | null;
+  stockMode?: "NONE" | "DIRECT";
+  stockQuantity?: number | null;
+  stockUnit?: string | null;
+  lowStockThreshold?: number | null;
+  isOutOfStock?: boolean;
+  isLowStock?: boolean;
+  createStockItem?: {
+    unit: string;
+    categoryId: string;
+    lowStockThreshold?: number;
+  };
   // Optional size options with absolute per-size prices. Absent/empty =
   // single base-price item needing no size selection.
   sizes?: MenuItemSize[];
@@ -232,6 +243,7 @@ export type StockMovementType =
   | "ADJUSTMENT_ADD"
   | "ADJUSTMENT_REMOVE"
   | "SALE_DEDUCTION"
+  | "SALE_CANCEL_RELEASE"
   | "OPENING_BALANCE";
 
 export type StockMovement = {
@@ -261,6 +273,7 @@ export type StockDashboardResponse = {
     lowStockCount: number;
     outOfStockCount: number;
     expiringSoonCount: number;
+    alreadyExpiredCount?: number;
   };
   lists: {
     lowStockItems: {
@@ -279,9 +292,12 @@ export type StockDashboardResponse = {
     }[];
     expiringSoon: {
       id: string;
-      name: string;
-      quantity: number;
+      stockItemId: string;
+      itemName: string;
+      quantityRemaining: number;
+      unit: string;
       expiryDate: string;
+      receivedAt: string;
     }[];
     recentMovements: StockMovement[];
     mostUsedThisWeek: {
@@ -321,6 +337,8 @@ export type StockAdjustInput = {
   quantity: number;
   reason: StockAdjustReason;
   note?: string | null;
+  receivedAt?: string | null;
+  expiryDate?: string | null;
 };
 
 export type StockMutationItemSnapshot = {
@@ -333,6 +351,8 @@ export type StockMutationItemSnapshot = {
 export type StockMutationResponse = {
   ok: boolean;
   message: string;
+  field?: string;
+  errors?: Array<{ field: string; message: string }>;
   movement: StockMovement | null;
   item: StockMutationItemSnapshot | null;
 };

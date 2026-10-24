@@ -5,7 +5,11 @@ import * as service from "@/services/menu/index";
 
 function dbError(res: Response, error: unknown, context: string) {
   const code = (error as { code?: string })?.code;
+  const status = (error as { status?: number })?.status;
+  const message = (error as { message?: string })?.message;
+  if (status) return res.status(status).json({ message });
   if (code === "P2025") return res.status(404).json({ message: "Not found." });
+  if (code === "P2002") return res.status(409).json({ message: "A unique constraint was violated (item name or inventory link already exists)." });
   if (code === "P2003")
     return res.status(400).json({ message: "The selected menu category does not exist." });
   console.error(`Error ${context}:`, error);
@@ -95,7 +99,10 @@ export class MenuController {
         });
         viewerCustomerId = customer?.id;
       }
-      const items = await service.listMenuItems(includeArchived, viewerCustomerId);
+      const isAdminOrStaff =
+        (req.query.admin as string) === "true" ||
+        !!(req.auth?.role && ["admin", "staff", "owner", "cashier", "manager"].includes(String(req.auth.role).toLowerCase()));
+      const items = await service.listMenuItems(includeArchived, viewerCustomerId, isAdminOrStaff);
       // Tombstone ids so clients can hide rows archived on another device.
       // Ids only — no archived content leaks through the public endpoint.
       const { items: archivedIds } = await service.listArchivedMenuIds();

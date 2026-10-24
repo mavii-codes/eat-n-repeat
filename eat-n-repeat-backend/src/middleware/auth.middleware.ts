@@ -48,6 +48,10 @@ function attachIdentity(
       role: identity.user.role,
     };
   } else {
+    // Invariant: Customer accounts cannot authenticate through the local offline backend.
+    if (process.env.LOCAL_BACKEND === "true" || process.env.LOCAL_BACKEND === "1") {
+      return false;
+    }
     req.auth = {
       userId,
       kind: "customer",
@@ -55,6 +59,17 @@ function attachIdentity(
     };
   }
   return true;
+}
+
+export function gateCustomerOnLocalBackend(_req: Request, res: Response, next: NextFunction) {
+  if (process.env.LOCAL_BACKEND === "true" || process.env.LOCAL_BACKEND === "1") {
+    return res.status(503).json({
+      success: false,
+      message: "Online customer accounts and ordering are unavailable on the local offline backend. Please place orders directly at the café.",
+      error: "Online customer accounts and ordering are unavailable on the local offline backend. Please place orders directly at the café.",
+    });
+  }
+  next();
 }
 
 export async function requireAuth(

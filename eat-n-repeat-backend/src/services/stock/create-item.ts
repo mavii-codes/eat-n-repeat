@@ -9,6 +9,8 @@ export class CreateItemService {
     quantity?: number;
     unit: string;
     lowStockThreshold: number;
+    /** "ingredient" (Inventory UI) by default; the menu flow passes "menu". */
+    kind?: string;
   }) {
     const id = `st-${crypto.randomUUID()}`;
     const item = await stockRepository.createItem({
@@ -19,6 +21,7 @@ export class CreateItemService {
       quantity: data.quantity ?? 0,
       unit: data.unit,
       lowStockThreshold: data.lowStockThreshold,
+      kind: data.kind ?? "ingredient",
     });
     return itemResponse(item);
   }

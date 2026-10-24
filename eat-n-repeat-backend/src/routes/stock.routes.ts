@@ -7,7 +7,9 @@ const router = Router();
 
 router.use(requireAuth);
 
-router.get("/categories", (req, res) => stockController.listCategories(req, res));
+router.get("/categories", requireRole(...STAFF_ROLES), (req, res) =>
+  stockController.listCategories(req, res),
+);
 // Category writes are admin-only (staff inventory reads stay authenticated).
 router.post("/categories", requireRole("admin"), (req, res) =>
   stockController.createCategory(req, res),
@@ -19,7 +21,9 @@ router.delete("/categories/:id", requireRole("admin"), (req, res) =>
   stockController.deleteCategory(req, res),
 );
 
-router.get("/items", (req, res) => stockController.listItems(req, res));
+router.get("/items", requireRole(...STAFF_ROLES), (req, res) =>
+  stockController.listItems(req, res),
+);
 router.post("/items", requireRole("admin"), (req, res) => stockController.createItem(req, res));
 router.put("/items/:id", requireRole("admin"), (req, res) => stockController.updateItem(req, res));
 router.delete("/items/:id", requireRole("admin"), (req, res) => stockController.deleteItem(req, res));
@@ -44,6 +48,9 @@ router.get("/movements", requireRole("admin"), (req, res) =>
 );
 router.get("/dashboard", requireRole("admin"), (req, res) =>
   stockController.dashboard(req, res),
+);
+router.get("/consistency-check", requireRole("admin"), (req, res) =>
+  stockController.consistencyCheck(req, res),
 );
 
 // Stock requests: staff submit/read; status transitions carry adminNote and

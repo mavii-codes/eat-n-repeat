@@ -48,6 +48,7 @@ import type {
   StockMovement,
   StockMovementPage,
   StockMutationItemSnapshot,
+  StockMutationResponse,
   StockRequest,
   StockRequestInput,
   SystemSettings,
@@ -581,6 +582,16 @@ const LEGACY_MOCK_DELIVERY_IDS = new Set([
   "do-6",
 ]);
 
+const LEGACY_MOCK_STOCK_IDS = new Set([
+  "st-1",
+  "st-2",
+  "st-3",
+  "st-4",
+  "st-5",
+  "st-6",
+  "si-6f12f5bf",
+]);
+
 function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
   return {
     ...initialAdminData,
@@ -591,7 +602,9 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
     ),
     menuItems: ensureArchived(data.menuItems, initialAdminData.menuItems),
     stockCategories: data.stockCategories ?? initialAdminData.stockCategories,
-    stockItems: data.stockItems ?? initialAdminData.stockItems,
+    stockItems: (data.stockItems ?? []).filter(
+      (i) => !LEGACY_MOCK_STOCK_IDS.has(i.id) && !i.name.includes("Test Item Sync"),
+    ),
     stockRequests: data.stockRequests ?? initialAdminData.stockRequests,
     staffAccounts: ensureArchived(
       (data.staffAccounts ?? initialAdminData.staffAccounts)
@@ -633,9 +646,11 @@ function normalizeStoredData(data: Partial<AdminDataState>): AdminDataState {
 }
 
 type AdminDataContextValue = AdminDataState & {
-  addMenuItem: (input: MenuItemInput) => void;
-  updateMenuItem: (id: string, input: MenuItemInput) => void;
+  addMenuItem: (input: MenuItemInput) => Promise<any> | void;
+  updateMenuItem: (id: string, input: MenuItemInput) => Promise<any> | void;
   deleteMenuItem: (id: string) => void;
+  refreshBackendMenu: () => Promise<boolean>;
+  fetchStockConsistencyCheck: () => Promise<any>;
   archiveMenuItem: (id: string) => void;
   restoreMenuItem: (id: string) => void;
   addMenuCategory: (input: MenuCategoryInput) => void;
@@ -687,18 +702,8 @@ type AdminDataContextValue = AdminDataState & {
     staffId?: string;
     search?: string;
   }) => Promise<StockMovementPage | null>;
-  stockInItem: (itemId: string, input: StockInInput) => Promise<{
-    ok: boolean;
-    message: string;
-    movement: StockMovement | null;
-    item: StockMutationItemSnapshot | null;
-  }>;
-  adjustStockItem: (itemId: string, input: StockAdjustInput) => Promise<{
-    ok: boolean;
-    message: string;
-    movement: StockMovement | null;
-    item: StockMutationItemSnapshot | null;
-  }>;
+  stockInItem: (itemId: string, input: StockInInput) => Promise<StockMutationResponse>;
+  adjustStockItem: (itemId: string, input: StockAdjustInput) => Promise<StockMutationResponse>;
   fetchStockItemLayers: (itemId: string) => Promise<StockLayer[] | null>;
   /** Admin-only Phase B write: set the unit cost on one FIFO cost layer.
    *  PATCH /api/stock/items/:id/layers/:layerId/cost → on success
@@ -887,78 +892,58 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     hydratedFromStorage.current = true;
   });
 
-  // Load the shared menu from the backend once on mount. Server rows win for
-  // matching ids; device-only rows (created offline) are kept alongside.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        // Diagnostics: prove whether the rendered menu comes from the API.
-        // (console.info only — safe in production, no PII.)
-        const { getApiUrl } = await import("@/lib/config");
-        console.info(`[customer-menu] API URL: ${getApiUrl()}`);
-        console.info("[customer-menu] fetching /api/menu/items");
-        const [catRes, itemRes] = await Promise.all([
-          menuApi("/api/menu/categories"),
-          menuApi("/api/menu/items"),
-        ]);
-        if (!catRes.ok || !itemRes.ok) {
-          console.warn("[customer-menu] API failed, using cached fallback.");
-          return;
-        }
-        const catJson = await catRes.json();
-        const itemJson = await itemRes.json();
-        if (cancelled) return;
-        const serverCategories = ensureArchived(
-          (catJson.categories ?? []) as MenuCategory[],
-        );
-        const serverItems = ensureArchived(
-          (itemJson.items ?? []) as MenuItem[],
-        );
-        console.info(`[customer-menu] API response count: ${serverItems.length}`);
-        console.info(`[customer-menu] API item IDs: ${serverItems.map((i) => i.id).join(", ")}`);
-        // Tombstones: ids the server reports as archived. Cached rows with
-        // these ids were removed on another device — mark them archived in
-        // place (kept for offline cache, hidden from customer views). Rows
-        // absent from BOTH lists are genuine offline-created rows and stay.
-        const archivedCatIds = new Set<string>(catJson.archivedIds ?? []);
-        const archivedItemIds = new Set<string>(itemJson.archivedIds ?? []);
-        setData((prev) => {
-          const serverCatIds = new Set(serverCategories.map((c) => c.id));
-          const serverItemIds = new Set(serverItems.map((i) => i.id));
-          return {
-            ...prev,
-            menuCategories: [
-              ...serverCategories,
-              ...prev.menuCategories
-                .filter((c) => !serverCatIds.has(c.id))
-                .map((c) =>
-                  archivedCatIds.has(c.id)
-                    ? { ...c, archived: true, archivedAt: c.archivedAt ?? archiveTimestamp() }
-                    : c,
-                ),
-            ],
-            menuItems: [
-              ...serverItems,
-              ...prev.menuItems
-                .filter((i) => !serverItemIds.has(i.id))
-                .map((i) =>
-                  archivedItemIds.has(i.id)
-                    ? { ...i, archived: true, archivedAt: i.archivedAt ?? archiveTimestamp() }
-                    : i,
-                ),
-            ],
-          };
-        });
-      } catch {
-        // Backend unreachable — keep the local cache (offline mode).
-        console.warn("[customer-menu] API failed, using cached fallback.");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  // Pull shared menu from backend with full stock-tracking metadata if staff/admin.
+  const refreshBackendMenu = useCallback(async (): Promise<boolean> => {
+    try {
+      const token = getStaffOrAdminToken();
+      const itemsUrl = token ? "/api/menu/items?admin=true" : "/api/menu/items";
+      const [catRes, itemRes] = await Promise.all([
+        menuApi("/api/menu/categories"),
+        menuApi(itemsUrl),
+      ]);
+      if (!catRes.ok || !itemRes.ok) return false;
+      const catJson = await catRes.json();
+      const itemJson = await itemRes.json();
+      const serverCategories = ensureArchived((catJson.categories ?? []) as MenuCategory[]);
+      const serverItems = ensureArchived((itemJson.items ?? []) as MenuItem[]);
+      const archivedCatIds = new Set<string>(catJson.archivedIds ?? []);
+      const archivedItemIds = new Set<string>(itemJson.archivedIds ?? []);
+      setData((prev) => {
+        const serverCatIds = new Set(serverCategories.map((c) => c.id));
+        const serverItemIds = new Set(serverItems.map((i) => i.id));
+        return {
+          ...prev,
+          menuCategories: [
+            ...serverCategories,
+            ...prev.menuCategories
+              .filter((c) => !serverCatIds.has(c.id))
+              .map((c) =>
+                archivedCatIds.has(c.id)
+                  ? { ...c, archived: true, archivedAt: c.archivedAt ?? archiveTimestamp() }
+                  : c,
+              ),
+          ],
+          menuItems: [
+            ...serverItems,
+            ...prev.menuItems
+              .filter((i) => !serverItemIds.has(i.id))
+              .map((i) =>
+                archivedItemIds.has(i.id)
+                  ? { ...i, archived: true, archivedAt: i.archivedAt ?? archiveTimestamp() }
+                  : i,
+              ),
+          ],
+        };
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshBackendMenu();
+  }, [refreshBackendMenu]);
 
   const refreshStaffAccounts = useCallback(async (): Promise<boolean> => {
     setStaffLoading(true);
@@ -1074,18 +1059,10 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       }[];
       const serverRequests = reqJson?.requests as any[] | undefined;
       setData((prev) => {
-        const serverCatIds = new Set(serverCategories.map((c) => c.id));
-        const serverItemIds = new Set(serverItems.map((i) => i.id));
         return {
           ...prev,
-          stockCategories: [
-            ...serverCategories,
-            ...prev.stockCategories.filter((c) => !serverCatIds.has(c.id)),
-          ],
-          stockItems: [
-            ...serverItems,
-            ...prev.stockItems.filter((i) => !serverItemIds.has(i.id)),
-          ],
+          stockCategories: serverCategories.length > 0 ? serverCategories : prev.stockCategories,
+          stockItems: serverItems,
           ...(serverRequests
             ? {
                 stockRequests: serverRequests.map((r: any) => ({
@@ -1180,6 +1157,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       void fetchSalesFigures();
       void refreshBackendOrders();
       void refreshBackendStock();
+      void refreshBackendMenu();
       setSalesEventsVersion((version) => version + 1);
     });
     return unsubscribe;
@@ -1188,6 +1166,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     fetchSalesFigures,
     refreshBackendOrders,
     refreshBackendStock,
+    refreshBackendMenu,
   ]);
 
   // Tab focus / return self-heals revenue even if the SSE reconnect is still
@@ -1407,16 +1386,27 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   // { movement, item }): returns null movement when the payload is off-contract.
   function parseStockMutationResponse(json: unknown): {
     message: string;
+    field?: string;
+    errors?: Array<{ field: string; message: string }>;
     movement: StockMovement | null;
     item: StockMutationItemSnapshot | null;
   } {
     const raw = (json ?? {}) as {
       message?: unknown;
+      field?: unknown;
+      errors?: unknown;
       movement?: unknown;
       item?: unknown;
     };
     const message =
       typeof raw.message === "string" ? raw.message : "";
+    const field =
+      typeof raw.field === "string" ? raw.field : undefined;
+    const errors =
+      Array.isArray(raw.errors)
+        ? (raw.errors as Array<{ field: string; message: string }>)
+        : undefined;
+
     let movement: StockMovement | null = null;
     if (raw.movement && typeof raw.movement === "object") {
       movement = raw.movement as StockMovement;
@@ -1431,19 +1421,14 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         unit: it.unit != null ? String(it.unit) : null,
       };
     }
-    return { message, movement, item };
+    return { message, field, errors, movement, item };
   }
 
   const stockInItem = useCallback(
     async (
       itemId: string,
       input: StockInInput,
-    ): Promise<{
-      ok: boolean;
-      message: string;
-      movement: StockMovement | null;
-      item: StockMutationItemSnapshot | null;
-    }> => {
+    ): Promise<StockMutationResponse> => {
       try {
         const body = {
           quantity: Number(input.quantity),
@@ -1476,6 +1461,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         return {
           ok: false,
           message: parsed.message || "Stock-in failed. Try again.",
+          field: parsed.field,
+          errors: parsed.errors,
           movement: null,
           item: null,
         };
@@ -1495,18 +1482,15 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     async (
       itemId: string,
       input: StockAdjustInput,
-    ): Promise<{
-      ok: boolean;
-      message: string;
-      movement: StockMovement | null;
-      item: StockMutationItemSnapshot | null;
-    }> => {
+    ): Promise<StockMutationResponse> => {
       try {
         const body = {
           direction: input.direction,
           quantity: Number(input.quantity),
           reason: input.reason,
           ...(input.note && input.note.trim() ? { note: input.note.trim() } : {}),
+          ...(input.receivedAt ? { receivedAt: input.receivedAt } : {}),
+          ...(input.expiryDate ? { expiryDate: input.expiryDate } : {}),
         };
         const res = await staffApi(
           `/api/stock/items/${encodeURIComponent(itemId)}/adjust`,
@@ -1528,6 +1512,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         return {
           ok: false,
           message: parsed.message || "Adjustment failed. Try again.",
+          field: parsed.field,
+          errors: parsed.errors,
           movement: null,
           item: null,
         };
@@ -1603,90 +1589,52 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     [data.staffAccounts, serverStaffIds],
   );
 
-  const addMenuItem = useCallback((input: MenuItemInput) => {
-    const tempId = createId("mi");
-    setData((prev) => ({
-      ...prev,
-      menuItems: [...prev.menuItems, { ...input, id: tempId, archived: false }],
-    }));
-    // Persist to the shared backend; reconcile the temp id on success.
-    (async () => {
-      try {
-        const res = await menuApi("/api/menu/items", {
-          method: "POST",
-          body: JSON.stringify(input),
-        });
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) notifyMenuSyncFailed();
-          return;
-        }
-        const json = await res.json();
-        const saved = json.item as MenuItem;
-        if (!saved?.id) return;
-        setData((prev) => ({
-          ...prev,
-          menuItems: prev.menuItems.map((item) =>
-            item.id === tempId ? { ...saved, archived: false } : item,
-          ),
-        }));
-      } catch {
-        // Offline — the local row stays and syncs on next edit/reload.
-      }
-    })();
-  }, []);
+  const addMenuItem = useCallback(async (input: MenuItemInput) => {
+    const res = await menuApi("/api/menu/items", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: "Failed to add menu item." }));
+      throw new Error(err.message || "Failed to add menu item.");
+    }
+    const json = await res.json();
+    const saved = json.item as MenuItem;
+    if (saved?.id) {
+      setData((prev) => ({
+        ...prev,
+        menuItems: [...prev.menuItems.filter((i) => i.id !== saved.id), { ...saved, archived: false }],
+      }));
+    }
+    void refreshBackendStock();
+    return saved;
+  }, [refreshBackendStock]);
 
-  const updateMenuItem = useCallback((id: string, input: MenuItemInput) => {
-    setData((prev) => ({
-      ...prev,
-      menuItems: prev.menuItems.map((item) =>
-        item.id === id ? { ...item, ...input, id } : item,
-      ),
-    }));
-    (async () => {
-      try {
-        const res = await menuApi(`/api/menu/items/${id}`, {
-          method: "PUT",
-          body: JSON.stringify(input),
-        });
-        if (!res.ok) {
-          // Unknown to the server (device-only row) — create it instead.
-          if (res.status === 404) {
-            const createRes = await menuApi("/api/menu/items", {
-              method: "POST",
-              body: JSON.stringify(input),
-            });
-            if (!createRes.ok) {
-              if (createRes.status === 401 || createRes.status === 403)
-                notifyMenuSyncFailed();
-              return;
-            }
-            const json = await createRes.json();
-            const saved = json.item as MenuItem;
-            if (!saved?.id) return;
-            setData((prev) => ({
-              ...prev,
-              menuItems: prev.menuItems.map((item) =>
-                item.id === id ? { ...saved, archived: false } : item,
-              ),
-            }));
-            return;
-          }
-          if (res.status === 401 || res.status === 403) notifyMenuSyncFailed();
-          return;
-        }
-        const json = await res.json();
-        const saved = json.item as MenuItem;
-        if (!saved?.id) return;
-        setData((prev) => ({
-          ...prev,
-          menuItems: prev.menuItems.map((item) =>
-            item.id === id ? { ...saved } : item,
-          ),
-        }));
-      } catch {
-        // Offline — optimistic local change stands.
-      }
-    })();
+  const updateMenuItem = useCallback(async (id: string, input: MenuItemInput) => {
+    const res = await menuApi(`/api/menu/items/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: "Failed to update menu item." }));
+      throw new Error(err.message || "Failed to update menu item.");
+    }
+    const json = await res.json();
+    const saved = json.item as MenuItem;
+    if (saved?.id) {
+      setData((prev) => ({
+        ...prev,
+        menuItems: prev.menuItems.map((item) => (item.id === id ? { ...saved, archived: false } : item)),
+      }));
+    }
+    void refreshBackendStock();
+    return saved;
+  }, [refreshBackendStock]);
+
+  const fetchStockConsistencyCheck = useCallback(async () => {
+    const res = await staffApi("/api/stock/consistency-check");
+    if (!res.ok) throw new Error("Consistency check failed.");
+    return res.json();
   }, []);
 
   const deleteMenuItem = useCallback((id: string) => {
@@ -1712,11 +1660,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         });
         if (!res.ok && (res.status === 401 || res.status === 403))
           notifyMenuSyncFailed();
+        void refreshBackendStock();
       } catch {
         // Offline — optimistic local change stands.
       }
     })();
-  }, []);
+  }, [refreshBackendStock]);
 
   const restoreMenuItem = useCallback((id: string) => {
     setData((prev) => ({
@@ -1734,11 +1683,12 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         });
         if (!res.ok && (res.status === 401 || res.status === 403))
           notifyMenuSyncFailed();
+        void refreshBackendStock();
       } catch {
         // Offline — optimistic local change stands.
       }
     })();
-  }, []);
+  }, [refreshBackendStock]);
 
   const addMenuCategory = useCallback((input: MenuCategoryInput) => {
     const tempId = createId("mc");
@@ -2830,6 +2780,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       shift: CashShift | null;
     }> => {
       try {
+        if (typeof navigator !== "undefined" && typeof navigator.onLine === "boolean" && !navigator.onLine) {
+          throw new Error("Offline");
+        }
         const res = await staffApi(
           `/api/cash/shifts/${encodeURIComponent(shiftId)}/expense`,
           {
@@ -2855,11 +2808,78 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           shift: null,
         };
       } catch {
+        // Offline / network failure: journal the drawer paid-out so it syncs with the shift
+        const { journalExpense } = await import("@/lib/offlineSync");
+        const expId = `exp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        const token = getStaffOrAdminToken();
+        let staffId: string | null = null;
+        if (token) {
+          try {
+            const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+            if (typeof payload?.sub === "string") staffId = payload.sub;
+          } catch {}
+        }
+        journalExpense({
+          id: expId,
+          shiftId,
+          amount: input.amount,
+          category: input.category,
+          reason: input.reason,
+          note: input.note || null,
+          staffId,
+        });
+
+        let updatedShift: CashShift | null = null;
+        setData((prev) => {
+          const currentShift = prev.activeCashShift;
+          const prevExpected = Number(currentShift?.expected_cash) || 0;
+          const newExpected = Math.max(0, prevExpected - input.amount);
+          const newExpense: ExpenseItem = {
+            id: expId,
+            expenseDate: new Date().toISOString(),
+            amount: input.amount,
+            category: input.category,
+            reason: input.reason,
+            note: input.note || null,
+            source: "drawer",
+            paymentSource: "cash_drawer",
+            status: "active",
+            shiftId,
+            createdAt: new Date().toISOString(),
+          };
+          const existingExpenses = Array.isArray(currentShift?.expenses) ? currentShift.expenses : [];
+          updatedShift = {
+            ...(currentShift || {
+              id: shiftId,
+              starting_float: 0,
+              status: "open",
+            }),
+            expected_cash: newExpected,
+            expenses: [...existingExpenses, newExpense],
+          } as CashShift;
+          return {
+            ...prev,
+            activeCashShift: updatedShift,
+          };
+        });
+
         return {
-          ok: false,
-          message: "Network error — expense not recorded.",
-          expense: null,
-          shift: null,
+          ok: true,
+          message: "Expense saved offline — will sync with shift.",
+          expense: {
+            id: expId,
+            expenseDate: new Date().toISOString(),
+            amount: input.amount,
+            category: input.category,
+            reason: input.reason,
+            note: input.note || null,
+            source: "drawer",
+            paymentSource: "cash_drawer",
+            status: "active",
+            shiftId,
+            createdAt: new Date().toISOString(),
+          },
+          shift: updatedShift,
         };
       }
     },
@@ -3092,6 +3112,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addMenuItem,
       updateMenuItem,
       deleteMenuItem,
+      refreshBackendMenu,
+      fetchStockConsistencyCheck,
       archiveMenuItem,
       restoreMenuItem,
       addMenuCategory,
@@ -3174,6 +3196,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       addMenuItem,
       updateMenuItem,
       deleteMenuItem,
+      refreshBackendMenu,
+      fetchStockConsistencyCheck,
       archiveMenuItem,
       restoreMenuItem,
       addMenuCategory,

@@ -7,6 +7,7 @@ import {
   getPendingOfflineOrders,
   getPendingStockTransactions,
   getPendingOfflinePayments,
+  getPendingOfflineExpenses,
   getPendingOfflineStatusChanges,
   getPendingOfflineShiftOps,
   markOrdersSynced,
@@ -15,10 +16,13 @@ import {
   clearSyncedStockTransactions,
   markPaymentsSynced,
   clearSyncedOfflinePayments,
+  markExpensesSynced,
+  clearSyncedOfflineExpenses,
   markStatusChangesSynced,
   clearSyncedOfflineStatusChanges,
   markShiftOpsSynced,
-  clearSyncedOfflineShiftOps
+  clearSyncedOfflineShiftOps,
+  reviewLegacyCustomerOfflineOrders,
 } from "@/lib/offlineSync";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -44,9 +48,8 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
   const [isLocalBackendReachable, setIsLocalBackendReachable] = useState(true);
   const [onlineOrdering, setOnlineOrdering] = useState<OnlineOrderingStatus>("AVAILABLE");
   const syncInProgress = useRef(false);
-  // Tracks offline state across polls without stale-closure issues
-  // (the interval below is mounted once).
   const wasOffline = useRef(false);
+  const consecutivePingsRef = useRef(0);
 
   const performSync = async () => {
     if (syncInProgress.current) return;
@@ -56,6 +59,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
       const offlineOrders = await getPendingOfflineOrders();
       const offlineStockTxs = await getPendingStockTransactions();
       const offlinePayments = await getPendingOfflinePayments();
+      const offlineExpenses = await getPendingOfflineExpenses();
       const offlineStatusChanges = await getPendingOfflineStatusChanges();
       const offlineShiftOps = await getPendingOfflineShiftOps();
 
@@ -63,30 +67,17 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
         offlineOrders.length === 0 &&
         offlineStockTxs.length === 0 &&
         offlinePayments.length === 0 &&
+        offlineExpenses.length === 0 &&
         offlineStatusChanges.length === 0 &&
         offlineShiftOps.length === 0
       ) {
         return;
       }
 
-      // /api/sync/offline requires a backend JWT. Prefer the staff/admin token;
-      // otherwise use the signed-in customer's token from our own NextAuth
-      // session endpoint (same-origin, cookie-authenticated). Absent both,
-      // keep the queue for later instead of failing loudly.
-      let bearer: string | null = getStaffOrAdminToken();
+      // Offline sync is strictly for staff operations. Require staff/admin token.
+      const bearer = getStaffOrAdminToken();
       if (!bearer) {
-        try {
-          const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
-          if (sessionRes.ok) {
-            const session = await sessionRes.json();
-            if (typeof session?.accessToken === "string") bearer = session.accessToken;
-          }
-        } catch {
-          // Session lookup is best-effort; queue survives regardless.
-        }
-      }
-      if (!bearer) {
-        console.warn("[sync] No auth token available; keeping offline queue for later.");
+        console.warn("[sync] Staff credentials required to drain offline operations; queue preserved.");
         return;
       }
 
@@ -98,6 +89,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
           offline_orders: offlineOrders,
           offline_stock_transactions: offlineStockTxs,
           offline_payments: offlinePayments,
+          offline_expenses: offlineExpenses,
           offline_status_changes: offlineStatusChanges,
           offline_shifts: offlineShiftOps,
         },
@@ -117,6 +109,10 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
           await markPaymentsSynced(offlinePayments.map((p: { orderId: string }) => p.orderId));
           await clearSyncedOfflinePayments();
         }
+        if (offlineExpenses.length > 0) {
+          await markExpensesSynced(offlineExpenses.map((e: { id: string }) => e.id));
+          await clearSyncedOfflineExpenses();
+        }
         if (offlineStatusChanges.length > 0) {
           await markStatusChangesSynced(offlineStatusChanges.map((s: { orderId: string }) => s.orderId));
           await clearSyncedOfflineStatusChanges();
@@ -126,8 +122,6 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
           await clearSyncedOfflineShiftOps();
         }
         toast.success("Offline data synced successfully!", { id: "sync-status" });
-        // Let locally-optimistic surfaces (e.g. offline POS shift state)
-        // reconcile against the freshly synced server state.
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("eat-n-repeat:offline-synced"));
         }
@@ -141,13 +135,16 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
   };
 
   useEffect(() => {
+    // Audit existing browser queue on mount without purging
+    reviewLegacyCustomerOfflineOrders().catch(() => {});
+
     const handleOnline = () => {
-      wasOffline.current = false;
-      setIsOffline(false);
-      performSync();
+      // Don't flip immediately to prevent flapping; probe liveness first
+      consecutivePingsRef.current = 1;
     };
     
     const handleOffline = () => {
+      consecutivePingsRef.current = 0;
       wasOffline.current = true;
       setIsOffline(true);
     };
@@ -159,6 +156,7 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
     wasOffline.current = !navigator.onLine;
     setIsOffline(!navigator.onLine);
     if (navigator.onLine) {
+      consecutivePingsRef.current = 1;
       performSync();
     }
 
@@ -169,37 +167,38 @@ export function NetworkStatusProvider({ children }: { children: React.ReactNode 
             method: "GET",
             cache: "no-store",
             headers: { "Content-Type": "application/json" },
-            // Fail fast so a dead backend marks us offline in seconds,
-            // never an endless hang.
             signal: AbortSignal.timeout(8000),
           });
           
           if (res.ok) {
             setIsLocalBackendReachable(true);
-            // A successful poll proves this client can reach its backend,
-            // so we are NOT offline — regardless of what the payload claims
-            // about café→cloud liveness. The server's `isOffline` flag is
-            // intentionally ignored here (backward-compat field only).
+            consecutivePingsRef.current += 1;
+
+            // Flapping protection: require at least 2 consecutive successful probes
             if (wasOffline.current) {
-              wasOffline.current = false;
-              setIsOffline(false);
-              performSync();
+              if (consecutivePingsRef.current >= 2) {
+                wasOffline.current = false;
+                setIsOffline(false);
+                performSync();
+              }
             } else {
               setIsOffline(false);
             }
+
             const data = await res.json();
-            // Backward compat: treat missing onlineOrdering as AVAILABLE
             if (data.onlineOrdering === "UNAVAILABLE" || data.onlineOrdering === "LOCAL_ONLY" || data.onlineOrdering === "AVAILABLE") {
               setOnlineOrdering(data.onlineOrdering);
             } else {
               setOnlineOrdering("AVAILABLE");
             }
           } else {
+            consecutivePingsRef.current = 0;
             wasOffline.current = true;
             setIsOffline(true);
             setIsLocalBackendReachable(false);
           }
-        } catch (err) {
+        } catch {
+          consecutivePingsRef.current = 0;
           wasOffline.current = true;
           setIsOffline(true);
           setIsLocalBackendReachable(false);

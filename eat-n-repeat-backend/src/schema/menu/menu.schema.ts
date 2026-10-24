@@ -10,6 +10,12 @@ export const menuSizeSchema = z.object({
   price: z.coerce.number().positive().max(1000000),
 });
 
+export const createStockItemPayloadSchema = z.object({
+  unit: z.string().trim().min(1).max(30),
+  categoryId: z.string().trim().min(1),
+  lowStockThreshold: z.coerce.number().positive().max(1000000).optional().default(5),
+});
+
 export const menuItemSchema = z.object({
   name: z.string().trim().min(1).max(160),
   description: z.string().trim().max(5000).optional().default(""),
@@ -21,6 +27,9 @@ export const menuItemSchema = z.object({
   // Optional size options with absolute per-size prices. Empty = single
   // base-price item that needs no size selection.
   sizes: z.array(menuSizeSchema).max(20).optional().default([]),
+  stockMode: z.enum(["NONE", "DIRECT"]).optional().default("NONE"),
+  stockItemId: z.string().trim().nullable().optional(),
+  createStockItem: createStockItemPayloadSchema.optional(),
 });
 
 export type MenuCategoryInput = z.infer<typeof menuCategorySchema>;

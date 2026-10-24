@@ -2,6 +2,7 @@ import { webhooksRepository } from "@/repositories/webhooks.repository";
 import { adminFlagsService } from "@/services/admin-flags";
 import { notifyAllStaff } from "@/services/staff-notifications";
 import { applyRedemptionForOrder, releaseRedemptionForOrder } from "@/services/promos/promos.service";
+import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
 import { emitAdminEvent, emitPaymentEvent } from "@/lib/sse";
 
 export class HandleXenditWebhookService {
@@ -69,11 +70,16 @@ export class HandleXenditWebhookService {
     } else if (status === "EXPIRED" || status === "FAILED") {
       const revertStatus = orderType === "dine-in" ? "awaiting_payment" : "pending_payment";
       await webhooksRepository.updateOrderStatus(payment.orderId, revertStatus);
-      // Invoice died: give the promo use back so the customer can retry.
+      // Invoice died: give the promo use back and release stock
       try {
         await releaseRedemptionForOrder(payment.orderId);
       } catch (promoError) {
         console.error("[webhooks] promo release failed:", promoError);
+      }
+      try {
+        await releaseStockForOrder(payment.orderId, `Payment ${status.toLowerCase()}`, { id: "xendit-webhook", name: "Xendit Webhook" });
+      } catch (stockError) {
+        console.error("[webhooks] stock release failed:", stockError);
       }
     }
 

@@ -21,6 +21,7 @@ import {
   evaluatePromo,
   reservePromoInOrderTx,
 } from "@/services/promos/promos.service";
+import { deductTrackedStockForOrder } from "@/services/stock/stock-order-sync";
 
 const XENDIT_INVOICE_TIMEOUT_MS = 20000;
 
@@ -694,59 +695,53 @@ export async function checkout(
     discountAmount,
   };
 
-  const order = customerRow
-    ? await prisma.$transaction(async (tx) => {
-        if (phoneToSave) {
-          await tx.customer.update({
-            where: { id: customerId },
-            data: { phone: phoneToSave },
-          });
-        }
-        if (addressToSave) {
-          const addressCount = await tx.customerAddress.count({ where: { customerId } });
-          await tx.customerAddress.create({
-            data: {
-              id: uuidv4(),
-              customerId: customerId!,
-              ...addressToSave,
-              landmarks: null,
-              deliveryNotes: null,
-              // First address becomes default (same rule as the address
-              // book service); later ones never change the default.
-              isDefault: addressCount === 0,
-            },
-          });
-        }
-        // Reserve the promo INSIDE the order transaction: the conditional
-        // usage bump is the concurrency gate, and a lost race throws
-        // PromoLimitError which rolls back phone/address/order writes too.
-        const created = await tx.order.create({ data: orderPayload });
-        if (promoId) {
-          await reservePromoInOrderTx(tx, {
-            promoId,
-            orderId: created.id,
-            customerId: finalCustomerId,
-            discount: discountAmount,
-          });
-          // Local POS sales are consumed immediately (cash registers at the
-          // counter); online stays RESERVED until payment confirmation.
-          if (orderMode === "local") await applyRedemptionForOrder(created.id, tx);
-        }
-        return created;
-      })
-    : promoId
-      ? await prisma.$transaction(async (tx) => {
-          const created = await paymentsRepository.createOrder(orderPayload, tx);
-          await reservePromoInOrderTx(tx, {
-            promoId,
-            orderId: created.id,
-            customerId: finalCustomerId,
-            discount: discountAmount,
-          });
-          if (orderMode === "local") await applyRedemptionForOrder(created.id, tx);
-          return created;
-        })
-      : await paymentsRepository.createOrder(orderPayload);
+  const itemsForStockDeduction = Array.isArray((orderDetails as any)?.orderItems)
+    ? (orderDetails as any).orderItems
+    : Array.isArray(items)
+      ? items
+      : [];
+
+  const stockActor = staffOperator
+    ? { id: staffOperator.id, name: staffOperator.name }
+    : { id: finalCustomerId ?? "customer", name: customerName || "Customer" };
+
+  const order = await prisma.$transaction(async (tx) => {
+    if (customerRow && phoneToSave) {
+      await tx.customer.update({
+        where: { id: customerId },
+        data: { phone: phoneToSave },
+      });
+    }
+    if (customerRow && addressToSave) {
+      const addressCount = await tx.customerAddress.count({ where: { customerId } });
+      await tx.customerAddress.create({
+        data: {
+          id: uuidv4(),
+          customerId: customerId!,
+          ...addressToSave,
+          landmarks: null,
+          deliveryNotes: null,
+          isDefault: addressCount === 0,
+        },
+      });
+    }
+
+    const created = await tx.order.create({ data: orderPayload });
+
+    // Deduct tracked inventory stock (D1 & D2)
+    await deductTrackedStockForOrder(tx, created, itemsForStockDeduction, stockActor);
+
+    if (promoId) {
+      await reservePromoInOrderTx(tx, {
+        promoId,
+        orderId: created.id,
+        customerId: finalCustomerId,
+        discount: discountAmount,
+      });
+      if (orderMode === "local") await applyRedemptionForOrder(created.id, tx);
+    }
+    return created;
+  });
 
   // Both the customer-row transaction path and the POS path converge here:
   // one admin invalidation event per successful checkout.

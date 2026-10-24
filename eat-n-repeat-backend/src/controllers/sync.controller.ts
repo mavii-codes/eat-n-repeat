@@ -43,79 +43,48 @@ export class SyncController {  async getStatus(_req: Request, res: Response) {
 
   async offline(req: AuthenticatedRequest, res: Response) {
     try {
+      const auth = req.auth;
+      const drainingUserId = auth?.userId ?? null;
+
+      // Invariant: Customer accounts cannot sync offline data. Offline mode is for walk-in operations only.
+      if (auth?.kind === "customer") {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden: Customer accounts cannot sync offline data. Offline mode is for walk-in café operations only.",
+        });
+      }
+
+      const syncSecretHeader = req.headers["x-sync-secret"];
+      const hasValidSecret = Boolean(
+        env.syncSharedSecret && typeof syncSecretHeader === "string" && syncSecretHeader === env.syncSharedSecret,
+      );
+      const isStaffOrAdmin = auth?.kind === "user" && auth.role && ["admin", "staff"].includes(auth.role);
+
+      if (!isStaffOrAdmin && !hasValidSecret) {
+        return res.status(401).json({
+          success: false,
+          error: "Unauthorized: Staff credentials or valid server-to-server sync secret required.",
+        });
+      }
+
       const {
         offline_orders,
         offline_stock_transactions,
         offline_payments,
+        offline_expenses,
         offline_status_changes,
         offline_shifts,
       } = req.body;
-      const auth = req.auth;
-      const drainingUserId = auth?.userId ?? null;
-
-      if (auth?.kind === "customer") {
-        // Customer tokens exist for offline cart journaling only. Privileged
-        // replay sections would let a customer token move money/stock or
-        // close shifts, so they are dropped before the service is called.
-        const body = req.body as Record<string, unknown>;
-        const dropped = CUSTOMER_DROPPED_SECTIONS.filter((section) => {
-          const value = body[section];
-          return Array.isArray(value) && value.length > 0;
-        });
-
-        if (dropped.length > 0) {
-          console.warn(
-            `[SECURITY] offline sync scoped: customer token, sections dropped: ${dropped.join(", ")}`,
-          );
-          logBlockedAttempt(
-            "sync-scope-drop",
-            req.ip ?? null,
-            "customer_token_privileged_sections",
-            { userId: auth.userId, dropped },
-          );
-        }
-
-        // Replay of a journal with paid=true mirrors a PAID cash payment
-        // (offline-sync). Customer journals are unpaid carts — the paid flag
-        // is POS-only semantics, so strip it to keep paid-sale mirroring
-        // out of customer-token reach.
-        let strippedPaid = 0;
-        const CUSTOMER_JOURNAL_STATUSES = new Set(["pending", "awaiting_payment"]);
-        const safeOrders = (Array.isArray(offline_orders) ? offline_orders : []).map(
-          (o: unknown) => {
-            if (!o || typeof o !== "object") return o;
-            const row = o as Record<string, unknown>;
-            const { paid, ...rest } = row;
-            if (paid !== undefined && paid !== false) strippedPaid += 1;
-            // Echo discipline: the drain writes order.status verbatim, and the
-            // customer app only ever journals unpaid carts, so clamp anything
-            // else to "pending" (real journals are unpaid carts).
-            if (typeof rest.status === "string" && !CUSTOMER_JOURNAL_STATUSES.has(rest.status)) {
-              strippedPaid += 0; // status clamp does not count as a paid strip
-              console.warn(`[SECURITY] offline sync scoped: customer token, journal status clamped: ${rest.status}`);
-              rest.status = "pending";
-            }
-            return rest;
-          },
-        );
-        if (strippedPaid > 0) {
-          console.warn(
-            `[SECURITY] offline sync scoped: customer token, paid flag stripped from ${strippedPaid} journal(s)`,
-          );
-          logBlockedAttempt(
-            "sync-paid-strip",
-            req.ip ?? null,
-            "customer_token_paid_flag",
-            { userId: auth.userId, count: strippedPaid },
-          );
-        }
-
-        await service.offlineSync({ offline_orders: safeOrders }, drainingUserId);
-        return res.json({ success: true, message: "Offline Sync successful" });
-      }
 
       await service.offlineSync(
-        { offline_orders, offline_stock_transactions, offline_payments, offline_status_changes, offline_shifts },
+        {
+          offline_orders,
+          offline_stock_transactions,
+          offline_payments,
+          offline_expenses,
+          offline_status_changes,
+          offline_shifts,
+        },
         drainingUserId,
       );
       return res.json({ success: true, message: "Offline Sync successful" });

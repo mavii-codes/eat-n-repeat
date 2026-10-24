@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { emitAdminEvent } from "@/lib/sse";
 import { stockMovementsRepository } from "@/repositories/stock-movements.repository";
-import type { AdjustInput } from "@/schema/stock/movements.schema";
+import { parseExpiryDate, parseReceivedAt, type AdjustInput } from "@/schema/stock/movements.schema";
 import { itemResponse } from "./helpers";
 import { addLayer, consumeFifo, round2 } from "./fifo-layers";
 import { serializeMovement, StockMovementError } from "./movement-helpers";
@@ -15,6 +15,9 @@ export class AdjustService {
       if (!row) {
         throw new StockMovementError("Stock item not found.", 404);
       }
+      if (row.archived) {
+        throw new StockMovementError("This stock item is archived. Unarchive it or pick another item.", 409);
+      }
 
       const balanceBefore = new Prisma.Decimal(row.quantity as any);
       const change = new Prisma.Decimal(input.quantity);
@@ -24,7 +27,7 @@ export class AdjustService {
         : balanceBefore.minus(change);
 
       if (balanceAfter.isNegative()) {
-        throw new StockMovementError("Cannot remove more than is on hand.", 409);
+        throw new StockMovementError("Cannot decrease more than is on hand.", 409);
       }
 
       let movementUnitCost: Prisma.Decimal | null = null;
@@ -33,8 +36,26 @@ export class AdjustService {
       // item has never been costed). Removals consume oldest layers first.
       let layerUnitCost: Prisma.Decimal | null = null;
 
+      let receivedAt: Date | null = null;
+      let expiryDate: Date | null = null;
+
       if (isAdd) {
         layerUnitCost = await stockMovementsRepository.lastUnitCostForItem(tx, itemId);
+        if (input.receivedAt) {
+          const parsedRec = parseReceivedAt(
+            typeof input.receivedAt === "string" ? input.receivedAt : input.receivedAt.toISOString(),
+          );
+          if (parsedRec.ok) receivedAt = parsedRec.date;
+        } else {
+          receivedAt = new Date();
+        }
+
+        if (input.expiryDate) {
+          const parsedExp = parseExpiryDate(
+            typeof input.expiryDate === "string" ? input.expiryDate : input.expiryDate.toISOString(),
+          );
+          if (parsedExp.ok) expiryDate = parsedExp.date;
+        }
       } else {
         const fifo = await consumeFifo(tx, { stockItemId: itemId, qty: change });
         // Mixed (costed + uncosted) or fully uncosted removals cannot state a
@@ -62,8 +83,8 @@ export class AdjustService {
           totalCost: movementTotalCost,
           reason: input.reason,
           reference: input.note || null,
-          receivedAt: null,
-          expiryDate: null,
+          receivedAt,
+          expiryDate,
           createdById: actor.id,
           createdByName: actor.name,
         },
@@ -75,8 +96,8 @@ export class AdjustService {
           qty: change,
           unitCost: layerUnitCost,
           sourceRef: movement.id,
-          receivedAt: null,
-          expiryDate: null,
+          receivedAt,
+          expiryDate,
           quantityReceived: change,
           isOpening: false,
           sourceMovementId: movement.id,

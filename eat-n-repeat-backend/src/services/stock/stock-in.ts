@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { emitAdminEvent } from "@/lib/sse";
 import { stockMovementsRepository } from "@/repositories/stock-movements.repository";
-import type { StockInInput } from "@/schema/stock/movements.schema";
+import { parseExpiryDate, parseReceivedAt, type StockInInput } from "@/schema/stock/movements.schema";
 import { itemResponse } from "./helpers";
 import { addLayer } from "./fifo-layers";
 import { buildReference, serializeMovement, StockMovementError } from "./movement-helpers";
@@ -15,11 +15,27 @@ export class StockInService {
       if (!row) {
         throw new StockMovementError("Stock item not found.", 404);
       }
+      if (row.archived) {
+        throw new StockMovementError("This stock item is archived. Unarchive it or pick another item.", 409);
+      }
 
       const balanceBefore = new Prisma.Decimal(row.quantity as any);
       const change = new Prisma.Decimal(input.quantity);
       const balanceAfter = balanceBefore.plus(change);
       const unitCost = new Prisma.Decimal(input.unitCost);
+
+      const parsedRec = parseReceivedAt(
+        input.receivedAt ? (typeof input.receivedAt === "string" ? input.receivedAt : input.receivedAt.toISOString()) : null
+      );
+      const receivedAtDate = parsedRec.ok ? parsedRec.date : new Date();
+
+      let expiryDateObj: Date | null = null;
+      if (input.expiryDate) {
+        const parsedExp = parseExpiryDate(
+          typeof input.expiryDate === "string" ? input.expiryDate : input.expiryDate.toISOString()
+        );
+        if (parsedExp.ok) expiryDateObj = parsedExp.date;
+      }
 
       const movement = await tx.stockMovement.create({
         data: {
@@ -34,8 +50,8 @@ export class StockInService {
           totalCost: unitCost.mul(change),
           reason: null,
           reference: buildReference(input.supplier, input.note),
-          receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
-          expiryDate: input.expiryDate ? new Date(input.expiryDate) : null,
+          receivedAt: receivedAtDate,
+          expiryDate: expiryDateObj,
           createdById: actor.id,
           createdByName: actor.name,
         },
