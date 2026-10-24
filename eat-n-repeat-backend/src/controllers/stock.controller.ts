@@ -417,6 +417,17 @@ export class StockController {
       return res.status(500).json({ message: "Internal server error." });
     }
   }
+
+  async syncMenu(_req: AuthenticatedRequest, res: Response) {
+    try {
+      const result = await service.syncAllMenuItemsToStock();
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Error syncing menu to stock:", error);
+      return res.status(500).json({ message: "Internal server error." });
+    }
+  }
 }
 
 export const stockController = new StockController();
+

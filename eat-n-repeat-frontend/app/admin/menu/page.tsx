@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, Link2, PlusCircle, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Search, Link2, PlusCircle, AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
+import toast from "react-hot-toast";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import {
   AdminButton,
@@ -36,6 +37,7 @@ export default function MenuItemsPage() {
     updateMenuItem,
     archiveMenuItem,
     getMenuCategoryName,
+    syncMenuItemsToStock,
   } = useAdminData();
 
   const menuItems = getActiveMenuItems();
@@ -58,6 +60,26 @@ export default function MenuItemsPage() {
   const [form, setForm] = useState<MenuItemInput>(emptyForm);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [syncingMenu, setSyncingMenu] = useState(false);
+
+  const untrackedCount = useMemo(() => {
+    return menuItems.filter((i) => !i.stockItemId || i.stockMode === "NONE").length;
+  }, [menuItems]);
+
+  async function handleSyncMenu() {
+    if (!syncMenuItemsToStock) return;
+    setSyncingMenu(true);
+    try {
+      const res = await syncMenuItemsToStock();
+      toast.success(
+        `Synchronized! Created ${res.createdStockItems ?? 0} stock items, linked ${res.linkedMenuItems ?? 0} menu items.`
+      );
+    } catch (err: any) {
+      toast.error(err.message || "Failed to sync menu items to inventory.");
+    } finally {
+      setSyncingMenu(false);
+    }
+  }
 
   // Inventory tracking state
   const [stockMode, setStockMode] = useState<"NONE" | "DIRECT">("NONE");
@@ -244,8 +266,42 @@ export default function MenuItemsPage() {
       <AdminPanel
         title="All Menu Items"
         subtitle={`${menuItems.length} item${menuItems.length === 1 ? "" : "s"} in menu`}
-        action={<AdminButton onClick={openCreate}>+ Add Menu Item</AdminButton>}
+        action={
+          <div className="flex items-center gap-2">
+            {untrackedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleSyncMenu()}
+                disabled={syncingMenu}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 transition shadow-sm disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingMenu ? "animate-spin text-amber-800" : ""}`} />
+                {syncingMenu ? "Syncing..." : `Sync to Inventory (${untrackedCount})`}
+              </button>
+            )}
+            <AdminButton onClick={openCreate}>+ Add Menu Item</AdminButton>
+          </div>
+        }
       >
+        {untrackedCount > 0 && (
+          <div className="mx-2 mb-4 p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-amber-900">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                <strong>{untrackedCount} menu item{untrackedCount > 1 ? "s are" : " is"} currently untracked in inventory.</strong> Sync them so they appear in Stock In, Stock Adjustments, and Inventory History.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleSyncMenu()}
+              disabled={syncingMenu}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-bold shrink-0 transition shadow-sm disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingMenu ? "animate-spin" : ""}`} />
+              {syncingMenu ? "Syncing to Inventory..." : "Sync All to Inventory"}
+            </button>
+          </div>
+        )}
         <div className="relative px-2 pb-3">
           <Search className="absolute left-5 top-1/2 -translate-y-[calc(50%+6px)] w-4 h-4 text-stone-400 pointer-events-none" />
           <input

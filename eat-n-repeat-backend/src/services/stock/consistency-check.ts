@@ -39,6 +39,11 @@ export async function runStockConsistencyCheck() {
     select: { id: true, name: true, stockItemId: true, stockMode: true, categoryId: true },
   });
 
+  const untrackedMenuItems = await prisma.menuItem.findMany({
+    where: { archived: false, stockItemId: null },
+    select: { id: true, name: true, category: { select: { name: true } } },
+  });
+
   const brokenMenuLinks = [];
   const nameMismatches = [];
   for (const menu of linkedMenuItems) {
@@ -49,26 +54,41 @@ export async function runStockConsistencyCheck() {
         menuItemName: menu.name,
         stockItemId: menu.stockItemId,
       });
-    } else if (stock.name.toLowerCase() !== menu.name.trim().toLowerCase()) {
-      nameMismatches.push({
-        menuItemId: menu.id,
-        menuItemName: menu.name,
-        stockItemId: stock.id,
-        stockItemName: stock.name,
-      });
+    } else {
+      const menuLower = menu.name.trim().toLowerCase();
+      const stockLower = stock.name.trim().toLowerCase();
+      const isExactOrDisambiguated =
+        stockLower === menuLower ||
+        stockLower.startsWith(`${menuLower} (`);
+
+      if (!isExactOrDisambiguated) {
+        nameMismatches.push({
+          menuItemId: menu.id,
+          menuItemName: menu.name,
+          stockItemId: stock.id,
+          stockItemName: stock.name,
+        });
+      }
     }
   }
 
   const healthy =
     layerQuantityMismatches.length === 0 &&
     brokenMenuLinks.length === 0 &&
-    nameMismatches.length === 0;
+    nameMismatches.length === 0 &&
+    untrackedMenuItems.length === 0;
 
   return {
     healthy,
     checkedAt: new Date().toISOString(),
     totalStockItems: stockItems.length,
     totalTrackedMenuItems: linkedMenuItems.length,
+    totalUntrackedMenuItems: untrackedMenuItems.length,
+    untrackedMenuItems: untrackedMenuItems.map((u) => ({
+      id: u.id,
+      name: u.name,
+      categoryName: u.category?.name || "General",
+    })),
     layerQuantityMismatches,
     orphanLayers,
     brokenMenuLinks,

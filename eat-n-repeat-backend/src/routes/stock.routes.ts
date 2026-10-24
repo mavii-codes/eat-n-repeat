@@ -52,6 +52,10 @@ router.get("/dashboard", requireRole("admin"), (req, res) =>
 router.get("/consistency-check", requireRole("admin"), (req, res) =>
   stockController.consistencyCheck(req, res),
 );
+router.post("/sync-menu", requireRole("admin"), (req, res) =>
+  stockController.syncMenu(req, res),
+);
+
 
 // Stock requests: staff submit/read; status transitions carry adminNote and
 // are admin-only.

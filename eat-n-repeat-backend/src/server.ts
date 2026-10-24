@@ -12,7 +12,14 @@ async function start() {
   // Online → Local menu pull runs only when MENU_SYNC_URL is configured
   // (local café backend); cloud instances ignore it internally.
   startMenuPull();
+
+  // Ensure all active menu items are synchronized with inventory stock items
+  import("./services/stock/index.js")
+    .then(({ syncAllMenuItemsToStock }) => syncAllMenuItemsToStock())
+    .then((res) => console.log("[server] menu-stock sync complete:", res))
+    .catch((err) => console.error("[server] menu-stock sync error:", err));
 }
+
 
 start().catch((error: unknown) => {
   console.error("Unable to start API:", error);

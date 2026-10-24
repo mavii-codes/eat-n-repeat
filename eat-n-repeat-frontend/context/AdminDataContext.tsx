@@ -651,6 +651,7 @@ type AdminDataContextValue = AdminDataState & {
   deleteMenuItem: (id: string) => void;
   refreshBackendMenu: () => Promise<boolean>;
   fetchStockConsistencyCheck: () => Promise<any>;
+  syncMenuItemsToStock: () => Promise<any>;
   archiveMenuItem: (id: string) => void;
   restoreMenuItem: (id: string) => void;
   addMenuCategory: (input: MenuCategoryInput) => void;
@@ -1636,6 +1637,19 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     if (!res.ok) throw new Error("Consistency check failed.");
     return res.json();
   }, []);
+
+  const syncMenuItemsToStock = useCallback(async () => {
+    const res = await staffApi("/api/stock/sync-menu", {
+      method: "POST",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || err.error || "Failed to sync menu items to stock.");
+    }
+    const result = await res.json();
+    await Promise.all([refreshBackendStock(), refreshBackendMenu()]);
+    return result;
+  }, [refreshBackendStock, refreshBackendMenu]);
 
   const deleteMenuItem = useCallback((id: string) => {
     setData((prev) => ({
@@ -3114,6 +3128,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       deleteMenuItem,
       refreshBackendMenu,
       fetchStockConsistencyCheck,
+      syncMenuItemsToStock,
       archiveMenuItem,
       restoreMenuItem,
       addMenuCategory,
@@ -3198,6 +3213,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       deleteMenuItem,
       refreshBackendMenu,
       fetchStockConsistencyCheck,
+      syncMenuItemsToStock,
       archiveMenuItem,
       restoreMenuItem,
       addMenuCategory,

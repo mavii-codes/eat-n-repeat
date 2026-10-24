@@ -149,3 +149,5 @@ export async function stockDashboard() {
 }
 
 export { runStockConsistencyCheck } from "./consistency-check";
+export { syncAllMenuItemsToStock } from "./sync-menu-to-stock";
+

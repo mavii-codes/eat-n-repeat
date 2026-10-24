@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, Fragment, type ReactNode } from "react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 import {
   AlertTriangle,
   CalendarClock,
@@ -401,11 +402,13 @@ export default function InventoryDashboardPage() {
     setStockLayerCost,
     salesEventsVersion,
     fetchStockConsistencyCheck,
+    syncMenuItemsToStock,
     getActiveMenuItems,
   } = useAdminData();
   const [dashboard, setDashboard] = useState<StockDashboardResponse | null>(null);
   const [consistencyResult, setConsistencyResult] = useState<any | null>(null);
   const [checkingConsistency, setCheckingConsistency] = useState(false);
+  const [syncingMenu, setSyncingMenu] = useState(false);
   const [consistencyError, setConsistencyError] = useState<string | null>(null);
 
   const linkedMenuMap = useMemo(() => {
@@ -431,6 +434,25 @@ export default function InventoryDashboardPage() {
       setCheckingConsistency(false);
     }
   }, [fetchStockConsistencyCheck]);
+
+  const handleSyncMenu = useCallback(async () => {
+    if (!syncMenuItemsToStock) return;
+    setSyncingMenu(true);
+    try {
+      const res = await syncMenuItemsToStock();
+      toast.success(
+        `Synced! Created ${res.createdStockItems ?? 0} stock items, linked ${res.linkedMenuItems ?? 0} menu items.`
+      );
+      if (fetchStockConsistencyCheck) {
+        const check = await fetchStockConsistencyCheck();
+        setConsistencyResult(check);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to sync menu items to stock.");
+    } finally {
+      setSyncingMenu(false);
+    }
+  }, [syncMenuItemsToStock, fetchStockConsistencyCheck]);
   const [loading, setLoading] = useState(true);
   const [isStale, setIsStale] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -734,15 +756,26 @@ export default function InventoryDashboardPage() {
             <CheckCircle2 className="h-5 w-5 text-emerald-600" />
             <h2 className="font-bold text-stone-800">Menu & Inventory Consistency</h2>
           </div>
-          <button
-            type="button"
-            onClick={() => void handleRunConsistencyCheck()}
-            disabled={checkingConsistency}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs font-bold text-stone-700 shadow-sm transition-colors hover:bg-stone-50 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${checkingConsistency ? "animate-spin text-[#800000]" : ""}`} />
-            {checkingConsistency ? "Checking…" : "Run Integrity Check"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSyncMenu()}
+              disabled={syncingMenu}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900 shadow-sm transition-colors hover:bg-amber-100 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${syncingMenu ? "animate-spin text-amber-800" : ""}`} />
+              {syncingMenu ? "Syncing…" : "Sync All Menu Items to Stock"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRunConsistencyCheck()}
+              disabled={checkingConsistency}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs font-bold text-stone-700 shadow-sm transition-colors hover:bg-stone-50 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${checkingConsistency ? "animate-spin text-[#800000]" : ""}`} />
+              {checkingConsistency ? "Checking…" : "Run Integrity Check"}
+            </button>
+          </div>
         </div>
 
         <div className="p-4">
@@ -757,13 +790,23 @@ export default function InventoryDashboardPage() {
               <p>
                 Verify 1:1 synchronization between active menu items, inventory stock items, and FIFO cost layers.
               </p>
-              <button
-                type="button"
-                onClick={() => void handleRunConsistencyCheck()}
-                className="text-xs font-bold text-[#800000] hover:underline shrink-0"
-              >
-                Click to inspect database consistency →
-              </button>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => void handleSyncMenu()}
+                  disabled={syncingMenu}
+                  className="text-xs font-bold text-amber-800 hover:underline"
+                >
+                  {syncingMenu ? "Syncing…" : "Sync Menu to Stock →"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleRunConsistencyCheck()}
+                  className="text-xs font-bold text-[#800000] hover:underline shrink-0"
+                >
+                  Click to inspect database consistency →
+                </button>
+              </div>
             </div>
           )}
 
@@ -841,6 +884,33 @@ export default function InventoryDashboardPage() {
                         {consistencyResult.brokenMenuLinks.map((m: any) => (
                           <li key={m.menuItemId}>
                             Menu item <strong>{m.menuItemName}</strong> points to non-existent stock item ID: {m.stockItemId}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {consistencyResult.untrackedMenuItems?.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-900">
+                      <div className="flex items-center justify-between">
+                        <p className="font-bold">
+                          Untracked Menu Items ({consistencyResult.untrackedMenuItems.length}):
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void handleSyncMenu()}
+                          disabled={syncingMenu}
+                          className="rounded bg-amber-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          {syncingMenu ? "Syncing…" : "Sync to Inventory"}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-amber-800 mt-1">
+                        These menu items are currently untracked and do not appear in Stock In, Adjustments, or Ledger:
+                      </p>
+                      <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                        {consistencyResult.untrackedMenuItems.map((u: any) => (
+                          <li key={u.id}>
+                            <strong>{u.name}</strong> ({u.categoryName})
                           </li>
                         ))}
                       </ul>
