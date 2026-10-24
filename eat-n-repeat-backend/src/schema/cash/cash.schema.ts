@@ -38,7 +38,7 @@ export type EndShiftInput = z.infer<typeof endShiftSchema>;
 export type AddFloatInput = z.infer<typeof addFloatSchema>;
 export type FlagShiftInput = z.infer<typeof flagShiftSchema>;
 export type EditAuditSignoffInput = z.infer<typeof editAuditSignoffSchema>;
-<<<<<<< HEAD
+
 
 // ---------------------------------------------------------------------------
 // Shift History list query (filters + sorting). Whitelisted values only —
@@ -113,5 +113,3 @@ export const listShiftsQuerySchema = z.object({
 });
 
 export type ListShiftsQuery = z.infer<typeof listShiftsQuerySchema>;
-=======
->>>>>>> fix/realtime-live

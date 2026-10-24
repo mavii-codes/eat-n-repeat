@@ -1,12 +1,8 @@
 import type { Response } from "express";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
-<<<<<<< ours
 import { endShiftSchema, addFloatSchema, flagShiftSchema, editAuditSignoffSchema, listShiftsQuerySchema } from "@/schema/cash/cash.schema";
 import { drawerExpenseSchema } from "@/schema/expenses/expenses.schema";
 import { ExpenseServiceError } from "@/services/expenses/helpers";
-=======
-import { endShiftSchema, addFloatSchema, flagShiftSchema, editAuditSignoffSchema } from "@/schema/cash/cash.schema";
->>>>>>> theirs
 import * as service from "@/services/cash";
 
 export class CashController {
@@ -194,7 +190,6 @@ export class CashController {
     }
   }
 
-<<<<<<< ours
   async getPosSalesToday(req: AuthenticatedRequest, res: Response) {
     try {
       const userId = req.auth?.userId;
@@ -208,9 +203,6 @@ export class CashController {
       return res.status(500).json({ success: false, message: "Server error" });
     }
   }
-
-=======
->>>>>>> theirs
   async addFloat(req: AuthenticatedRequest, res: Response) {
     try {
       const userId = req.auth?.userId;

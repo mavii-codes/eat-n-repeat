@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 export type ShiftExpenseExtras = {
   /** Active expense net for the shift (reversals subtract). */
   expenses?: number | null;
@@ -29,28 +28,6 @@ export function mapShift(
   },
   extras: ShiftExpenseExtras = {},
 ) {
-=======
-export function mapShift(row: {
-  id: string;
-  staffId: string;
-  staffName: string;
-  startTime: Date;
-  endTime: Date | null;
-  startingFloat: any;
-  expectedCash: any;
-  actualCash: any;
-  difference: any;
-  status: string;
-  notes?: string | null;
-  verificationStatus?: string | null;
-  verifiedBy?: string | null;
-  verifiedAt?: Date | null;
-  flagReason?: string | null;
-  verified_by_name?: string | null;
-  cash_sales?: number;
-  gcash_sales?: number;
-}) {
->>>>>>> fix/realtime-live
   return {
     id: row.id,
     staff_id: row.staffId,

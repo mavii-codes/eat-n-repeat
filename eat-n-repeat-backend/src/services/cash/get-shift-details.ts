@@ -25,12 +25,6 @@ export class GetShiftDetailsService {
       verifiedByName = verifier?.name ?? null;
     }
 
-    let verifiedByName: string | null = null;
-    if (shift.verifiedBy) {
-      const verifier = await cashRepository.findUserName(shift.verifiedBy);
-      verifiedByName = verifier?.name ?? null;
-    }
-
     return {
       shift: { ...mapShift({ ...shift, ...sales }), verified_by_name: verifiedByName },
       transactions: transactions.map(mapTransaction),

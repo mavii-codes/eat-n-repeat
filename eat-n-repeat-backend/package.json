@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "coprisma generate",
+    "postinstall": "prisma generate",
     "dev": "tsx watch src/server.ts",
     "build": "tsc --noEmit && tsup src/server.ts --format esm --clean",
     "start": "node dist/server.js",

@@ -101,7 +101,6 @@ function sortShifts(shifts: MappedShift[], sortBy: NonNullable<GetAllShiftsInput
 }
 
 export class GetAllShiftsService {
-<<<<<<< HEAD
   async execute(filters: GetAllShiftsInput = {}) {
     const startDate = filters.startDate ? startOfLocalDay(filters.startDate) : undefined;
     // The end date includes the entire day: filter start_time < next midnight.
@@ -116,11 +115,6 @@ export class GetAllShiftsService {
       status: filters.status,
       signoff: filters.signoff,
     });
-
-=======
-  async execute() {
-    const shifts = await cashRepository.findAllShifts();
->>>>>>> fix/realtime-live
     const verifierIds = Array.from(new Set(shifts.map((s) => s.verifiedBy).filter(Boolean))) as string[];
     const verifierNameMap: Record<string, string> = {};
     await Promise.all(
@@ -129,7 +123,6 @@ export class GetAllShiftsService {
         if (u?.name) verifierNameMap[id] = u.name;
       })
     );
-<<<<<<< HEAD
     const shiftIds = shifts.map((s) => s.id);
     const salesMap = await cashRepository.sumAllShiftsSales(shiftIds);
     const expenseMap = await expenseRepository.groupNetsByShiftIds(shiftIds);
@@ -147,12 +140,6 @@ export class GetAllShiftsService {
     });
 
     return sortShifts(mapped, filters.sortBy ?? "date", filters.sortDir ?? "desc");
-=======
-    return shifts.map((s) => ({
-      ...mapShift(s),
-      verified_by_name: s.verifiedBy ? (verifierNameMap[s.verifiedBy] ?? "Admin") : null,
-    }));
->>>>>>> fix/realtime-live
   }
 }
 
