@@ -17,7 +17,10 @@ import { useAdminData } from "@/context/AdminDataContext";
 import type { StockMovementPage } from "@/lib/admin/types";
 import {
   fmtQty,
+  formatLayerDate,
   formatMovementDateTime,
+  getExpiryStatus,
+  getManilaDateString,
   movementTotalCost,
   peso,
   phLocalInputToIso,
@@ -111,17 +114,43 @@ export default function StockInPage() {
     if (!hasItems) next.itemId = "Create a stock item first.";
     if (!itemId) next.itemId = "Select an item.";
     const q = Number(quantity);
-    if (!quantity.trim() || !Number.isFinite(q) || q <= 0)
+    if (!quantity.trim() || !Number.isFinite(q) || q <= 0) {
       next.quantity = "Quantity must be greater than 0.";
+    } else if (Math.abs(q * 100 - Math.round(q * 100)) >= 1e-6) {
+      next.quantity = "Quantity can have at most 2 decimal places.";
+    }
     const c = Number(unitCost);
-    if (unitCost.trim() === "" || !Number.isFinite(c) || c < 0)
+    if (unitCost.trim() === "" || !Number.isFinite(c) || c < 0) {
       next.unitCost = "Unit cost is required (0 or more).";
-    if (!receivedAt) next.receivedAt = "Received date is required.";
-    if (expiryInvalid)
-      next.expiryDate = "Expiry must be on or after the received date.";
+    } else if (Math.abs(c * 100 - Math.round(c * 100)) >= 1e-6) {
+      next.unitCost = "Unit cost can have at most 2 decimal places.";
+    }
+    if (!receivedAt) {
+      next.receivedAt = "Received date is required.";
+    } else {
+      const recDate = new Date(receivedAt);
+      if (Number.isNaN(recDate.getTime())) {
+        next.receivedAt = "Invalid date and time.";
+      } else if (recDate.getUTCFullYear() < 2020) {
+        next.receivedAt = "Date received cannot be before 2020.";
+      } else if (recDate.getTime() > Date.now() + 10 * 60 * 1000) {
+        next.receivedAt = "Date received cannot be more than 10 minutes in the future.";
+      }
+    }
+    if (expiryDate) {
+      const recManilaDate = receivedAt ? receivedAt.slice(0, 10) : getManilaDateString();
+      if (expiryDate < recManilaDate) {
+        next.expiryDate = "Expiry date can't be before the date received";
+      } else {
+        const todayManila = getManilaDateString();
+        if (expiryDate < todayManila && recManilaDate >= todayManila) {
+          next.expiryDate = "Expiry date cannot be in the past unless date received is also in the past.";
+        }
+      }
+    }
     setErrors(next);
     return Object.keys(next).length > 0 ? next : null;
-  }, [hasItems, itemId, quantity, unitCost, receivedAt, expiryInvalid]);
+  }, [hasItems, itemId, quantity, unitCost, receivedAt, expiryDate]);
 
   const resetForm = useCallback(() => {
     setQuantity("");
@@ -163,7 +192,17 @@ export default function StockInPage() {
         // Show the new movement in the Recent Stock Ins table right away.
         void loadRecent();
       } else {
-        toast.error(result.message || "Stock-in failed. Try again.");
+        if (result.errors && result.errors.length > 0) {
+          const nextErrors: Record<string, string> = {};
+          for (const err of result.errors) {
+            if (err.field && err.message) nextErrors[err.field] = err.message;
+          }
+          setErrors((prev) => ({ ...prev, ...nextErrors }));
+        } else if (result.field && result.message) {
+          setErrors((prev) => ({ ...prev, [result.field!]: result.message }));
+        } else {
+          toast.error(result.message || "Stock-in failed. Try again.");
+        }
       }
     } finally {
       setSubmitting(false);
@@ -358,7 +397,7 @@ export default function StockInPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+            <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
                 <tr>
                   <th className="px-3 py-2.5 whitespace-nowrap">Date</th>
@@ -366,6 +405,7 @@ export default function StockInPage() {
                   <th className="px-3 py-2.5 text-right">Qty</th>
                   <th className="px-3 py-2.5 text-right">Unit Cost</th>
                   <th className="px-3 py-2.5 text-right">Total</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Expiry</th>
                   <th className="px-3 py-2.5">Supplier / Reference</th>
                   <th className="px-3 py-2.5">Staff</th>
                 </tr>
@@ -373,6 +413,7 @@ export default function StockInPage() {
               <tbody className="divide-y divide-stone-100">
                 {recentMovements.map((movement) => {
                   const total = movementTotalCost(movement);
+                  const expiryStatus = getExpiryStatus(movement.expiryDate);
                   return (
                     <tr key={movement.id} className="hover:bg-stone-50 transition-colors">
                       <td className="px-3 py-2.5 text-stone-500 whitespace-nowrap">
@@ -394,6 +435,22 @@ export default function StockInPage() {
                       <td className="px-3 py-2.5 text-right whitespace-nowrap">
                         {total != null ? (
                           peso(total)
+                        ) : (
+                          <span className="text-stone-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        {movement.expiryDate ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-stone-700">
+                              {formatLayerDate(movement.expiryDate)}
+                            </span>
+                            {expiryStatus && (
+                              <span className={expiryStatus.badgeClass}>
+                                {expiryStatus.badgeLabel}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-stone-400">—</span>
                         )}

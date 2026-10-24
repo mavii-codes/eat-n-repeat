@@ -53,6 +53,7 @@ export default function AdjustStockPage() {
   const [itemId, setItemId] = useState("");
   const [direction, setDirection] = useState<"add" | "remove">("add");
   const [quantity, setQuantity] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [reason, setReason] = useState<StockAdjustReason | "">("");
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<Record<string, string | null>>({});
@@ -78,16 +79,25 @@ export default function AdjustStockPage() {
     if (!hasItems) next.itemId = "Create a stock item first.";
     if (!itemId) next.itemId = "Select an item.";
     const q = Number(quantity);
-    if (!quantity.trim() || !Number.isFinite(q) || q <= 0)
+    if (!quantity.trim() || !Number.isFinite(q) || q <= 0) {
       next.quantity = "Quantity must be greater than 0.";
+    } else if (Math.abs(q * 100 - Math.round(q * 100)) >= 1e-6) {
+      next.quantity = "Quantity can have at most 2 decimal places.";
+    }
     if (removeOverstock)
-      next.quantity = "Cannot remove more than is on hand.";
+      next.quantity = "Cannot decrease more than is on hand.";
     if (!reason) next.reason = "Pick a reason.";
     if (reason === "Other" && !note.trim())
       next.note = "A note is required for “Other”.";
+    if (direction === "add" && expiryDate) {
+      const todayManila = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+      if (expiryDate < todayManila) {
+        next.expiryDate = "Expiry date cannot be in the past unless date received is also in the past.";
+      }
+    }
     setErrors(next);
     return Object.keys(next).length > 0;
-  }, [hasItems, itemId, quantity, removeOverstock, reason, note]);
+  }, [hasItems, itemId, quantity, removeOverstock, reason, note, direction, expiryDate]);
 
   const submit = useCallback(async () => {
     if (validate() || !selected || submitting) return;
@@ -98,6 +108,7 @@ export default function AdjustStockPage() {
         quantity: Number(quantity),
         reason: reason as StockAdjustReason,
         note: note || undefined,
+        expiryDate: direction === "add" && expiryDate ? expiryDate : undefined,
       });
       if (result.ok && result.movement) {
         const unit =
@@ -109,21 +120,32 @@ export default function AdjustStockPage() {
           ? Number(result.item.quantity)
           : Number(result.movement.balanceAfter ?? 0);
         toast.success(
-          `${direction === "add" ? "Added" : "Removed"} ${fmtQty(quantity)} ${unit} ${direction === "add" ? "to" : "from"} ${name} — New balance: ${fmtQty(newQty)} ${unit}`,
+          `${direction === "add" ? "Increased" : "Decreased"} ${fmtQty(quantity)} ${unit} for ${name} — New balance: ${fmtQty(newQty)} ${unit}`,
           { duration: 8000 },
         );
         setReceipt(result.movement);
         setQuantity("");
+        setExpiryDate("");
         setNote("");
         setReason("");
         setErrors({});
       } else {
-        toast.error(result.message || "Adjustment failed. Try again.");
+        if (result.errors && result.errors.length > 0) {
+          const nextErrors: Record<string, string> = {};
+          for (const err of result.errors) {
+            if (err.field && err.message) nextErrors[err.field] = err.message;
+          }
+          setErrors((prev) => ({ ...prev, ...nextErrors }));
+        } else if (result.field && result.message) {
+          setErrors((prev) => ({ ...prev, [result.field!]: result.message }));
+        } else {
+          toast.error(result.message || "Adjustment failed. Try again.");
+        }
       }
     } finally {
       setSubmitting(false);
     }
-  }, [selected, submitting, adjustStockItem, direction, quantity, reason, note, validate]);
+  }, [selected, submitting, adjustStockItem, direction, quantity, expiryDate, reason, note, validate]);
 
   const inlineError = (key: string) =>
     errors[key] ? <p className="mt-1 text-xs font-semibold text-red-600">{errors[key]}</p> : null;
@@ -179,7 +201,7 @@ export default function AdjustStockPage() {
                       : "text-stone-600 hover:text-stone-800"
                   }`}
                 >
-                  <PlusCircle className="h-4 w-4" /> Add
+                  <PlusCircle className="h-4 w-4" /> Increase
                 </button>
                 <button
                   type="button"
@@ -194,7 +216,7 @@ export default function AdjustStockPage() {
                       : "text-stone-600 hover:text-stone-800"
                   }`}
                 >
-                  <MinusCircle className="h-4 w-4" /> Remove
+                  <MinusCircle className="h-4 w-4" /> Decrease
                 </button>
               </div>
             </div>
@@ -219,7 +241,7 @@ export default function AdjustStockPage() {
             </AdminField>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <AdminField label={`Quantity to ${direction === "add" ? "add" : "remove"}`}>
+              <AdminField label={`Quantity to ${direction === "add" ? "increase" : "decrease"}`}>
                 <AdminInput
                   type="number"
                   step="0.01"
@@ -234,7 +256,7 @@ export default function AdjustStockPage() {
                 />
                 {removeOverstock ? (
                   <p className="mt-1 text-xs font-semibold text-red-600">
-                    Cannot remove more than is on hand ({fmtQty(onHand)} {selected?.unit}).
+                    Cannot decrease more than is on hand ({fmtQty(onHand)} {selected?.unit}).
                   </p>
                 ) : (
                   inlineError("quantity")
@@ -259,6 +281,21 @@ export default function AdjustStockPage() {
                 {inlineError("reason")}
               </AdminField>
             </div>
+
+            {direction === "add" && (
+              <AdminField label="Expiry Date (optional)">
+                <AdminInput
+                  type="date"
+                  value={expiryDate}
+                  disabled={!hasItems || submitting}
+                  onChange={(e) => {
+                    setExpiryDate(e.target.value);
+                    setErrors((p) => ({ ...p, expiryDate: null }));
+                  }}
+                />
+                {inlineError("expiryDate")}
+              </AdminField>
+            )}
 
             <AdminField label={`Note${reason === "Other" ? " (required)" : " (optional)"}`}>
               <AdminTextarea
@@ -285,7 +322,7 @@ export default function AdjustStockPage() {
                   !hasItems || submitting || !itemId || !reason || (reason === "Other" && !note.trim())
                 }
               >
-                {submitting ? "Submitting…" : `Record ${direction === "add" ? "Addition" : "Removal"}`}
+                {submitting ? "Submitting…" : `Record ${direction === "add" ? "Increase" : "Decrease"}`}
               </AdminButton>
             </div>
           </form>

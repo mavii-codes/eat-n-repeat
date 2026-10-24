@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, Fragment, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
   CalendarClock,
+  CheckCircle2,
   ChevronDown,
   History,
   RefreshCw,
@@ -16,7 +17,10 @@ import { useAdminData } from "@/context/AdminDataContext";
 import type { StockDashboardResponse, StockLayer } from "@/lib/admin/types";
 import {
   fmtQty,
+  formatLayerDate,
   formatMovementDateTime,
+  getExpiryStatus,
+  getManilaDateString,
   getStockLayerSource,
   getStockMovementBadge,
   peso,
@@ -59,18 +63,6 @@ type SetLayerCostFn = (
   layerId: string,
   unitCost: number,
 ) => Promise<{ ok: true; layer: StockLayer } | { ok: false; message: string }>;
-
-/** Date-only label ("Oct 25, 2026") for a layer's received / expiry dates. */
-function formatLayerDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 /** Amber expiry emphasis: date is within 7 days (or already past). */
 function isExpiringWithin(iso: string | null | undefined, days: number): boolean {
@@ -189,11 +181,13 @@ function LayerCostForm({
 function CostLayerRow({
   layer,
   itemId,
+  isSoonestExpiry,
   setStockLayerCost,
   onLayerCostSaved,
 }: {
   layer: StockLayer;
   itemId: string;
+  isSoonestExpiry?: boolean;
   setStockLayerCost: SetLayerCostFn;
   onLayerCostSaved: (itemId: string, layer: StockLayer) => void;
 }) {
@@ -211,12 +205,15 @@ function CostLayerRow({
   const partialTake =
     layer.quantityReceived != null &&
     Number(layer.quantityReceived) !== Number(layer.remaining);
-  const expiringSoon =
-    layer.expiryDate != null && isExpiringWithin(layer.expiryDate, 7);
+  const expiryStatus = getExpiryStatus(layer.expiryDate);
   const receivedLabel = formatLayerDate(layer.receivedAt ?? layer.createdAt);
 
   return (
-    <div className="px-3 py-2.5 transition-colors hover:bg-stone-50/60">
+    <div
+      className={`px-3 py-2.5 transition-colors hover:bg-stone-50/60 ${
+        isSoonestExpiry ? "bg-amber-50/40 border-l-2 border-l-amber-500" : ""
+      }`}
+    >
       {/* Quantity + cost line */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="flex items-baseline gap-1.5 leading-none">
@@ -265,19 +262,21 @@ function CostLayerRow({
             <span className="font-bold text-stone-600">{receivedLabel}</span>
           </span>
           {layer.expiryDate != null && (
-            <span
-              className={`whitespace-nowrap ${expiringSoon ? "text-amber-700" : ""}`}
-            >
-              Expires{" "}
-              <span
-                className={
-                  expiringSoon
-                    ? "font-bold text-amber-800"
-                    : "font-bold text-stone-600"
-                }
-              >
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span>Expires</span>
+              <span className="font-bold text-stone-700">
                 {formatLayerDate(layer.expiryDate)}
               </span>
+              {expiryStatus && (
+                <span className={expiryStatus.badgeClass}>
+                  {expiryStatus.badgeLabel}
+                </span>
+              )}
+              {isSoonestExpiry && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300">
+                  Soonest Expiry
+                </span>
+              )}
             </span>
           )}
         </span>
@@ -334,6 +333,19 @@ function LayersPanel({
   if (entry.length === 0) {
     return <p className="text-xs font-bold text-stone-400">No recorded layers.</p>;
   }
+
+  const layersWithExpiry = entry.filter(
+    (l) => l.expiryDate && Number(l.remaining) > 0,
+  );
+  const soonestExpiryLayerId =
+    layersWithExpiry.length > 0
+      ? layersWithExpiry.reduce((min, l) =>
+          new Date(l.expiryDate!).getTime() < new Date(min.expiryDate!).getTime()
+            ? l
+            : min,
+        ).id
+      : null;
+
   return (
     <div>
       <p className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-stone-400">
@@ -345,6 +357,7 @@ function LayersPanel({
             key={layer.id}
             layer={layer}
             itemId={itemId}
+            isSoonestExpiry={layer.id === soonestExpiryLayerId}
             setStockLayerCost={setStockLayerCost}
             onLayerCostSaved={onLayerCostSaved}
           />
@@ -387,8 +400,37 @@ export default function InventoryDashboardPage() {
     fetchStockItemLayers,
     setStockLayerCost,
     salesEventsVersion,
+    fetchStockConsistencyCheck,
+    getActiveMenuItems,
   } = useAdminData();
   const [dashboard, setDashboard] = useState<StockDashboardResponse | null>(null);
+  const [consistencyResult, setConsistencyResult] = useState<any | null>(null);
+  const [checkingConsistency, setCheckingConsistency] = useState(false);
+  const [consistencyError, setConsistencyError] = useState<string | null>(null);
+
+  const linkedMenuMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of getActiveMenuItems()) {
+      if (m.stockItemId) {
+        map.set(m.stockItemId, m.name);
+      }
+    }
+    return map;
+  }, [getActiveMenuItems]);
+
+  const handleRunConsistencyCheck = useCallback(async () => {
+    if (!fetchStockConsistencyCheck) return;
+    setCheckingConsistency(true);
+    setConsistencyError(null);
+    try {
+      const res = await fetchStockConsistencyCheck();
+      setConsistencyResult(res);
+    } catch (err: any) {
+      setConsistencyError(err.message || "Failed to run consistency check.");
+    } finally {
+      setCheckingConsistency(false);
+    }
+  }, [fetchStockConsistencyCheck]);
   const [loading, setLoading] = useState(true);
   const [isStale, setIsStale] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -569,15 +611,9 @@ export default function InventoryDashboardPage() {
   const movements = lists?.recentMovements ?? [];
   const mostUsed = lists?.mostUsedThisWeek ?? [];
 
-  const expiringCount = Number(cards?.expiringSoonCount ?? expiringList.length);
-  const expiringNames = expiringList.slice(0, 3).map((row) => row.name);
-  const expiringMore = Math.max(0, expiringList.length - expiringNames.length);
-  const expiringNote =
-    expiringNames.length > 0
-      ? `${expiringNames.join(", ")}${expiringMore > 0 ? ` +${expiringMore} more` : ""}`
-      : expiringCount > 0
-        ? "Expiring soon"
-        : "Nothing expiring soon";
+  const EXPIRY_WINDOW_DAYS = 7;
+  const expiringCount = Number(cards?.expiringSoonCount ?? 0);
+  const alreadyExpiredCount = Number(cards?.alreadyExpiredCount ?? 0);
 
   return (
     <div className="space-y-6">
@@ -645,17 +681,24 @@ export default function InventoryDashboardPage() {
           }
         />
         <StatCard
-          label="Expiring ≤7 days"
+          label="Expiring Soon"
           value={cards ? fmtQty(expiringCount) : "…"}
-          tone={cards && expiringCount > 0 ? "amber" : "plain"}
+          tone={cards && (expiringCount > 0 || alreadyExpiredCount > 0) ? "amber" : "plain"}
           note={
-            <div
-              className={`flex items-center gap-1.5 text-xs font-semibold ${
-                expiringCount > 0 ? "text-amber-700" : "text-stone-500"
-              }`}
-            >
-              <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-              <span className="leading-snug">{expiringNote}</span>
+            <div className="space-y-0.5 text-xs">
+              <div className="flex items-center gap-1.5 text-stone-500 font-semibold">
+                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                <span>Items expiring within {EXPIRY_WINDOW_DAYS} days</span>
+              </div>
+              {alreadyExpiredCount > 0 ? (
+                <div className="text-red-700 font-semibold pl-5">
+                  {alreadyExpiredCount} already expired
+                </div>
+              ) : expiringCount === 0 ? (
+                <div className="text-stone-400 pl-5">
+                  Nothing expiring soon
+                </div>
+              ) : null}
             </div>
           }
         />
@@ -683,6 +726,144 @@ export default function InventoryDashboardPage() {
           No inventory activity yet.
         </div>
       )}
+
+      {/* ── Data Consistency & Menu Sync Card ── */}
+      <div className={CARD}>
+        <div className={CARD_HEAD}>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <h2 className="font-bold text-stone-800">Menu & Inventory Consistency</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleRunConsistencyCheck()}
+            disabled={checkingConsistency}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs font-bold text-stone-700 shadow-sm transition-colors hover:bg-stone-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${checkingConsistency ? "animate-spin text-[#800000]" : ""}`} />
+            {checkingConsistency ? "Checking…" : "Run Integrity Check"}
+          </button>
+        </div>
+
+        <div className="p-4">
+          {consistencyError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">
+              {consistencyError}
+            </div>
+          )}
+
+          {!consistencyResult && !consistencyError && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-600">
+              <p>
+                Verify 1:1 synchronization between active menu items, inventory stock items, and FIFO cost layers.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleRunConsistencyCheck()}
+                className="text-xs font-bold text-[#800000] hover:underline shrink-0"
+              >
+                Click to inspect database consistency →
+              </button>
+            </div>
+          )}
+
+          {consistencyResult && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
+                      consistencyResult.healthy
+                        ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
+                        : "bg-red-100 text-red-800 ring-1 ring-red-300"
+                    }`}
+                  >
+                    {consistencyResult.healthy ? (
+                      <>
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                        Healthy & Fully Synchronized
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+                        Inconsistencies Detected
+                      </>
+                    )}
+                  </span>
+                  <span className="text-[11px] text-stone-400">
+                    Checked {new Date(consistencyResult.checkedAt).toLocaleTimeString()}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-4 text-xs font-semibold text-stone-600">
+                  <span>
+                    Stock Items: <strong className="text-stone-900">{consistencyResult.totalStockItems}</strong>
+                  </span>
+                  <span>
+                    Tracked Menu Items: <strong className="text-stone-900">{consistencyResult.totalTrackedMenuItems}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {consistencyResult.healthy ? (
+                <div className="grid gap-2 sm:grid-cols-3 text-xs text-stone-600">
+                  <div className="flex items-center gap-1.5 text-emerald-800 font-medium">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    FIFO layer sums equal stock quantities
+                  </div>
+                  <div className="flex items-center gap-1.5 text-emerald-800 font-medium">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    No broken menu item links
+                  </div>
+                  <div className="flex items-center gap-1.5 text-emerald-800 font-medium">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    Item names match 100% across Menu and Inventory
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2 text-xs">
+                  {consistencyResult.layerQuantityMismatches?.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-900">
+                      <p className="font-bold">Quantity vs FIFO Layer Mismatches:</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                        {consistencyResult.layerQuantityMismatches.map((m: any) => (
+                          <li key={m.stockItemId}>
+                            <strong>{m.name}</strong>: On hand is {m.stockQuantity}, layer sum is {m.layerSum} (Diff: {m.diff})
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {consistencyResult.brokenMenuLinks?.length > 0 && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-red-900">
+                      <p className="font-bold">Broken Menu Links (Stock item deleted or missing):</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                        {consistencyResult.brokenMenuLinks.map((m: any) => (
+                          <li key={m.menuItemId}>
+                            Menu item <strong>{m.menuItemName}</strong> points to non-existent stock item ID: {m.stockItemId}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {consistencyResult.nameMismatches?.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-900">
+                      <p className="font-bold">Name Mismatches between Menu and Inventory:</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                        {consistencyResult.nameMismatches.map((m: any) => (
+                          <li key={m.menuItemId}>
+                            Menu: &quot;{m.menuItemName}&quot; vs Stock: &quot;{m.stockItemName}&quot;
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── Alert lists ── */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -720,7 +901,17 @@ export default function InventoryDashboardPage() {
                     return (
                       <Fragment key={row.id}>
                         <tr className="hover:bg-stone-50 transition-colors">
-                          <td className="px-3 py-2.5 font-bold text-stone-900">{row.name}</td>
+                          <td className="px-3 py-2.5 font-bold text-stone-900">
+                            {row.name}
+                            {linkedMenuMap.has(row.id) && (
+                              <span
+                                className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#800000]/10 text-[#800000] border border-[#800000]/20"
+                                title={`Linked to Menu Item: "${linkedMenuMap.get(row.id)}"`}
+                              >
+                                Menu
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-2.5 text-right font-semibold text-stone-700 whitespace-nowrap">
                             {fmtQty(row.quantity)} {row.unit}
                           </td>
@@ -800,7 +991,17 @@ export default function InventoryDashboardPage() {
                     return (
                       <Fragment key={row.id}>
                         <tr className="hover:bg-stone-50 transition-colors">
-                          <td className="px-3 py-2.5 font-bold text-stone-900">{row.name}</td>
+                          <td className="px-3 py-2.5 font-bold text-stone-900">
+                            {row.name}
+                            {linkedMenuMap.has(row.id) && (
+                              <span
+                                className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#800000]/10 text-[#800000] border border-[#800000]/20"
+                                title={`Linked to Menu Item: "${linkedMenuMap.get(row.id)}"`}
+                              >
+                                Menu
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-2.5 text-right text-stone-500 whitespace-nowrap">
                             {fmtQty(row.quantity)} {row.unit}
                           </td>
@@ -847,6 +1048,69 @@ export default function InventoryDashboardPage() {
         </div>
       </div>
 
+      {/* ── Expiring Soon (Panel below Low Stock and Out of Stock) ── */}
+      <div className={CARD}>
+        <div className={CARD_HEAD}>
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-amber-600" />
+            <h2 className="font-bold text-stone-800">Expiring Soon</h2>
+            <LiveChip isStale={isStale} />
+          </div>
+          <span className="text-xs font-bold text-stone-400">{expiringList.length}</span>
+        </div>
+        {loading && !dashboard ? (
+          <div className="p-10 text-center text-stone-400 font-bold text-sm">Loading…</div>
+        ) : expiringList.length === 0 ? (
+          <div className="p-8 text-center text-stone-400 font-bold text-sm">
+            Nothing expiring soon — no batches expiring within 7 days or expired.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
+                <tr>
+                  <th className="px-3 py-2.5">Item</th>
+                  <th className="px-3 py-2.5 text-right">Batch Remaining</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Expiry Date</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {expiringList.slice(0, 10).map((row) => {
+                  const status = getExpiryStatus(row.expiryDate);
+                  return (
+                    <tr key={row.id} className="hover:bg-stone-50 transition-colors">
+                      <td className="px-3 py-2.5 font-bold text-stone-900">
+                        {row.itemName || (row as any).name}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-stone-700 whitespace-nowrap">
+                        {fmtQty(row.quantityRemaining ?? (row as any).remaining ?? (row as any).quantity)}{" "}
+                        {row.unit}
+                      </td>
+                      <td className="px-3 py-2.5 text-stone-600 whitespace-nowrap">
+                        {formatLayerDate(row.expiryDate)}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        {status ? (
+                          <div className="flex items-center gap-2">
+                            <span className={status.badgeClass}>{status.badgeLabel}</span>
+                            <span className="text-xs text-stone-500 font-medium">
+                              {status.label}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-stone-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* ── Recent Movements ── */}
       <div className={CARD}>
         <div className={CARD_HEAD}>
@@ -868,12 +1132,13 @@ export default function InventoryDashboardPage() {
           <div className="p-8 text-center text-stone-400 font-bold text-sm">No movements yet</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[620px] text-left text-sm">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
                 <tr>
                   <th className="px-3 py-2.5 whitespace-nowrap">Date / Time</th>
                   <th className="px-3 py-2.5">Item</th>
                   <th className="px-3 py-2.5">Type</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Expiry</th>
                   <th className="px-3 py-2.5 text-right">Change</th>
                   <th className="px-3 py-2.5 text-right">Balance After</th>
                 </tr>
@@ -883,6 +1148,8 @@ export default function InventoryDashboardPage() {
                   const badge = getStockMovementBadge(m.type);
                   const change = Number(m.quantityChange);
                   const expanded = expandedMovements[m.id] === true;
+                  const expiryStatus = getExpiryStatus(m.expiryDate);
+                  const isStockInOrAdd = m.type === "STOCK_IN" || m.type === "ADJUSTMENT_ADD";
                   return (
                     <Fragment key={m.id}>
                       <tr className="hover:bg-stone-50 transition-colors">
@@ -909,6 +1176,22 @@ export default function InventoryDashboardPage() {
                         <td className="px-3 py-2.5">
                           <span className={badge.className}>{badge.label}</span>
                         </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {isStockInOrAdd && m.expiryDate ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-stone-700">
+                                {formatLayerDate(m.expiryDate)}
+                              </span>
+                              {expiryStatus && (
+                                <span className={expiryStatus.badgeClass}>
+                                  {expiryStatus.badgeLabel}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-stone-400">—</span>
+                          )}
+                        </td>
                         <td
                           className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${
                             change > 0 ? "text-emerald-700" : change < 0 ? "text-rose-600" : "text-stone-600"
@@ -922,7 +1205,66 @@ export default function InventoryDashboardPage() {
                       </tr>
                       {expanded && (
                         <tr id={`movement-layers-${m.id}`} className="bg-stone-50/80">
-                          <td colSpan={5} className="px-3 pb-3 pt-1">
+                          <td colSpan={6} className="px-3 pb-3 pt-2">
+                            {/* Movement Details Strip */}
+                            <div className="mb-3 rounded-lg border border-stone-200 bg-white p-3 text-xs">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-2">
+                                Movement Details
+                              </p>
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-5">
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Received Date</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {m.receivedAt ? formatLayerDate(m.receivedAt) : "—"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Expiry Date</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {m.expiryDate ? (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        {formatLayerDate(m.expiryDate)}
+                                        {expiryStatus && (
+                                          <span className={expiryStatus.badgeClass}>
+                                            {expiryStatus.badgeLabel}
+                                          </span>
+                                        )}
+                                      </span>
+                                    ) : (
+                                      "—"
+                                    )}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Supplier</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {(() => {
+                                      if (!m.reference) return "—";
+                                      if (m.reference.includes(" — ")) return m.reference.split(" — ")[0];
+                                      return m.type === "STOCK_IN" ? m.reference : "—";
+                                    })()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Unit Cost</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {m.unitCost != null ? peso(m.unitCost) : "—"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Note</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {(() => {
+                                      if (m.reference && m.reference.includes(" — ")) {
+                                        return m.reference.split(" — ").slice(1).join(" — ");
+                                      }
+                                      return m.reason || (m.type !== "STOCK_IN" ? m.reference : null) || "—";
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
                             <p className="text-[10px] font-bold uppercase tracking-wide text-stone-400 pb-2">
                               Current remaining layers for {m.itemName}
                             </p>

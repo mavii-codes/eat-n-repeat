@@ -24,3 +24,264 @@
     syscall: 'read'
   }
 }
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[admin-events-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}
+[reviews-stream] upstream stream ended: TypeError: terminated
+    at ignore-listed frames {
+  [cause]: Error: read ECONNRESET
+      at ignore-listed frames {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  }
+}

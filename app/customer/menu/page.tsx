@@ -109,15 +109,8 @@ export default function MenuPage() {
         ? 'Popular'
         : undefined;
 
-      // Check linked ingredient stock status
-      const linkedStock = stockItems?.find(
-        (s) =>
-          s.id === item.stockItemId ||
-          item.name.toLowerCase().includes(s.name.toLowerCase()) ||
-          s.name.toLowerCase().includes(item.name.toLowerCase())
-      );
-      const isOutOfStock = linkedStock ? linkedStock.quantity <= 0 : false;
-      const effectiveAvailable = item.available && !isOutOfStock;
+      // Availability is server-authoritative (tracks explicit links and stock balance without fuzzy matching)
+      const effectiveAvailable = item.available;
 
       return {
         id: item.id,

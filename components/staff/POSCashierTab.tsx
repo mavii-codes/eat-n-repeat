@@ -279,6 +279,29 @@ export function POSCashierTab() {
         return { ok: false, message: "No open shift found.", shift: null };
       }
       const result = await createShiftExpense(String(activeShift.id), input);
+      if (result.ok) {
+        setOfflineShiftOverride((prev) => {
+          const base = (prev && !(prev as any).cleared ? prev : activeShift) as any;
+          if (base) {
+            const prevExpected = Number(base.expected_cash) || 0;
+            const newExpected = Math.max(0, prevExpected - input.amount);
+            const existingExpenses = Array.isArray(base.expenses) ? base.expenses : [];
+            const newExpenseItem = {
+              id: result.expense?.id || `exp-${Date.now()}`,
+              category: input.category,
+              amount: input.amount,
+              reason: input.reason,
+              created_at: new Date().toISOString(),
+            };
+            return {
+              ...base,
+              expected_cash: newExpected,
+              expenses: [...existingExpenses, newExpenseItem],
+            };
+          }
+          return prev;
+        });
+      }
       return { ok: result.ok, message: result.message, shift: result.shift };
     },
     [activeShift, createShiftExpense]
@@ -825,7 +848,7 @@ export function POSCashierTab() {
         msg.includes('timed out');
       if (isNetworkFailure && paymentMethod === 'cash') {
         try {
-          const { journalOrder, journalPayment } = await import('@/lib/offlineSync');
+          const { journalOrder, journalPayment, journalStockTransaction } = await import('@/lib/offlineSync');
           const offlineId = posOrderNumber;
           const itemsSummary = cart
             .map((ci) => `${ci.item.name} (${ci.qty}x)`)
@@ -848,6 +871,18 @@ export function POSCashierTab() {
             // (dine-in/pickup/delivery) instead of defaulting to dine-in.
             type: orderType,
           });
+          // Wire offline stock deduction for tracked inventory items (D3)
+          for (const ci of cart) {
+            if (ci.item.stockItemId) {
+              journalStockTransaction({
+                id: `ost-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+                stockItemId: ci.item.stockItemId,
+                quantityDeducted: ci.qty,
+                orderId: offlineId,
+                staffId: user?.id || "offline-staff",
+              });
+            }
+          }
           // Queue the collection too so the drain records the PAID payment
           // and attributes the drawer (originating staff first).
           try {
@@ -878,11 +913,16 @@ export function POSCashierTab() {
           });
           // Keep the offline X-read honest: this drawer cash is real, so
           // the optimistic shift total grows with it until the drain lands.
-          setOfflineShiftOverride((prev) =>
-            prev && !(prev as any).cleared
-              ? { ...(prev as Record<string, any>), expected_cash: Number((prev as any).expected_cash || 0) + offlineTotal }
-              : prev
-          );
+          setOfflineShiftOverride((prev) => {
+            const base = prev && !(prev as any).cleared ? prev : activeShift;
+            if (base) {
+              return {
+                ...(base as Record<string, any>),
+                expected_cash: Number((base as any).expected_cash || 0) + offlineTotal,
+              };
+            }
+            return prev;
+          });
         } catch {
           // Journaling must never break the sale.
         }
@@ -1022,9 +1062,8 @@ export function POSCashierTab() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setExpenseModalOpen(true)}
-                disabled={isOffline}
-                title={isOffline ? "Expenses need a connection." : "Record a drawer paid-out"}
-                className="px-4 py-2.5 bg-white border border-stone-200 text-stone-700 text-xs font-bold rounded-xl hover:bg-stone-50 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+                title="Record a drawer paid-out"
+                className="px-4 py-2.5 bg-white border border-stone-200 text-stone-700 text-xs font-bold rounded-xl hover:bg-stone-50 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
               >
                 <Banknote className="w-3.5 h-3.5" />
                 Add Expense

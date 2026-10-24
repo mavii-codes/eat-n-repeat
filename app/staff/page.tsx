@@ -653,6 +653,18 @@ function OrderTableScroll({ className, children }: { className?: string; childre
         ),
       },
       {
+        id: "pos" as StaffTab,
+        label: "POS Cashier",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M2 10h20" />
+            <path d="M6 15h2M10 15h2M14 15h2" />
+            <path d="M12 4V2" />
+          </svg>
+        ),
+      },
+      {
         id: "orders",
         label: "Customer Orders",
         icon: (
@@ -708,19 +720,6 @@ function OrderTableScroll({ className, children }: { className?: string; childre
         ),
       },
     ];
-
-    list.push({
-      id: "pos" as StaffTab,
-      label: "POS Cashier",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-          <rect x="2" y="4" width="20" height="16" rx="2" />
-          <path d="M2 10h20" />
-          <path d="M6 15h2M10 15h2M14 15h2" />
-          <path d="M12 4V2" />
-        </svg>
-      ),
-    });
 
     list.push({
       id: "profile",

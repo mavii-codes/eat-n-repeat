@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, History, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, Download, History, RefreshCw, Search } from "lucide-react";
 import { AdminBackLink } from "@/components/admin/AdminBackLink";
 import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { useAdminData } from "@/context/AdminDataContext";
@@ -11,7 +11,9 @@ import {
   FILTER_CONTROL_CLASS,
   STOCK_MOVEMENT_TYPES,
   fmtQty,
+  formatLayerDate,
   formatMovementDateTime,
+  getExpiryStatus,
   getStockMovementBadge,
   movementTotalCost,
   peso,
@@ -45,7 +47,17 @@ const TYPE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export default function InventoryHistoryPage() {
-  const { stockItems, staffAccounts, fetchStockMovementsPage } = useAdminData();
+  const { stockItems, staffAccounts, fetchStockMovementsPage, salesEventsVersion, getActiveMenuItems } = useAdminData();
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
+  const linkedMenuMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of getActiveMenuItems()) {
+      if (item.stockItemId) map.set(item.stockItemId, item.name);
+    }
+    return map;
+  }, [getActiveMenuItems]);
+  const toggleRow = (id: string) => setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const sortedItems = useMemo(
     () => [...stockItems].sort((a, b) => a.name.localeCompare(b.name)),
@@ -109,7 +121,7 @@ export default function InventoryHistoryPage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [page, itemFilter, typeFilter, fromDate, toDate, staffFilter, search, load]);;
+  }, [page, itemFilter, typeFilter, fromDate, toDate, staffFilter, search, load, salesEventsVersion]);
 
   // Any filter change goes back to page 1.
   const resetToFirstPage = () => setPage(1);
@@ -172,6 +184,8 @@ export default function InventoryHistoryPage() {
         "Date / Time",
         "Item",
         "Type",
+        "Received Date",
+        "Expiry Date",
         "Qty Change",
         "Balance After",
         "Unit Cost",
@@ -190,6 +204,8 @@ export default function InventoryHistoryPage() {
             m.createdAt ?? "",
             m.itemName ?? "",
             getStockMovementBadge(m.type).label,
+            m.receivedAt ?? "",
+            m.expiryDate ?? "",
             Number.isFinite(qty) ? String(qty) : String(m.quantityChange ?? ""),
             Number.isFinite(bal) ? String(bal) : String(m.balanceAfter ?? ""),
             m.unitCost != null ? String(Number(m.unitCost)) : "",
@@ -436,12 +452,13 @@ export default function InventoryHistoryPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1020px] text-left text-sm">
+            <table className="w-full min-w-[1100px] text-left text-sm">
               <thead className="bg-stone-50 border-b border-stone-100 text-stone-500 uppercase text-[10px] font-black tracking-wider">
                 <tr>
                   <th className="px-3 py-2.5 whitespace-nowrap">Date / Time</th>
                   <th className="px-3 py-2.5">Item</th>
                   <th className="px-3 py-2.5">Type</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Expiry</th>
                   <th className="px-3 py-2.5 text-right">Qty Change</th>
                   <th className="px-3 py-2.5 text-right">Balance After</th>
                   <th className="px-3 py-2.5 text-right">Unit Cost</th>
@@ -456,41 +473,149 @@ export default function InventoryHistoryPage() {
                   const badge = badgeFor(m);
                   const change = Number(m.quantityChange);
                   const total = movementTotalCost(m);
+                  const expanded = expandedRows[m.id] === true;
+                  const expiryStatus = getExpiryStatus(m.expiryDate);
+                  const isStockInOrAdd = m.type === "STOCK_IN" || m.type === "ADJUSTMENT_ADD";
                   return (
-                    <tr key={m.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-3 py-2.5 text-stone-500 whitespace-nowrap">
-                        {formatMovementDateTime(m.createdAt)}
-                      </td>
-                      <td className="px-3 py-2.5 font-bold text-stone-900">{m.itemName}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className={badge.className}>{badge.label}</span>
-                      </td>
-                      <td
-                        className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${
-                          change > 0 ? "text-emerald-700" : change < 0 ? "text-rose-600" : "text-stone-600"
-                        }`}
-                      >
-                        {signedQty(m.quantityChange)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-bold text-stone-900 whitespace-nowrap">
-                        {fmtQty(m.balanceAfter)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                        {m.unitCost != null ? peso(m.unitCost) : <span className="text-stone-400">—</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                        {total != null ? peso(total) : <span className="text-stone-400">—</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-stone-700 font-semibold whitespace-nowrap">
-                        {m.createdByName || <span className="text-stone-400">—</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-stone-600 max-w-[160px] truncate">
-                        {m.reason || <span className="text-stone-400">—</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-stone-500 max-w-[140px] truncate">
-                        {m.reference || <span className="text-stone-400">—</span>}
-                      </td>
-                    </tr>
+                    <Fragment key={m.id}>
+                      <tr className="hover:bg-stone-50 transition-colors">
+                        <td className="px-3 py-2.5 text-stone-500 whitespace-nowrap">
+                          {formatMovementDateTime(m.createdAt)}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-controls={`movement-details-${m.id}`}
+                            aria-label={`${expanded ? "Hide" : "Show"} details for ${m.itemName}`}
+                            onClick={() => toggleRow(m.id)}
+                            className="group inline-flex items-center gap-1.5 -mx-1 rounded-md px-1 py-0.5 font-bold text-stone-900 hover:text-[#800000] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#800000]/40"
+                          >
+                            {m.itemName}
+                            {linkedMenuMap.has(m.stockItemId) && (
+                              <span
+                                className="ml-1 inline-flex items-center rounded px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider bg-[#800000]/10 text-[#800000] border border-[#800000]/20"
+                                title={`Linked to Menu Item: "${linkedMenuMap.get(m.stockItemId)}"`}
+                              >
+                                Menu
+                              </span>
+                            )}
+                            <ChevronDown
+                              className={`h-3.5 w-3.5 text-stone-400 transition-transform group-hover:text-[#800000] ${
+                                expanded ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <span className={badge.className}>{badge.label}</span>
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {isStockInOrAdd && m.expiryDate ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-stone-700">
+                                {formatLayerDate(m.expiryDate)}
+                              </span>
+                              {expiryStatus && (
+                                <span className={expiryStatus.badgeClass}>
+                                  {expiryStatus.badgeLabel}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-stone-400">—</span>
+                          )}
+                        </td>
+                        <td
+                          className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${
+                            change > 0 ? "text-emerald-700" : change < 0 ? "text-rose-600" : "text-stone-600"
+                          }`}
+                        >
+                          {signedQty(m.quantityChange)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-bold text-stone-900 whitespace-nowrap">
+                          {fmtQty(m.balanceAfter)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                          {m.unitCost != null ? peso(m.unitCost) : <span className="text-stone-400">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                          {total != null ? peso(total) : <span className="text-stone-400">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-stone-700 font-semibold whitespace-nowrap">
+                          {m.createdByName || <span className="text-stone-400">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-stone-600 max-w-[160px] truncate">
+                          {m.reason || <span className="text-stone-400">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-stone-500 max-w-[140px] truncate">
+                          {m.reference || <span className="text-stone-400">—</span>}
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr id={`movement-details-${m.id}`} className="bg-stone-50/80">
+                          <td colSpan={11} className="px-3 pb-3 pt-2">
+                            <div className="rounded-lg border border-stone-200 bg-white p-3 text-xs">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-2">
+                                Movement Details
+                              </p>
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-5">
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Received Date</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {m.receivedAt ? formatLayerDate(m.receivedAt) : "—"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Expiry Date</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {m.expiryDate ? (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        {formatLayerDate(m.expiryDate)}
+                                        {expiryStatus && (
+                                          <span className={expiryStatus.badgeClass}>
+                                            {expiryStatus.badgeLabel}
+                                          </span>
+                                        )}
+                                      </span>
+                                    ) : (
+                                      "—"
+                                    )}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Supplier</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {(() => {
+                                      if (!m.reference) return "—";
+                                      if (m.reference.includes(" — ")) return m.reference.split(" — ")[0];
+                                      return m.type === "STOCK_IN" ? m.reference : "—";
+                                    })()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Unit Cost</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {m.unitCost != null ? peso(m.unitCost) : "—"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[10px] font-semibold text-stone-400 uppercase">Note</span>
+                                  <span className="font-semibold text-stone-700">
+                                    {(() => {
+                                      if (m.reference && m.reference.includes(" — ")) {
+                                        return m.reference.split(" — ").slice(1).join(" — ");
+                                      }
+                                      return m.reason || (m.type !== "STOCK_IN" ? m.reference : null) || "—";
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

@@ -11,8 +11,8 @@ import { expenseRowsNet } from "@/lib/admin/expense-utils";
    ExpenseModal — staff drawer paid-out (POSCashierTab shift bar).
    Mirrors the CashModals EndShiftModal shell: z-[200] overlay,
    live X-read style summary card, concentrated money input.
-   Offline drawer expenses are NOT supported — the host disables
-   the opener while offline; no offline journaling here.
+   Drawer expenses are supported both online and offline (synced
+   with the active shift to keep Expected Cash in balance).
    ══════════════════════════════════════════════════════════════ */
 
 export type DrawerExpenseInput = {
