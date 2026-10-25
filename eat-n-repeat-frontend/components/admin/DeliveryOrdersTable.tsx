@@ -11,6 +11,7 @@ import { AdminSelect, AdminButton } from "@/components/admin/AdminForm";
 import { AdminModal } from "@/components/admin/AdminModal";
 import { ProofOfDeliveryModal } from "@/components/admin/ProofOfDeliveryModal";
 import { useAdminData } from "@/context/AdminDataContext";
+import { useAuth } from "@/context/AuthContext";
 import { Eye, Edit2, Check, X, MapPin, Phone, ShieldCheck, Clock, User, FileText, Camera } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -33,7 +34,20 @@ export function DeliveryOrdersTable({
   onChat,
   disabled = false,
 }: DeliveryOrdersTableProps) {
-  const { submitProofOfDelivery, updateDeliveryOrderPhone } = useAdminData();
+  const { submitProofOfDelivery, updateDeliveryOrderPhone, staffAccounts } = useAdminData();
+  const { user } = useAuth();
+
+  const getStaffDisplayName = (identifier?: string | null): string => {
+    if (!identifier) return "Staff";
+    if (user?.id && identifier === user.id) return user.name || "Staff";
+    const matched = staffAccounts?.find(
+      (acc) => acc.id === identifier || acc.username === identifier
+    );
+    if (matched?.name) return matched.name;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+    if (isUuid) return user?.name || "Staff";
+    return identifier;
+  };
 
   // Proof modal state
   const [proofOrder, setProofOrder] = useState<DeliveryOrder | null>(null);
@@ -59,9 +73,12 @@ export function DeliveryOrdersTable({
     }
   };
 
-  const handleProofSubmit = async (proof: { photo: string; signature: string; note?: string | null }) => {
+  const handleProofSubmit = async (proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }) => {
     if (!proofOrder) return;
-    const res = await submitProofOfDelivery(proofOrder.id, proof);
+    const res = await submitProofOfDelivery(proofOrder.id, {
+      ...proof,
+      submittedBy: user?.name || "Admin",
+    });
     if (!res.success) {
       throw new Error(res.message || "Failed to submit proof of delivery.");
     }
@@ -457,7 +474,7 @@ export function DeliveryOrdersTable({
                     <div className="flex flex-wrap gap-4 text-stone-500 pt-1">
                       {detailsOrder.proofOfDeliverySubmittedBy && (
                         <span>
-                          <strong>Delivered by:</strong> {detailsOrder.proofOfDeliverySubmittedBy}
+                          <strong>Delivered by:</strong> {getStaffDisplayName(detailsOrder.proofOfDeliverySubmittedBy)}
                         </span>
                       )}
                       {(detailsOrder.proofOfDeliverySubmittedAt || detailsOrder.deliveredAt) && (

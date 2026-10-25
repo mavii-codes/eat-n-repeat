@@ -17,7 +17,7 @@ type ProofOfDeliveryModalProps = {
     address?: string | null;
   } | null;
   onClose: () => void;
-  onSubmit: (proof: { photo: string; signature: string; note?: string | null }) => Promise<void>;
+  onSubmit: (proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }) => Promise<void>;
 };
 
 export function ProofOfDeliveryModal({

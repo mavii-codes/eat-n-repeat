@@ -5,6 +5,7 @@ import { releaseRedemptionForOrder } from "@/services/promos/promos.service";
 import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
 import { emitAdminEvent } from "@/lib/sse";
 import { normalizePhoneNumber, isValidPhoneNumber, phoneFormatMessage } from "@/services/customer-phone";
+import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
 
 function generateOrderNumber(): string {
@@ -47,8 +48,30 @@ function parseDeliveryItems(raw: unknown): any[] {
 export class DeliveryService {
   async getDeliveryOrders() {
     const orders = await deliveryRepository.findDeliveryOrders();
+    const userIds = orders
+      .map((o: any) => o.proofOfDeliverySubmittedBy)
+      .filter((id: any) => typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+
+    let userMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+      try {
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true },
+        });
+        for (const u of users) {
+          userMap[u.id] = u.name;
+        }
+      } catch (err) {
+        console.warn("[delivery] Failed to resolve staff names for proofs:", err);
+      }
+    }
+
     return orders.map((order: any) => ({
       ...order,
+      proofOfDeliverySubmittedBy:
+        (order.proofOfDeliverySubmittedBy && userMap[order.proofOfDeliverySubmittedBy]) ||
+        order.proofOfDeliverySubmittedBy,
       items: parseDeliveryItems(order.items),
     }));
   }

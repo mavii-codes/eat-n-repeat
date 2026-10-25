@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { AuthenticatedRequest } from "@/middleware/auth.middleware";
 import { DeliveryService } from "@/services/delivery";
 import { createOrderSchema, statusSchema, personSchema, reassignSchema, cancelSchema } from "@/schema/delivery/delivery.schema";
+import { prisma } from "@/lib/prisma";
 
 export class DeliveryController {
   private service = new DeliveryService();
@@ -109,7 +110,21 @@ export class DeliveryController {
     }
 
     try {
-      const submittedBy = (req as any).auth?.userId || (req as any).user?.id || (req as any).user?.name || "Staff";
+      let submittedBy = typeof req.body.submittedBy === "string" ? req.body.submittedBy.trim() : "";
+      if (!submittedBy) {
+        submittedBy = req.auth?.name || (req as any).user?.name || "";
+      }
+      if (!submittedBy && req.auth?.userId) {
+        const staffUser = await prisma.user.findUnique({
+          where: { id: req.auth.userId },
+          select: { name: true },
+        });
+        submittedBy = staffUser?.name || "";
+      }
+      if (!submittedBy) {
+        submittedBy = "Staff";
+      }
+
       const order = await this.service.completeDeliveryWithProof(id as string, {
         photo: photo.trim(),
         signature: signature.trim(),

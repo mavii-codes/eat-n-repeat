@@ -372,6 +372,21 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   const [proofOrder, setProofOrder] = useState<DeliveryOrder | null>(null);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
 
+  const getStaffDisplayName = useCallback(
+    (identifier?: string | null): string => {
+      if (!identifier) return "Staff";
+      if (user?.id && identifier === user.id) return user.name || "Staff";
+      const matched = staffAccounts?.find(
+        (acc) => acc.id === identifier || acc.username === identifier
+      );
+      if (matched?.name) return matched.name;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+      if (isUuid) return user?.name || "Staff";
+      return identifier;
+    },
+    [user, staffAccounts],
+  );
+
   // Server-paginated history (20/page). Null = offline/unauthenticated, in
   // which case the local lists below are used exactly as before.
   const [historyPage, setHistoryPage] = useState(1);
@@ -2726,7 +2741,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                         <div>
                           <span className="text-stone-500">Delivered By:</span>{" "}
                           <span className="font-semibold text-stone-800">
-                            {selectedOrderDetails.proofOfDeliverySubmittedBy || selectedOrderDetails.deliveryPerson || "Staff"}
+                            {getStaffDisplayName(selectedOrderDetails.proofOfDeliverySubmittedBy) || selectedOrderDetails.deliveryPerson || user?.name || "Staff"}
                           </span>
                         </div>
                       </div>
@@ -2917,7 +2932,10 @@ function OrderTableScroll({ className, children }: { className?: string; childre
           onClose={() => setProofOrder(null)}
           order={proofOrder}
           onSubmit={async (proof) => {
-            const res = await submitProofOfDelivery(proofOrder.id, proof);
+            const res = await submitProofOfDelivery(proofOrder.id, {
+              ...proof,
+              submittedBy: user?.name || "Staff",
+            });
             if (!res.success) {
               throw new Error(res.message || "Failed to submit proof");
             }

@@ -16,7 +16,7 @@ export const SESSION_EXPIRED_MESSAGE = "Session expired. Please sign in again.";
 export type AuthKind = "user" | "customer";
 
 export type AuthenticatedRequest = Request & {
-  auth?: { userId: string; role?: string; kind?: AuthKind };
+  auth?: { userId: string; role?: string; kind?: AuthKind; name?: string };
 };
 
 function readToken(req: Request): string | undefined {
@@ -46,6 +46,7 @@ function attachIdentity(
       userId,
       kind: "user",
       role: identity.user.role,
+      name: identity.user.name,
     };
   } else {
     // Invariant: Customer accounts cannot authenticate through the local offline backend.

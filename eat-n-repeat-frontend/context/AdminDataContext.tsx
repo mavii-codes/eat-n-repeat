@@ -750,7 +750,7 @@ type AdminDataContextValue = AdminDataState & {
   updateDeliveryStatus: (id: string, status: DeliveryStatus) => void;
   submitProofOfDelivery: (
     id: string,
-    proof: { photo: string; signature: string; note?: string | null }
+    proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }
   ) => Promise<{ success: boolean; message?: string }>;
   updateDeliveryOrderPhone: (
     id: string,
@@ -2527,7 +2527,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const submitProofOfDelivery = useCallback(
     async (
       id: string,
-      proof: { photo: string; signature: string; note?: string | null }
+      proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }
     ): Promise<{ success: boolean; message?: string }> => {
       const isOfflineNow = typeof navigator !== "undefined" && !navigator.onLine;
       if (isOfflineNow) {
@@ -2556,6 +2556,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
                     proofOfDeliverySignature: proof.signature,
                     proofOfDeliveryNote: proof.note ?? null,
                     proofOfDeliverySubmittedAt: new Date().toISOString(),
+                    proofOfDeliverySubmittedBy: proof.submittedBy ?? "Staff",
                   }
                 : order
             ),
