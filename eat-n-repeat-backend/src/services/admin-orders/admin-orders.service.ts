@@ -4,16 +4,45 @@ import { applyRedemptionForOrder, releaseRedemptionForOrder } from "@/services/p
 import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
 import { v4 as uuidv4 } from "uuid";
 import type { HistoryQueryInput } from "@/schema/admin-orders/admin-orders.schema";
+import { prisma } from "@/lib/prisma";
 import { emitAdminEvent } from "@/lib/sse";
 
+async function resolveSubmittedByUsers(orders: any[]) {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const staffIdsToLookup = new Set<string>();
+  for (const order of orders) {
+    if (order.proofOfDeliverySubmittedBy && uuidRegex.test(order.proofOfDeliverySubmittedBy)) {
+      staffIdsToLookup.add(order.proofOfDeliverySubmittedBy);
+    }
+  }
+  if (staffIdsToLookup.size > 0) {
+    try {
+      const staffUsers = await prisma.user.findMany({
+        where: { id: { in: Array.from(staffIdsToLookup) } },
+        select: { id: true, name: true },
+      });
+      const staffMap = new Map(staffUsers.map((u) => [u.id, u.name]));
+      for (const order of orders) {
+        if (order.proofOfDeliverySubmittedBy && staffMap.has(order.proofOfDeliverySubmittedBy)) {
+          order.proofOfDeliverySubmittedBy = staffMap.get(order.proofOfDeliverySubmittedBy);
+        }
+      }
+    } catch (err) {
+      console.warn("[admin-orders] Failed to resolve staff names for proof of delivery:", err);
+    }
+  }
+}
+
 export async function getAdminOrders() {
-  return adminOrdersRepository.findManyOrders(
+  const orders = await adminOrdersRepository.findManyOrders(
     {},
     {
       orderBy: { createdAt: "desc" },
       include: { payments: true },
     }
   );
+  await resolveSubmittedByUsers(orders);
+  return orders;
 }
 
 /**
@@ -67,6 +96,8 @@ export async function getOrderHistory(query: HistoryQueryInput) {
           skip: (safePage - 1) * limit,
           take: limit,
         });
+
+  await resolveSubmittedByUsers(finalOrders);
 
   return {
     orders: finalOrders,

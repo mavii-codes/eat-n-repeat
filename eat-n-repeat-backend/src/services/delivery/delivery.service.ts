@@ -230,15 +230,10 @@ export class DeliveryService {
     if (order.status === "cancelled") {
       throw Object.assign(new Error("Cannot complete a cancelled order"), { status: 400 });
     }
-    // Safe against double-clicks and retries (Rule 20)
-    if (order.status === "delivered" || order.status === "completed") {
-      return order;
-    }
-
     const now = new Date();
     const updatedOrder = await deliveryRepository.updateOrder(order.id, {
-      status: "delivered",
-      deliveredAt: now,
+      status: order.status === "completed" ? "completed" : "delivered",
+      deliveredAt: order.deliveredAt || now,
       proofOfDeliveryPhoto: proof.photo,
       proofOfDeliverySignature: proof.signature,
       proofOfDeliveryNote: proof.note || null,

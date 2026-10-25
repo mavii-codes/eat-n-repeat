@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { DeliveryOrder, DeliveryStatus } from "@/lib/admin/types";
 import {
   deliveryStatusLabels,
@@ -109,6 +109,16 @@ export function DeliveryOrdersTable({
 
   // Details modal state
   const [detailsOrder, setDetailsOrder] = useState<DeliveryOrder | null>(null);
+
+  // Keep details synced with the latest live order data
+  const currentDetailsOrder = useMemo(() => {
+    if (!detailsOrder) return null;
+    return (
+      orders.find(
+        (o) => o.id === detailsOrder.id || o.orderNumber === detailsOrder.orderNumber
+      ) || detailsOrder
+    );
+  }, [detailsOrder, orders]);
 
   // Edit phone state inside details modal
   const [isEditingPhone, setIsEditingPhone] = useState(false);
@@ -318,112 +328,87 @@ export function DeliveryOrdersTable({
         title={`Delivery Details — ${detailsOrder?.orderNumber}`}
         onClose={() => setDetailsOrder(null)}
         maxWidth="4xl"
-        footer={
-          <div className="flex w-full items-center justify-between gap-3">
-            {detailsOrder && detailsOrder.status !== "delivered" && detailsOrder.status !== "completed" && detailsOrder.status !== "cancelled" && !disabled && (
-              <AdminButton
-                type="button"
-                variant="primary"
-                onClick={() => {
-                  const target = detailsOrder;
-                  setDetailsOrder(null);
-                  setProofOrder(target);
-                }}
-                className="gap-1.5 text-xs"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                Complete Delivery &amp; Proof
-              </AdminButton>
-            )}
-            <button
-              type="button"
-              onClick={() => setDetailsOrder(null)}
-              className="ml-auto rounded-xl px-5 py-2 text-sm font-semibold text-stone-600 hover:bg-stone-100 transition"
-            >
-              Close
-            </button>
-          </div>
-        }
+        className="!p-4 sm:!p-5"
       >
-        {detailsOrder && (
-          <div className="space-y-5 text-sm">
+        {currentDetailsOrder && (
+          <div className="space-y-3 text-sm">
             {/* Top Status & Financial Overview Banner */}
-            <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-gradient-to-r from-amber-50/80 to-stone-50 border border-amber-200/80 p-4 shadow-2xs">
-              <div className="flex items-center gap-3">
-                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${deliveryStatusStyles[detailsOrder.status]}`}>
-                  {deliveryStatusLabels[detailsOrder.status]}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50/70 border border-amber-200/70 px-3.5 py-2">
+              <div className="flex items-center gap-2.5">
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${deliveryStatusStyles[currentDetailsOrder.status]}`}>
+                  {deliveryStatusLabels[currentDetailsOrder.status]}
                 </span>
-                <span className="text-xs text-stone-500">
-                  {detailsOrder.orderedAt ? `Ordered ${formatDeliveryDate(detailsOrder.orderedAt)}` : ""}
+                <span className="text-xs text-stone-500 font-medium">
+                  {currentDetailsOrder.orderedAt ? `Ordered ${formatDeliveryDate(currentDetailsOrder.orderedAt)}` : ""}
                 </span>
               </div>
-              <div className="flex items-center gap-5 text-right">
-                <div>
-                  <p className="text-[11px] uppercase font-semibold text-stone-500 tracking-wider">Delivery Fee</p>
-                  <p className="text-xs font-semibold text-stone-700">₱{Number(detailsOrder.deliveryFee || 0).toFixed(2)}</p>
+              <div className="flex items-center gap-4 text-right">
+                <div className="text-xs">
+                  <span className="text-stone-500 mr-1.5 font-medium">Fee:</span>
+                  <span className="font-semibold text-stone-700">₱{Number(currentDetailsOrder.deliveryFee || 0).toFixed(2)}</span>
                 </div>
-                <div className="border-l border-stone-200 pl-5">
-                  <p className="text-[11px] uppercase font-bold text-stone-500 tracking-wider">Total Amount</p>
-                  <p className="font-serif text-xl font-bold text-[#800000]">
-                    ₱{Number(detailsOrder.total || 0).toFixed(2)}
-                  </p>
+                <div className="border-l border-stone-300 pl-4 text-xs">
+                  <span className="text-stone-500 mr-1.5 font-bold">Total:</span>
+                  <span className="font-serif font-bold text-[#800000] text-base">
+                    ₱{Number(currentDetailsOrder.total || 0).toFixed(2)}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* 2-Column Responsive Layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-              {/* Left Column: Customer & Items (7 columns on desktop) */}
-              <div className="lg:col-span-7 space-y-4">
+            {/* 2-Column Layout */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5">
+              {/* Left Column: Customer & Manifest */}
+              <div className="md:col-span-6 space-y-2.5">
                 {/* Customer & Destination Card */}
-                <div className="rounded-xl border border-stone-200/90 bg-white p-4 shadow-2xs space-y-3.5">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700 flex items-center gap-2 border-b border-stone-100 pb-2.5">
-                    <User className="h-4 w-4 text-[#800000]" />
+                <div className="rounded-xl border border-stone-200/90 bg-white p-3 space-y-2">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-700 flex items-center gap-1.5 border-b border-stone-100 pb-1.5">
+                    <User className="h-3.5 w-3.5 text-[#800000]" />
                     Customer &amp; Contact Details
                   </h4>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
-                      <span className="text-stone-500 font-medium">Customer Name</span>
-                      <p className="font-semibold text-stone-900 mt-1 text-sm">{detailsOrder.customerName}</p>
+                      <span className="text-stone-400 text-[11px] block font-medium">Customer Name</span>
+                      <p className="font-semibold text-stone-900 truncate mt-0.5">{currentDetailsOrder.customerName}</p>
                     </div>
 
                     <div>
-                      <span className="text-stone-500 font-medium">Contact Phone</span>
+                      <span className="text-stone-400 text-[11px] block font-medium">Contact Phone</span>
                       {isEditingPhone ? (
-                        <div className="flex items-center gap-1.5 mt-1">
+                        <div className="flex items-center gap-1 mt-0.5">
                           <input
                             type="tel"
                             value={editedPhone}
                             onChange={(e) => setEditedPhone(e.target.value)}
                             placeholder="09XXXXXXXXX"
-                            className="w-full rounded-lg border border-stone-300 px-2.5 py-1 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-[#800000]"
+                            className="w-full rounded border border-stone-300 px-2 py-0.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-[#800000]"
                           />
                           <button
                             type="button"
                             disabled={savingPhone}
                             onClick={handleSavePhone}
-                            className="rounded-lg bg-emerald-700 text-white p-1 hover:bg-emerald-800 disabled:opacity-50"
+                            className="rounded bg-emerald-700 text-white p-1 hover:bg-emerald-800 disabled:opacity-50"
                             title="Save Phone"
                           >
-                            <Check className="h-3.5 w-3.5" />
+                            <Check className="h-3 w-3" />
                           </button>
                           <button
                             type="button"
                             disabled={savingPhone}
                             onClick={() => {
                               setIsEditingPhone(false);
-                              setEditedPhone(detailsOrder.phone);
+                              setEditedPhone(currentDetailsOrder.phone);
                             }}
-                            className="rounded-lg bg-stone-200 text-stone-700 p-1 hover:bg-stone-300"
+                            className="rounded bg-stone-200 text-stone-700 p-1 hover:bg-stone-300"
                             title="Cancel"
                           >
-                            <X className="h-3.5 w-3.5" />
+                            <X className="h-3 w-3" />
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2 mt-1">
-                          <p className="font-semibold text-stone-900 text-sm">{detailsOrder.phone || "None provided"}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <p className="font-semibold text-stone-900 text-xs truncate">{currentDetailsOrder.phone || "None"}</p>
                           {!disabled && (
                             <button
                               type="button"
@@ -431,164 +416,205 @@ export function DeliveryOrdersTable({
                               className="text-stone-400 hover:text-[#800000] transition"
                               title="Edit Phone Number"
                             >
-                              <Edit2 className="h-3.5 w-3.5" />
+                              <Edit2 className="h-3 w-3" />
                             </button>
                           )}
                         </div>
                       )}
                     </div>
-
-                    <div className="sm:col-span-2 pt-2 border-t border-stone-100">
-                      <span className="text-stone-500 font-medium">Delivery Address</span>
-                      <div className="mt-1.5 flex items-start gap-2.5 bg-stone-50/80 p-3 rounded-lg border border-stone-200/70">
-                        <MapPin className="h-4 w-4 text-[#800000] shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-medium text-stone-900 text-xs leading-relaxed">{detailsOrder.address}</p>
-                          {detailsOrder.serviceAreaId && (
-                            <p className="text-[11px] text-stone-500 mt-1">
-                              Area: {getServiceAreaName(detailsOrder.serviceAreaId)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {detailsOrder.notes && (
-                      <div className="sm:col-span-2 pt-1">
-                        <span className="text-stone-500 font-medium">Order Notes</span>
-                        <p className="mt-1 text-xs text-stone-700 bg-amber-50/60 p-2.5 rounded-lg border border-amber-200/60 italic">
-                          "{detailsOrder.notes}"
-                        </p>
-                      </div>
-                    )}
                   </div>
+
+                  <div className="bg-stone-50/80 p-2 rounded-lg border border-stone-200/70 text-xs flex items-start gap-2">
+                    <MapPin className="h-3.5 w-3.5 text-[#800000] shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-stone-900 text-xs leading-snug">{currentDetailsOrder.address}</p>
+                      {currentDetailsOrder.serviceAreaId && (
+                        <p className="text-[10px] text-stone-500 mt-0.5">
+                          Area: {getServiceAreaName(currentDetailsOrder.serviceAreaId)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {currentDetailsOrder.notes && (
+                    <p className="text-[11px] text-stone-600 bg-amber-50/60 p-2 rounded border border-amber-200/60 italic">
+                      "{currentDetailsOrder.notes}"
+                    </p>
+                  )}
                 </div>
 
                 {/* Items Manifest Card */}
-                <div className="rounded-xl border border-stone-200/90 bg-white p-4 shadow-2xs space-y-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700 flex items-center gap-2 border-b border-stone-100 pb-2.5">
-                    <FileText className="h-4 w-4 text-[#800000]" />
+                <div className="rounded-xl border border-stone-200/90 bg-white p-3 space-y-1.5">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-700 flex items-center gap-1.5 border-b border-stone-100 pb-1.5">
+                    <FileText className="h-3.5 w-3.5 text-[#800000]" />
                     Items Manifest
                   </h4>
-                  <div className="bg-stone-50/80 rounded-lg p-3 border border-stone-200/70">
-                    <OrderItemsRenderer items={detailsOrder.items} />
+                  <div className="bg-stone-50/80 rounded-lg p-2 border border-stone-200/70 max-h-28 overflow-y-auto text-xs">
+                    <OrderItemsRenderer items={currentDetailsOrder.items} />
                   </div>
                 </div>
               </div>
 
-              {/* Right Column: Proof of Delivery (5 columns on desktop) */}
-              <div className="lg:col-span-5">
-                <div className="rounded-xl border border-stone-200/90 bg-white p-4 shadow-2xs space-y-4 sticky top-2">
-                  <div className="flex items-center justify-between border-b border-stone-100 pb-2.5">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-stone-800 flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-emerald-600" />
+              {/* Right Column: Proof of Delivery */}
+              <div className="md:col-span-6">
+                <div className="rounded-xl border border-stone-200/90 bg-white p-3 space-y-2">
+                  <div className="flex items-center justify-between border-b border-stone-100 pb-1.5">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-stone-800 flex items-center gap-1.5">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
                       Proof of Delivery
                     </h4>
-                    {detailsOrder.proofOfDeliveryPhoto || detailsOrder.proofOfDeliverySignature ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-emerald-800 border border-emerald-300">
-                        <Check className="h-3 w-3" /> Verified
+                    {currentDetailsOrder.proofOfDeliveryPhoto || currentDetailsOrder.proofOfDeliverySignature ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800 border border-emerald-300">
+                        <Check className="h-2.5 w-2.5" /> Verified
                       </span>
                     ) : (
-                      <span className="inline-flex rounded-full bg-stone-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-300">
-                        Pending Delivery
+                      <span className="inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase text-stone-600 border border-stone-300">
+                        Pending Proof
                       </span>
                     )}
                   </div>
 
-                  {detailsOrder.proofOfDeliveryPhoto || detailsOrder.proofOfDeliverySignature ? (
-                    <div className="space-y-4">
-                      {/* Photo Section */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-semibold text-stone-600 mb-1.5">
-                          <span className="flex items-center gap-1.5">
-                            <Camera className="h-3.5 w-3.5 text-stone-500" /> Delivery Photo
-                          </span>
-                          {detailsOrder.proofOfDeliveryPhoto && (
-                            <span className="text-[10px] text-accent font-semibold">Click to expand</span>
+                  {currentDetailsOrder.proofOfDeliveryPhoto || currentDetailsOrder.proofOfDeliverySignature ? (
+                    <div className="space-y-2">
+                      {/* Photo and Signature Side by Side */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Photo Section */}
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] font-semibold text-stone-600 mb-1">
+                            <span className="flex items-center gap-1">
+                              <Camera className="h-3 w-3 text-stone-500" /> Photo
+                            </span>
+                            {currentDetailsOrder.proofOfDeliveryPhoto && (
+                              <span className="text-[9px] text-[#800000] font-semibold">Expand</span>
+                            )}
+                          </div>
+                          {currentDetailsOrder.proofOfDeliveryPhoto ? (
+                            <div
+                              className="relative rounded-lg border border-stone-200 overflow-hidden cursor-pointer group bg-stone-100 shadow-2xs h-24 sm:h-28 flex items-center justify-center"
+                              onClick={() => setPreviewPhotoUrl(currentDetailsOrder.proofOfDeliveryPhoto!)}
+                            >
+                              <img
+                                src={currentDetailsOrder.proofOfDeliveryPhoto}
+                                alt="Proof Photo"
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] font-semibold gap-1 transition backdrop-blur-[1px]">
+                                <Camera className="h-3 w-3" /> View Photo
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-stone-200 bg-stone-50 h-24 sm:h-28 flex items-center justify-center text-center text-[10px] text-stone-400 italic">
+                              No photo
+                            </div>
                           )}
                         </div>
-                        {detailsOrder.proofOfDeliveryPhoto ? (
-                          <div
-                            className="relative rounded-xl border border-stone-200 overflow-hidden cursor-pointer group bg-stone-100 shadow-2xs aspect-video flex items-center justify-center"
-                            onClick={() => setPreviewPhotoUrl(detailsOrder.proofOfDeliveryPhoto!)}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={detailsOrder.proofOfDeliveryPhoto}
-                              alt="Proof of Delivery Photo"
-                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                            />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition backdrop-blur-[2px]">
-                              <Camera className="h-4 w-4" /> Expand Photo
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50 p-4 text-center text-xs text-stone-400 italic">
-                            No photo attached
-                          </div>
-                        )}
-                      </div>
 
-                      {/* Customer Signature Section */}
-                      <div>
-                        <p className="text-xs font-semibold text-stone-600 mb-1.5 flex items-center gap-1.5">
-                          <Edit2 className="h-3.5 w-3.5 text-stone-500" /> Customer Signature
-                        </p>
-                        {detailsOrder.proofOfDeliverySignature ? (
-                          <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 flex items-center justify-center h-28 overflow-hidden shadow-2xs">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={detailsOrder.proofOfDeliverySignature}
-                              alt="Customer Signature"
-                              className="max-h-full max-w-full object-contain filter contrast-125"
-                            />
-                          </div>
-                        ) : (
-                          <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50 p-4 text-center text-xs text-stone-400 italic">
-                            No signature recorded
-                          </div>
-                        )}
+                        {/* Customer Signature Section */}
+                        <div>
+                          <p className="text-[11px] font-semibold text-stone-600 mb-1 flex items-center gap-1">
+                            <Edit2 className="h-3 w-3 text-stone-500" /> Signature
+                          </p>
+                          {currentDetailsOrder.proofOfDeliverySignature ? (
+                            <div className="rounded-lg border border-stone-200 bg-stone-50 p-1 flex items-center justify-center h-24 sm:h-28 overflow-hidden shadow-2xs">
+                              <img
+                                src={currentDetailsOrder.proofOfDeliverySignature}
+                                alt="Customer Signature"
+                                className="max-h-full max-w-full object-contain filter contrast-125"
+                              />
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-stone-200 bg-stone-50 h-24 sm:h-28 flex items-center justify-center text-center text-[10px] text-stone-400 italic">
+                              No signature
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Audit Details */}
-                      <div className="rounded-xl bg-stone-50/80 border border-stone-200/80 p-3 space-y-2 text-xs">
+                      <div className="rounded-lg bg-stone-50/90 border border-stone-200/80 p-2 space-y-1 text-xs">
                         <div className="flex items-center justify-between">
-                          <span className="text-stone-500 flex items-center gap-1">
-                            <User className="h-3.5 w-3.5 text-stone-400" /> Delivered by:
+                          <span className="text-stone-500 flex items-center gap-1 text-[11px]">
+                            <User className="h-3 w-3 text-stone-400" /> Delivered by:
                           </span>
-                          <span className="font-semibold text-stone-900">
-                            {getStaffDisplayName(detailsOrder.proofOfDeliverySubmittedBy)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between border-t border-stone-100 pt-1.5">
-                          <span className="text-stone-500 flex items-center gap-1">
-                            <Clock className="h-3.5 w-3.5 text-stone-400" /> Delivered at:
-                          </span>
-                          <span className="font-semibold text-stone-900">
-                            {formatDeliveryDate(detailsOrder.proofOfDeliverySubmittedAt || detailsOrder.deliveredAt!)}
+                          <span className="font-semibold text-stone-900 text-[11px]">
+                            {getStaffDisplayName(currentDetailsOrder.proofOfDeliverySubmittedBy)}
                           </span>
                         </div>
-                        {detailsOrder.proofOfDeliveryNote && (
-                          <div className="border-t border-stone-100 pt-1.5">
-                            <span className="text-stone-500 font-medium">Delivery Note:</span>
-                            <p className="mt-1 text-stone-700 bg-white p-2 rounded-lg border border-stone-200/60 text-[11px] leading-relaxed">
-                              {detailsOrder.proofOfDeliveryNote}
+                        <div className="flex items-center justify-between border-t border-stone-100 pt-1">
+                          <span className="text-stone-500 flex items-center gap-1 text-[11px]">
+                            <Clock className="h-3 w-3 text-stone-400" /> Delivered at:
+                          </span>
+                          <span className="font-semibold text-stone-900 text-[11px]">
+                            {formatDeliveryDate(currentDetailsOrder.proofOfDeliverySubmittedAt || currentDetailsOrder.deliveredAt!)}
+                          </span>
+                        </div>
+                        {currentDetailsOrder.proofOfDeliveryNote && (
+                          <div className="border-t border-stone-100 pt-1">
+                            <span className="text-stone-500 text-[10px] font-medium">Note:</span>
+                            <p className="text-stone-700 text-[11px] italic">
+                              "{currentDetailsOrder.proofOfDeliveryNote}"
                             </p>
                           </div>
                         )}
                       </div>
+
+                      {/* Re-upload / Update affordance */}
+                      {!disabled && (
+                        <div className="text-right pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const target = currentDetailsOrder;
+                              setDetailsOrder(null);
+                              setProofOrder(target);
+                            }}
+                            className="text-[11px] font-semibold text-[#800000] hover:underline cursor-pointer"
+                          >
+                            Update / Replace Proof
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="rounded-xl bg-stone-50 border border-stone-200/80 p-6 text-center text-xs text-stone-500 space-y-2">
-                      <Clock className="h-8 w-8 text-stone-300 mx-auto" />
-                      <p className="font-semibold text-stone-700">Awaiting Delivery Proof</p>
-                      <p className="text-[11px] text-stone-400 leading-relaxed">
-                        Delivery photo and customer signature will appear here as soon as the rider completes this order.
-                      </p>
+                    <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50/60 p-4 text-center space-y-2.5 my-1">
+                      <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 text-stone-400">
+                        <Camera className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h5 className="font-bold text-stone-800 text-xs">Awaiting Delivery Proof</h5>
+                        <p className="text-[11px] text-stone-500 mt-0.5 max-w-xs mx-auto">
+                          Photo and customer signature will appear here when completed by staff/rider.
+                        </p>
+                      </div>
+                      {!disabled && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const target = currentDetailsOrder;
+                            setDetailsOrder(null);
+                            setProofOrder(target);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#800000] px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#660000] transition cursor-pointer"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          Upload Proof of Delivery
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* Bottom Close Button */}
+            <div className="pt-1 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setDetailsOrder(null)}
+                className="rounded-lg px-4 py-1.5 text-xs font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200 transition cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         )}
