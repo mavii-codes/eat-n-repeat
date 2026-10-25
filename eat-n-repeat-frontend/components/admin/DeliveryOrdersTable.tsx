@@ -354,7 +354,7 @@ export function DeliveryOrdersTable({
                   {deliveryStatusLabels[detailsOrder.status]}
                 </span>
                 <span className="text-xs text-stone-500">
-                  Ordered {formatDeliveryDate(detailsOrder.createdAt)}
+                  {detailsOrder.orderedAt ? `Ordered ${formatDeliveryDate(detailsOrder.orderedAt)}` : ""}
                 </span>
               </div>
               <div className="flex items-center gap-5 text-right">
