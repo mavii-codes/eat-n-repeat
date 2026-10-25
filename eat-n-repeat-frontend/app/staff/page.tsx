@@ -368,7 +368,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
   const { isOffline } = useNetworkStatus();
   const isLocal = isLocalBackend() && !isDevOnlinePortal();
-  const isDeliveryBlocked = isLocal || isOffline;
+  const isDeliveryBlocked = isOffline || (isLocal && (typeof navigator !== "undefined" && !navigator.onLine));
   const [proofOrder, setProofOrder] = useState<DeliveryOrder | null>(null);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
 

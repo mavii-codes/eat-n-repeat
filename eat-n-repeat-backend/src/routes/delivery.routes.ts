@@ -6,11 +6,7 @@ const router = Router();
 
 // Offline gating: Delivery is available ONLINE ONLY.
 router.use((_req, res, next) => {
-  if (
-    process.env.LOCAL_BACKEND === "true" ||
-    process.env.LOCAL_BACKEND === "1" ||
-    process.env.IS_OFFLINE === "true"
-  ) {
+  if (process.env.IS_OFFLINE === "true") {
     return res.status(503).json({
       success: false,
       message: "Delivery is available online only. Internet connection required.",

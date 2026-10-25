@@ -30,7 +30,7 @@ export default function DeliveryPage() {
 
   const { isOffline } = useNetworkStatus();
   const isLocal = isLocalBackend() && !isDevOnlinePortal();
-  const isDeliveryDisabled = isOffline || isLocal;
+  const isDeliveryDisabled = isOffline || (isLocal && (typeof navigator !== "undefined" && !navigator.onLine));
 
   // Poll shared orders from backend on mount and every 10s so delivery status
   // updates made by Staff on other devices/tabs appear automatically.

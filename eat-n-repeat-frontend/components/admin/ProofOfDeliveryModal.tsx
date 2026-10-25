@@ -155,31 +155,42 @@ export function ProofOfDeliveryModal({
 
   const compressPhoto = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const objectUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        try {
-          const MAX_SIDE = 800;
-          const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
-          const w = Math.max(1, Math.round(img.width * scale));
-          const h = Math.max(1, Math.round(img.height * scale));
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) throw new Error("Canvas not supported");
-          ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-          resolve(dataUrl);
-        } catch (err) {
-          reject(err);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const rawDataUrl = e.target?.result as string;
+        if (!rawDataUrl) {
+          return reject(new Error("Failed to read image file."));
         }
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const MAX_SIDE = 800;
+            const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+            const w = Math.max(1, Math.round(img.width * scale));
+            const h = Math.max(1, Math.round(img.height * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              return resolve(rawDataUrl);
+            }
+            ctx.drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+            resolve(dataUrl);
+          } catch {
+            resolve(rawDataUrl);
+          }
+        };
+        img.onerror = () => {
+          resolve(rawDataUrl);
+        };
+        img.src = rawDataUrl;
       };
-      img.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error("Could not process image file."));
+      reader.onerror = () => {
+        reject(new Error("Could not read image file."));
       };
+      reader.readAsDataURL(file);
     });
   };
 

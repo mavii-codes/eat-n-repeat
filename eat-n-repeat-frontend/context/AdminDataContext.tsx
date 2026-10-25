@@ -2489,8 +2489,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
           refreshBackendOrders();
           return;
         }
-        const offline =
-          networkError || (typeof navigator !== "undefined" && !navigator.onLine);
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
         if (offline && prevStatus !== undefined) {
           setData((prev) => ({
             ...prev,
@@ -2530,8 +2529,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       id: string,
       proof: { photo: string; signature: string; note?: string | null }
     ): Promise<{ success: boolean; message?: string }> => {
-      const { getApiUrl, isLocalBackend, isDevOnlinePortal } = await import("@/lib/config");
-      if ((isLocalBackend() && !isDevOnlinePortal()) || (typeof navigator !== "undefined" && !navigator.onLine)) {
+      const isOfflineNow = typeof navigator !== "undefined" && !navigator.onLine;
+      if (isOfflineNow) {
         return { success: false, message: "Delivery is available online only. Internet connection required." };
       }
       try {
