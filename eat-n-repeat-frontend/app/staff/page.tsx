@@ -161,34 +161,43 @@ function getMonthLabel(dateStr: string): string {
 function toDisplayRows(storeOrders: RecentOrder[], deliveryOrders: DeliveryOrder[]) {
   return [
     ...storeOrders,
-    ...deliveryOrders.map((d) => ({
-      ...d,
-      id: d.id,
-      orderId: d.orderNumber,
-      time: d.orderedAt,
-      orderType: "delivery",
-      orderMode: (d as any).orderMode || "online",
-      paid: true, // assume paid for delivery in this mock unless stated
-      customerName: d.customerName,
-      subtotal: d.subtotal,
-      deliveryFee: d.deliveryFee,
-    })),
+    ...deliveryOrders.map((d) => {
+      const isPaid = Boolean(
+        d.paid ||
+        (typeof d.paymentStatus === "string" && d.paymentStatus.toUpperCase() === "PAID")
+      );
+      return {
+        ...d,
+        id: d.id,
+        orderId: d.orderNumber,
+        time: d.orderedAt,
+        orderType: "delivery",
+        orderMode: (d as any).orderMode || "online",
+        paid: isPaid,
+        paymentStatus: isPaid ? "paid" : "unpaid",
+        customerName: d.customerName,
+        subtotal: d.subtotal,
+        deliveryFee: d.deliveryFee,
+      };
+    }),
   ];
 }
 
 // Delivery-tab flavor of the mapping above, used by the Delivery queue and
-// Delivery History "Details" buttons. Same normalization, but deliberately NO
-// `paid` flag: DeliveryOrder carries no payment state anywhere in the app, so
-// the details modal hides its Payment Status block for these rows instead of
-// asserting a payment state that was never fetched. (Customer Orders keeps
-// using toDisplayRows unchanged.)
+// Delivery History "Details" buttons. Uses the order's real payment status.
 function deliveryToDisplayRow(d: DeliveryOrder) {
+  const isPaid = Boolean(
+    d.paid ||
+    (typeof d.paymentStatus === "string" && d.paymentStatus.toUpperCase() === "PAID")
+  );
   return {
     ...d,
     id: d.id,
     orderId: d.orderNumber,
     time: d.orderedAt,
     orderType: "delivery" as const,
+    paid: isPaid,
+    paymentStatus: isPaid ? "paid" : "unpaid",
     customerName: d.customerName,
     subtotal: d.subtotal,
     deliveryFee: d.deliveryFee,
