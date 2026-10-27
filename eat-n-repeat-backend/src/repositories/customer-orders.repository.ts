@@ -4,7 +4,7 @@ export class CustomerOrdersRepository {
   async findOrdersByCustomerId(customerId: string) {
     return prisma.order.findMany({
       where: { customerId },
-      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
+      include: { payments: { orderBy: { createdAt: "desc" } } },
       orderBy: { createdAt: "desc" },
     });
   }
@@ -12,7 +12,7 @@ export class CustomerOrdersRepository {
   async findOrderByIdAndCustomer(orderId: string, customerId: string) {
     return prisma.order.findFirst({
       where: { id: orderId, customerId },
-      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
+      include: { payments: { orderBy: { createdAt: "desc" } } },
     });
   }
 

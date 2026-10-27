@@ -5,7 +5,7 @@ import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
 import { v4 as uuidv4 } from "uuid";
 import type { HistoryQueryInput } from "@/schema/admin-orders/admin-orders.schema";
 import { prisma } from "@/lib/prisma";
-import { emitAdminEvent } from "@/lib/sse";
+import { emitAdminEvent, emitPaymentEvent } from "@/lib/sse";
 
 async function resolveSubmittedByUsers(orders: any[]) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -149,6 +149,18 @@ export async function updateAdminOrderStatus(orderIdParam: string, status: strin
     throw Object.assign(new Error("Completed orders cannot be reopened or changed."), { status: 403 });
   }
 
+  // Business Rule: Delivery, Pick-up, and Dine-in orders CANNOT reach completed or delivered unless payment is PAID
+  if (status === "completed" || status === "delivered") {
+    const payments = await prisma.payment.findMany({ where: { orderId: order.id } });
+    const isPaid = payments.some((p) => String(p.status).toUpperCase() === "PAID");
+    if (!isPaid) {
+      throw Object.assign(
+        new Error("Payment must be collected and marked as PAID before completing or delivering this order."),
+        { status: 400 }
+      );
+    }
+  }
+
   const updatedOrder = await adminOrdersRepository.updateOrder(order.id, { status });
 
   // Redemption bookkeeping, best-effort (never fails the status change):
@@ -220,14 +232,14 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
   }
 
   const currentStatus = String(order.status ?? "").toLowerCase();
-  if (currentStatus === "completed" || currentStatus === "cancelled") {
+  if (currentStatus === "cancelled") {
     throw Object.assign(
-      new Error("This order is already completed/cancelled and cannot be marked as paid."),
+      new Error("Cancelled orders cannot be marked as paid."),
       { status: 400 },
     );
   }
 
-  const { paymentMethod = "cash", amount } = body;
+  const { paymentMethod = "cash", amount, targetStatus } = body;
   const totalAmount = amount || Number(order.total);
 
   // Check if there's already a paid payment for this order
@@ -253,8 +265,15 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
     });
   }
 
-  // Update order status
-  await adminOrdersRepository.updateOrder(order.id, { status: "confirmed" });
+  // Update order status: preserve existing active/completed stage unless targetStatus is given
+  // or it was a fresh pending order advancing to confirmed.
+  let nextStatus = currentStatus;
+  if (targetStatus && (targetStatus === "completed" || targetStatus === "delivered" || targetStatus === "confirmed")) {
+    nextStatus = targetStatus;
+  } else if (currentStatus === "pending" || currentStatus === "pending_payment" || currentStatus === "awaiting_payment") {
+    nextStatus = "confirmed";
+  }
+  await adminOrdersRepository.updateOrder(order.id, { status: nextStatus });
 
   // Payment truth confirmed: the redemption matures RESERVED → APPLIED.
   try {
@@ -317,7 +336,16 @@ export async function markOrderAsPaid(orderIdParam: string, body: any, userId?: 
   }
 
   try {
+    emitAdminEvent({ type: "ORDER_UPDATED", at: new Date().toISOString() });
     emitAdminEvent({ type: "PAYMENT_UPDATED", at: new Date().toISOString() });
+    emitPaymentEvent({
+      type: "PAYMENT_PAID",
+      at: new Date().toISOString(),
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: nextStatus,
+      paymentStatus: "PAID",
+    });
   } catch {
     /* event must never break the write */
   }

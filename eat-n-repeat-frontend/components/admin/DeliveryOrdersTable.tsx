@@ -89,8 +89,22 @@ export function DeliveryOrdersTable({
   onChat,
   disabled = false,
 }: DeliveryOrdersTableProps) {
-  const { submitProofOfDelivery, updateDeliveryOrderPhone, staffAccounts } = useAdminData();
+  const { submitProofOfDelivery, updateDeliveryOrderPhone, staffAccounts, confirmStoreOrderPayment } = useAdminData();
   const { user } = useAuth();
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+
+  const handleMarkOrderPaid = async (orderId: string, orderTotal: number) => {
+    if (markingPaidId) return;
+    setMarkingPaidId(orderId);
+    try {
+      await confirmStoreOrderPayment(orderId, orderTotal);
+      toast.success("Order marked as paid!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to mark order as paid");
+    } finally {
+      setMarkingPaidId(null);
+    }
+  };
 
   const getStaffDisplayName = (identifier?: string | null): string => {
     if (!identifier) return "Staff";
@@ -138,7 +152,7 @@ export function DeliveryOrdersTable({
     }
   };
 
-  const handleProofSubmit = async (proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }) => {
+  const handleProofSubmit = async (proof: { photo: string; signature: string; note?: string | null; submittedBy?: string; cashCollected?: boolean }) => {
     if (!proofOrder) return;
     const res = await submitProofOfDelivery(proofOrder.id, {
       ...proof,
@@ -200,6 +214,7 @@ export function DeliveryOrdersTable({
               <th className="px-4 py-3 font-medium">Area</th>
               <th className="px-4 py-3 font-medium">Items</th>
               <th className="px-4 py-3 font-medium">Total</th>
+              <th className="px-4 py-3 font-medium">Payment</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Ordered</th>
               <th className="rounded-r-lg px-4 py-3 font-medium text-right">Actions</th>
@@ -249,6 +264,31 @@ export function DeliveryOrdersTable({
                   </p>
                 </td>
                 <td className="px-4 py-3">
+                  {order.paid || order.paymentStatus === "PAID" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      PAID
+                    </span>
+                  ) : (
+                    <div className="space-y-1">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                        UNPAID
+                      </span>
+                      {(order.status === "delivered" || order.status === "completed") && (
+                        <p className="text-[10px] font-bold text-amber-700 whitespace-nowrap">
+                          ⚠️ Needs Attention
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {order.paymentMethod && (
+                    <p className="text-[10px] text-stone-500 capitalize mt-0.5">
+                      {order.paymentMethod}
+                    </p>
+                  )}
+                </td>
+                <td className="px-4 py-3">
                   {showStatusControl && onStatusChange && !disabled ? (
                     <AdminSelect
                       value={order.status}
@@ -287,6 +327,17 @@ export function DeliveryOrdersTable({
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-1.5">
+                    {(!order.paid && order.paymentStatus !== "PAID") && (order.status === "delivered" || order.status === "completed") && (
+                      <button
+                        type="button"
+                        disabled={markingPaidId === order.id}
+                        onClick={() => handleMarkOrderPaid(order.id, order.total)}
+                        className="rounded-lg bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 text-xs font-bold transition shadow-xs cursor-pointer whitespace-nowrap"
+                        title="Mark as Paid"
+                      >
+                        {markingPaidId === order.id ? "Marking..." : "Mark Paid"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openDetails(order)}
@@ -338,6 +389,27 @@ export function DeliveryOrdersTable({
                 <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${deliveryStatusStyles[currentDetailsOrder.status]}`}>
                   {deliveryStatusLabels[currentDetailsOrder.status]}
                 </span>
+                {currentDetailsOrder.paid || currentDetailsOrder.paymentStatus === "PAID" ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                    PAID ({currentDetailsOrder.paymentMethod || "Cash/Online"})
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-900 border border-amber-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+                      UNPAID ({currentDetailsOrder.paymentMethod || "Cash on Delivery"})
+                    </span>
+                    <button
+                      type="button"
+                      disabled={markingPaidId === currentDetailsOrder.id}
+                      onClick={() => handleMarkOrderPaid(currentDetailsOrder.id, currentDetailsOrder.total)}
+                      className="rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-0.5 text-[11px] font-bold transition shadow-xs cursor-pointer"
+                    >
+                      {markingPaidId === currentDetailsOrder.id ? "Marking..." : "Mark as Paid"}
+                    </button>
+                  </div>
+                )}
                 <span className="text-xs text-stone-500 font-medium">
                   {currentDetailsOrder.orderedAt ? `Ordered ${formatDeliveryDate(currentDetailsOrder.orderedAt)}` : ""}
                 </span>

@@ -364,6 +364,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
   const [orderHistorySearch, setOrderHistorySearch] = useState("");
   const [deliverySearch, setDeliverySearch] = useState("");
   const [deliveryHistorySearch, setDeliveryHistorySearch] = useState("");
+  const [deliveryHistoryFilter, setDeliveryHistoryFilter] = useState<"all" | "unpaid">("all");
   const [orderHistoryStatusFilter, setOrderHistoryStatusFilter] = useState("all");
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<any | null>(null);
   const { isOffline } = useNetworkStatus();
@@ -2192,6 +2193,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                       <th className={staffTh}>Customer Details</th>
                       <th className={staffTh}>Manifest</th>
                       <th className={staffTh}>Total Price</th>
+                      <th className={staffTh}>Payment</th>
                       <th className={staffTh}>Ordered</th>
                       <th className={staffTh}>Delivery Status</th>
                       <th className={`${staffTh} text-right`}>Actions</th>
@@ -2200,7 +2202,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                   <tbody className="divide-y divide-stone-100">
                     {deliveryOrders.filter(o => !o.archived && o.status !== "completed" && o.status !== "cancelled").length === 0 ? (
                       <tr>
-                        <td colSpan={7} className={staffEmptyCell}>No delivery orders listed.</td>
+                        <td colSpan={8} className={staffEmptyCell}>No delivery orders listed.</td>
                       </tr>
                     ) : (
                       [...deliveryOrders.filter(o => {
@@ -2236,6 +2238,19 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                           </td>
                           <td className={`${staffTd} text-xs max-w-[150px] truncate`}>{order.items}</td>
                           <td className={`${staffTd} font-semibold text-stone-800 whitespace-nowrap`}>₱{order.total}</td>
+                          <td className={staffTd}>
+                            {order.paid || order.paymentStatus === "PAID" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800 border border-emerald-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                                PAID
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900 border border-amber-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+                                UNPAID
+                              </span>
+                            )}
+                          </td>
                           <td className={`${staffTd} text-[10px] font-semibold text-stone-400 whitespace-nowrap`}>{formatPhDateTime(order.orderedAt) || "—"}</td>
                           <td className={staffTd}>
                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${
@@ -2295,9 +2310,13 @@ function OrderTableScroll({ className, children }: { className?: string; childre
 
               {/* DELIVERY HISTORY — read-only final states, derived from the same state as the queue. */}
               {(() => {
-                const history = deliveryOrders
+                let history = deliveryOrders
                   .filter(o => !o.archived && (o.status === "completed" || o.status === "cancelled"))
                   .sort((a, b) => orderEpoch(b) - orderEpoch(a));
+                const unpaidCount = history.filter(o => !o.paid && o.paymentStatus !== "PAID" && o.status === "completed").length;
+                if (deliveryHistoryFilter === "unpaid") {
+                  history = history.filter(o => !o.paid && o.paymentStatus !== "PAID");
+                }
                 const q = deliveryHistorySearch.trim().toLowerCase();
                 const filteredHistory = q
                   ? history.filter(o =>
@@ -2322,6 +2341,35 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                           onChange={(e) => setDeliveryHistorySearch(e.target.value)}
                         />
                       </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryHistoryFilter("all")}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                            deliveryHistoryFilter === "all"
+                              ? "bg-[#800000] text-white shadow-xs"
+                              : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryHistoryFilter("unpaid")}
+                          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                            deliveryHistoryFilter === "unpaid"
+                              ? "bg-amber-600 text-white shadow-xs"
+                              : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                          }`}
+                        >
+                          <span>⚠️ Needs Attention</span>
+                          {unpaidCount > 0 && (
+                            <span className="rounded-full bg-white/40 px-1.5 py-0.2 text-[10px] font-black">
+                              {unpaidCount}
+                            </span>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     <div className="p-2">
                       <OrderTableScroll className="overflow-x-auto">
@@ -2332,6 +2380,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                               <th className={staffTh}>Order ID</th>
                               <th className={staffTh}>Customer Details</th>
                               <th className={staffTh}>Total Price</th>
+                              <th className={staffTh}>Payment</th>
                               <th className={staffTh}>Ordered</th>
                               <th className={staffTh}>Final Status</th>
                               <th className={`${staffTh} text-right`}>Actions</th>
@@ -2340,7 +2389,7 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                           <tbody className="divide-y divide-stone-100">
                             {filteredHistory.length === 0 ? (
                               <tr>
-                                <td colSpan={6} className={staffEmptyCell}>No completed or cancelled deliveries yet.</td>
+                                <td colSpan={7} className={staffEmptyCell}>No completed or cancelled deliveries found.</td>
                               </tr>
                             ) : (
                               filteredHistory.map((order) => (
@@ -2352,6 +2401,26 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                     <p className="text-stone-400 mt-0.5 max-w-[180px] truncate">{order.address}</p>
                                   </td>
                                   <td className={`${staffTd} font-semibold text-stone-800 whitespace-nowrap`}>₱{order.total}</td>
+                                  <td className={staffTd}>
+                                    {order.paid || order.paymentStatus === "PAID" ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800 border border-emerald-300">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                                        PAID
+                                      </span>
+                                    ) : (
+                                      <div className="space-y-0.5">
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900 border border-amber-300">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+                                          UNPAID
+                                        </span>
+                                        {order.status === "completed" && (
+                                          <p className="text-[10px] font-bold text-amber-700 whitespace-nowrap">
+                                            ⚠️ Needs Attention
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
                                   <td className={`${staffTd} text-[10px] font-semibold text-stone-400 whitespace-nowrap`}>{formatPhDateTime(order.orderedAt) || "—"}</td>
                                   <td className={staffTd}>
                                     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase border ${
@@ -2363,14 +2432,27 @@ function OrderTableScroll({ className, children }: { className?: string; childre
                                     </span>
                                   </td>
                                   <td className={`${staffTd} text-right`}>
-                                    <button
-                                      onClick={() => setSelectedOrderDetails(deliveryToDisplayRow(order))}
-                                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-stone-200 bg-white text-[#800000] shadow-sm transition-colors hover:bg-stone-50 cursor-pointer"
-                                      aria-label="Details"
-                                      title="Details"
-                                    >
-                                      <Eye className="h-3.5 w-3.5" />
-                                    </button>
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      {(!order.paid && order.paymentStatus !== "PAID") && order.status === "completed" && (
+                                        <button
+                                          type="button"
+                                          disabled={markingPaidId === order.id}
+                                          onClick={() => handleMarkCashPaid(order)}
+                                          className="rounded-lg bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 text-[11px] font-bold transition shadow-xs cursor-pointer whitespace-nowrap"
+                                          title="Mark order as paid"
+                                        >
+                                          {markingPaidId === order.id ? "Marking..." : "Mark Paid"}
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => setSelectedOrderDetails(deliveryToDisplayRow(order))}
+                                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-stone-200 bg-white text-[#800000] shadow-sm transition-colors hover:bg-stone-50 cursor-pointer"
+                                        aria-label="Details"
+                                        title="Details"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
                                   </td>
                                 </tr>
                               ))

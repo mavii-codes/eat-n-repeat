@@ -4,7 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import { AdminModal } from "@/components/admin/AdminModal";
 import { AdminButton } from "@/components/admin/AdminForm";
 import { getStaffOrAdminToken } from "@/lib/admin/auth-token";
-import { Camera, Image as ImageIcon, RotateCcw, Check, AlertCircle, Loader2 } from "lucide-react";
+import { Camera, Image as ImageIcon, RotateCcw, Check, AlertCircle, Loader2, Banknote } from "lucide-react";
 import toast from "react-hot-toast";
 
 type ProofOfDeliveryModalProps = {
@@ -15,9 +15,13 @@ type ProofOfDeliveryModalProps = {
     customerName: string;
     phone?: string | null;
     address?: string | null;
+    total?: number;
+    paymentMethod?: string | null;
+    paid?: boolean;
+    paymentStatus?: string | null;
   } | null;
   onClose: () => void;
-  onSubmit: (proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }) => Promise<void>;
+  onSubmit: (proof: { photo: string; signature: string; note?: string | null; submittedBy?: string; cashCollected?: boolean }) => Promise<void>;
 };
 
 export function ProofOfDeliveryModal({
@@ -31,11 +35,17 @@ export function ProofOfDeliveryModal({
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
+  const [cashCollected, setCashCollected] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isPaid = Boolean(
+    order?.paid ||
+    (order?.paymentStatus && String(order.paymentStatus).toUpperCase() === "PAID")
+  );
 
   // Reset state when opening/closing
   useEffect(() => {
@@ -45,6 +55,7 @@ export function ProofOfDeliveryModal({
       setNote("");
       setSubmitting(false);
       setHasSignature(false);
+      setCashCollected(false);
       setErrorMessage(null);
       setTimeout(() => initCanvas(), 50);
     }
@@ -218,6 +229,11 @@ export function ProofOfDeliveryModal({
       return;
     }
 
+    if (!isPaid && !cashCollected) {
+      setErrorMessage("Please confirm cash collection before completing delivery.");
+      return;
+    }
+
     setSubmitting(true);
     setErrorMessage(null);
 
@@ -233,6 +249,7 @@ export function ProofOfDeliveryModal({
         photo: photoUrl,
         signature: signatureUrl,
         note: note.trim() || null,
+        cashCollected: !isPaid ? true : undefined,
       });
 
       toast.success("Delivery completed with proof!");
@@ -266,7 +283,7 @@ export function ProofOfDeliveryModal({
           <AdminButton
             type="button"
             variant="primary"
-            disabled={submitting || !photoFile || !hasSignature}
+            disabled={submitting || !photoFile || !hasSignature || (!isPaid && !cashCollected)}
             onClick={handleSubmit}
             className="gap-2"
           >
@@ -296,6 +313,61 @@ export function ProofOfDeliveryModal({
             📍 {order.address || "Standard Delivery"}
           </p>
         </div>
+
+        {/* Payment & Cash Collection Notice */}
+        {!isPaid ? (
+          <div className="rounded-xl border-2 border-amber-300 bg-amber-50/80 p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center justify-center rounded-full bg-amber-200/80 text-amber-900 p-1.5">
+                  <Banknote className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-amber-950">
+                    Cash Collection Required
+                  </p>
+                  <p className="text-[11px] text-amber-800">
+                    Payment method: <span className="font-semibold">{order.paymentMethod || "Cash on Delivery"}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-base font-bold text-amber-950">
+                  ₱{(order.total ?? 0).toFixed(2)}
+                </span>
+                <span className="block text-[10px] font-semibold uppercase text-amber-700">
+                  To Collect
+                </span>
+              </div>
+            </div>
+
+            <label className="flex items-start gap-2.5 pt-2 border-t border-amber-200 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={cashCollected}
+                onChange={(e) => setCashCollected(e.target.checked)}
+                disabled={submitting}
+                className="mt-0.5 h-4 w-4 rounded border-amber-400 text-[#800000] focus:ring-[#800000]"
+              />
+              <span className="text-xs font-medium text-amber-950 leading-tight">
+                I confirm that I have collected <strong className="font-bold">₱{(order.total ?? 0).toFixed(2)}</strong> in cash from the customer.
+              </span>
+            </label>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center rounded-full bg-emerald-200 text-emerald-800 p-1">
+                <Check className="h-3.5 w-3.5" />
+              </span>
+              <div>
+                <p className="font-bold text-emerald-900 uppercase tracking-wider text-[11px]">Payment Received (PAID)</p>
+                <p className="text-[11px] text-emerald-700">Method: {order.paymentMethod || "Online / Pre-paid"}</p>
+              </div>
+            </div>
+            <span className="font-bold text-emerald-900 text-sm">₱{(order.total ?? 0).toFixed(2)}</span>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">

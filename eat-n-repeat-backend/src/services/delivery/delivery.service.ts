@@ -3,7 +3,8 @@ import { adminFlagsService } from "@/services/admin-flags";
 import { notifyAllStaff } from "@/services/staff-notifications";
 import { releaseRedemptionForOrder } from "@/services/promos/promos.service";
 import { releaseStockForOrder } from "@/services/stock/stock-order-sync";
-import { emitAdminEvent } from "@/lib/sse";
+import { emitAdminEvent, emitPaymentEvent } from "@/lib/sse";
+import { v4 as uuidv4 } from "uuid";
 import { normalizePhoneNumber, isValidPhoneNumber, phoneFormatMessage } from "@/services/customer-phone";
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
@@ -195,6 +196,14 @@ export class DeliveryService {
       }
     }
 
+    // Business rule: orders cannot reach delivered or completed unless payment is PAID
+    if ((status === "delivered" || status === "completed") && !hasPaidPayment(order)) {
+      throw Object.assign(
+        new Error(`Payment must be collected and marked as PAID before marking this order as ${status}.`),
+        { status: 400 }
+      );
+    }
+
     const updatedOrder = await deliveryRepository.updateOrder(orderId, {
       status,
       ...(status === "delivered" && !order.deliveredAt ? { deliveredAt: new Date() } : {}),
@@ -221,7 +230,14 @@ export class DeliveryService {
 
   async completeDeliveryWithProof(
     orderId: string,
-    proof: { photo: string; signature: string; note: string | null; submittedBy: string }
+    proof: {
+      photo: string;
+      signature: string;
+      note: string | null;
+      submittedBy: string;
+      cashCollected?: boolean;
+      collectorUserId?: string;
+    }
   ) {
     const order = await deliveryRepository.findOrderByIdOrNumber(orderId);
     if (!order) {
@@ -230,15 +246,103 @@ export class DeliveryService {
     if (order.status === "cancelled") {
       throw Object.assign(new Error("Cannot complete a cancelled order"), { status: 400 });
     }
+
+    const existingPayments = await prisma.payment.findMany({ where: { orderId: order.id } });
+    const isAlreadyPaid = existingPayments.some((p) => String(p.status).toUpperCase() === "PAID");
+
+    // If order is cash/unpaid, require cash collection confirmation
+    if (!isAlreadyPaid && !proof.cashCollected) {
+      throw Object.assign(
+        new Error(`Cash payment of ₱${Number(order.total).toFixed(2)} must be collected to complete delivery.`),
+        { status: 400 }
+      );
+    }
+
     const now = new Date();
-    const updatedOrder = await deliveryRepository.updateOrder(order.id, {
-      status: order.status === "completed" ? "completed" : "delivered",
-      deliveredAt: order.deliveredAt || now,
-      proofOfDeliveryPhoto: proof.photo,
-      proofOfDeliverySignature: proof.signature,
-      proofOfDeliveryNote: proof.note || null,
-      proofOfDeliverySubmittedAt: now,
-      proofOfDeliverySubmittedBy: proof.submittedBy,
+    const totalAmount = Number(order.total);
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      if (!isAlreadyPaid) {
+        const existingPayment = existingPayments[0];
+        if (existingPayment) {
+          await tx.payment.update({
+            where: { id: existingPayment.id },
+            data: {
+              status: "PAID",
+              paidAt: now,
+              paymentMethod: existingPayment.paymentMethod || "cash",
+            },
+          });
+        } else {
+          await tx.payment.create({
+            data: {
+              id: uuidv4(),
+              orderId: order.id,
+              amount: totalAmount,
+              status: "PAID",
+              paymentMethod: "cash",
+              paidAt: now,
+            },
+          });
+        }
+
+        // Handle cash drawer if cash was collected
+        if (proof.collectorUserId) {
+          const openShift = await tx.cashShift.findFirst({
+            where: { staffId: proof.collectorUserId, status: "open" },
+          });
+          const shiftToUse = openShift || (await tx.cashShift.findFirst({ where: { status: "open" } }));
+          if (shiftToUse) {
+            const existingTx = await tx.cashTransaction.findFirst({ where: { orderId: order.id } });
+            if (!existingTx) {
+              await tx.cashTransaction.create({
+                data: {
+                  id: uuidv4(),
+                  shiftId: shiftToUse.id,
+                  orderId: order.id,
+                  type: "sale",
+                  amount: totalAmount,
+                  timestamp: now,
+                },
+              });
+              await tx.cashShift.update({
+                where: { id: shiftToUse.id },
+                data: { expectedCash: { increment: totalAmount } },
+              });
+            }
+          }
+        }
+
+        // Notify customer of payment confirmation
+        if (order.customerId) {
+          try {
+            await tx.customerNotification.create({
+              data: {
+                id: uuidv4(),
+                customerId: order.customerId,
+                type: "payment",
+                title: `Payment Received - Order #${order.orderNumber}`,
+                description: `Cash payment of ₱${totalAmount.toFixed(2)} received on delivery. Thank you!`,
+              },
+            });
+          } catch (notifyErr) {
+            console.warn("Failed to create customer payment notification:", notifyErr);
+          }
+        }
+      }
+
+      return tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: order.status === "completed" ? "completed" : "delivered",
+          deliveredAt: order.deliveredAt || now,
+          proofOfDeliveryPhoto: proof.photo,
+          proofOfDeliverySignature: proof.signature,
+          proofOfDeliveryNote: proof.note || null,
+          proofOfDeliverySubmittedAt: now,
+          proofOfDeliverySubmittedBy: proof.submittedBy,
+        },
+      });
     });
 
     if (order.customerId && (order as any).orderMode === "online") {
@@ -251,6 +355,15 @@ export class DeliveryService {
 
     try {
       emitAdminEvent({ type: "ORDER_UPDATED", at: now.toISOString() });
+      emitAdminEvent({ type: "PAYMENT_UPDATED", at: now.toISOString() });
+      emitPaymentEvent({
+        type: "PAYMENT_PAID",
+        at: now.toISOString(),
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        status: "delivered",
+        paymentStatus: "PAID",
+      });
     } catch {
       /* event must never break the write */
     }

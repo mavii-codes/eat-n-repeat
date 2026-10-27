@@ -12,6 +12,92 @@ import { Package, Bike, CheckCircle2, XCircle, RefreshCw, Search } from 'lucide-
 
 type OrderFilterStatus = 'all' | 'active' | 'completed' | 'cancelled';
 
+function parseCustomerOrderItems(rawItems: unknown, subtotal: number): Array<{ name: string; quantity: number; price: number }> {
+  if (!rawItems) {
+    return [{ name: 'Signature Menu Items', quantity: 1, price: subtotal || 0 }];
+  }
+
+  if (Array.isArray(rawItems)) {
+    return rawItems.map((item: any) => ({
+      name: item.name || item.title || 'Item',
+      quantity: Number(item.quantity) || 1,
+      price: Number(item.price) || (subtotal / (rawItems.length || 1)),
+    }));
+  }
+
+  if (typeof rawItems === 'string') {
+    const trimmed = rawItems.trim().replace(/^,\s*/, '');
+    if (!trimmed) {
+      return [{ name: 'Signature Menu Items', quantity: 1, price: subtotal || 0 }];
+    }
+
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((item: any) => ({
+            name: item.name || item.title || 'Item',
+            quantity: Number(item.quantity) || 1,
+            price: Number(item.price) || (subtotal / (parsed.length || 1)),
+          }));
+        } else if (parsed && typeof parsed === 'object') {
+          return [{
+            name: parsed.name || parsed.title || 'Item',
+            quantity: Number(parsed.quantity) || 1,
+            price: Number(parsed.price) || subtotal || 0,
+          }];
+        }
+      } catch {
+        // Not valid JSON, continue to string parsing
+      }
+    }
+
+    const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0) {
+      const parsedList = parts.map((part) => {
+        const prefixMatch = part.match(/^(\d+)\s*[xX]\s*(.+)$/);
+        if (prefixMatch) {
+          return {
+            quantity: parseInt(prefixMatch[1], 10),
+            name: prefixMatch[2].trim(),
+            price: 0,
+          };
+        }
+        const suffixMatch = part.match(/^(.+?)\s*[xX]\s*(\d+)$/);
+        if (suffixMatch) {
+          return {
+            name: suffixMatch[1].trim(),
+            quantity: parseInt(suffixMatch[2], 10),
+            price: 0,
+          };
+        }
+        const parenMatch = part.match(/^(.+?)\s*\((?:qty:\s*)?(\d+)\)$/i);
+        if (parenMatch) {
+          return {
+            name: parenMatch[1].trim(),
+            quantity: parseInt(parenMatch[2], 10),
+            price: 0,
+          };
+        }
+        return {
+          name: part,
+          quantity: 1,
+          price: 0,
+        };
+      });
+
+      const totalQty = parsedList.reduce((sum, item) => sum + item.quantity, 0) || 1;
+      const unitAvg = subtotal > 0 ? subtotal / totalQty : 0;
+      return parsedList.map((item) => ({
+        ...item,
+        price: item.price > 0 ? item.price : unitAvg,
+      }));
+    }
+  }
+
+  return [{ name: String(rawItems), quantity: 1, price: subtotal || 0 }];
+}
+
 function OrdersPageContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -171,7 +257,7 @@ function OrdersPageContent() {
                 // legacy pickup rows; OrderCard falls back to customerName).
                 pickupName: o.pickupName ?? null,
                 pickupAt: o.pickupAt ?? null,
-                items: [{ name: o.items ? o.items.replace(/^,\s*/, '') : 'Signature Menu Items', quantity: 1, price: o.subtotal }],
+                items: parseCustomerOrderItems(o.items, o.subtotal),
                 deliveryType: o.type === 'dine-in' ? 'dine-in' : o.type === 'pickup' ? 'pickup' : 'delivery',
               };
             });
@@ -205,11 +291,23 @@ function OrdersPageContent() {
     };
 
     fetchOrders();
-    // Refresh orders every 10 seconds to keep tracking updated
-    const interval = setInterval(fetchOrders, 10000);
+    // Fast 4-second poll interval for realtime status & payment updates
+    const interval = setInterval(fetchOrders, 4000);
+
+    const handleFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchOrders();
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
     return () => {
       mounted = false;
       clearInterval(interval);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
     };
   }, [status, session, retryTick]);
 

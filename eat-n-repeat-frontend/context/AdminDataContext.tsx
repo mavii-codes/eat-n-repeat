@@ -515,6 +515,9 @@ function mapBackendOrders(rows: BackendOrderRow[]): {
         proofOfDeliverySubmittedAt: row.proofOfDeliverySubmittedAt ?? null,
         proofOfDeliverySubmittedBy: row.proofOfDeliverySubmittedBy ?? null,
         notes: typeof row.notes === "string" ? row.notes : undefined,
+        paid,
+        paymentStatus: paid ? "PAID" : "UNPAID",
+        paymentMethod: paymentMethod ?? (paidPayment?.paymentMethod ?? undefined),
         orderedAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : new Date().toISOString(),
         deliveredAt: row.deliveredAt ?? undefined,
         archived: Boolean(row.archived),
@@ -750,7 +753,7 @@ type AdminDataContextValue = AdminDataState & {
   updateDeliveryStatus: (id: string, status: DeliveryStatus) => void;
   submitProofOfDelivery: (
     id: string,
-    proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }
+    proof: { photo: string; signature: string; note?: string | null; submittedBy?: string; cashCollected?: boolean }
   ) => Promise<{ success: boolean; message?: string }>;
   updateDeliveryOrderPhone: (
     id: string,
@@ -2527,7 +2530,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const submitProofOfDelivery = useCallback(
     async (
       id: string,
-      proof: { photo: string; signature: string; note?: string | null; submittedBy?: string }
+      proof: { photo: string; signature: string; note?: string | null; submittedBy?: string; cashCollected?: boolean }
     ): Promise<{ success: boolean; message?: string }> => {
       const isOfflineNow = typeof navigator !== "undefined" && !navigator.onLine;
       if (isOfflineNow) {
@@ -2552,6 +2555,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
                     ...order,
                     status: "delivered",
                     deliveredAt: new Date().toISOString(),
+                    paid: proof.cashCollected ? true : order.paid,
+                    paymentStatus: proof.cashCollected ? "PAID" : order.paymentStatus,
                     proofOfDeliveryPhoto: proof.photo,
                     proofOfDeliverySignature: proof.signature,
                     proofOfDeliveryNote: proof.note ?? null,
@@ -2731,7 +2736,10 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       setData((prev) => ({
         ...prev,
         storeOrders: prev.storeOrders.map((order) =>
-          order.id === id ? { ...order, paid: true, paymentStatus: 'paid' as const, paymentSyncPending: syncPending || undefined } : order
+          order.id === id || order.orderId === id ? { ...order, paid: true, paymentStatus: 'paid' as const, paymentSyncPending: syncPending || undefined } : order
+        ),
+        deliveryOrders: prev.deliveryOrders.map((order) =>
+          order.id === id || order.orderNumber === id ? { ...order, paid: true, paymentStatus: 'PAID' } : order
         ),
       }));
     };
@@ -2762,6 +2770,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
 
       if (data.success) {
         markPaidLocally();
+        refreshBackendOrders();
       } else {
         // Backend rejected (or CORS-blocked in this deploy) — keep POS usable
         // and queue the collection so a later drain persists it.

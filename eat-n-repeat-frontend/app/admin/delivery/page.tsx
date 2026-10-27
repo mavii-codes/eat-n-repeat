@@ -15,7 +15,7 @@ import {
   historyDeliveryStatuses,
 } from "@/lib/admin/delivery-utils";
 
-type Tab = "all" | "active" | "history";
+type Tab = "all" | "active" | "history" | "unpaid";
 
 export default function DeliveryPage() {
   const {
@@ -66,10 +66,17 @@ export default function DeliveryPage() {
   const activeOrders = getActiveDeliveryOrders();
   const historyOrders = getDeliveryHistory();
   const activeDeliveryList = deliveryOrders.filter((order) => !order.archived);
+  const unpaidOrders = activeDeliveryList.filter((order) => !order.paid && order.paymentStatus !== "PAID");
 
   const displayedOrders = useMemo(() => {
     const base =
-      tab === "active" ? activeOrders : tab === "history" ? historyOrders : activeDeliveryList;
+      tab === "active"
+        ? activeOrders
+        : tab === "history"
+        ? historyOrders
+        : tab === "unpaid"
+        ? unpaidOrders
+        : activeDeliveryList;
     const q = searchQuery.trim().toLowerCase();
     if (!q) return base;
     return base.filter(
@@ -80,12 +87,13 @@ export default function DeliveryPage() {
         order.address.toLowerCase().includes(q) ||
         order.items.toLowerCase().includes(q)
     );
-  }, [tab, activeDeliveryList, activeOrders, historyOrders, searchQuery]);
+  }, [tab, activeDeliveryList, activeOrders, historyOrders, unpaidOrders, searchQuery]);
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: "all", label: "All Orders", count: activeDeliveryList.length },
     { id: "active", label: "Monitor Status", count: activeOrders.length },
     { id: "history", label: "Delivery History", count: historyOrders.length },
+    { id: "unpaid", label: "⚠️ Unpaid", count: unpaidOrders.length },
   ];
 
   return (

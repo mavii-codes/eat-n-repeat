@@ -5,7 +5,10 @@ export class GetCustomerOrdersService {
     const orders = await customerOrdersRepository.findOrdersByCustomerId(customerId);
 
     return orders.map((o) => {
-      const payment = o.payments[0] ?? null;
+      const payment =
+        o.payments.find((p) => String(p.status).toUpperCase() === "PAID") ??
+        o.payments[0] ??
+        null;
       return {
         id: o.id,
         orderNumber: o.orderNumber,

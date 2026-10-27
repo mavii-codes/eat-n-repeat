@@ -501,6 +501,9 @@ export type DeliveryOrder = {
   proofOfDeliverySubmittedAt?: string | null;
   proofOfDeliverySubmittedBy?: string | null;
   notes?: string;
+  paid?: boolean;
+  paymentStatus?: string;
+  paymentMethod?: string;
   archived: boolean;
   archivedAt?: string;
 };

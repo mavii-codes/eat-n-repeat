@@ -327,17 +327,21 @@ export function OrderCard({
             </div>
           )}
 
-          {/* Cash Unpaid Payment Notice (all fulfillment types) */}
+          {/* Cash Payment Notice (all fulfillment types) */}
           {isActive && isPaymentUnpaid && paymentMethod !== 'GCash' && (
-            <div className="mb-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 shadow-sm">
+            <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 shadow-sm">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
-                  <Banknote className="w-5 h-5 text-yellow-700" />
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                  <Banknote className="w-5 h-5 text-amber-700" />
                 </div>
                 <div>
-                  <h4 className="font-black text-sm">Payment Required</h4>
+                  <h4 className="font-black text-sm">
+                    {deliveryType === 'delivery' ? 'Pay Cash on Delivery' : 'Pay at the Counter'}
+                  </h4>
                   <p className="text-xs font-medium opacity-90 mt-0.5 leading-relaxed">
-                    Please proceed to the cashier to complete your payment of <strong>₱{total.toFixed(2)}</strong>. Your order will only be processed after payment is confirmed.
+                    {deliveryType === 'delivery'
+                      ? `Please prepare exact cash of ₱${total.toFixed(2)} to hand to the delivery rider upon arrival.`
+                      : `Please proceed to the cashier counter to complete your payment of ₱${total.toFixed(2)}.`}
                   </p>
                 </div>
               </div>
@@ -467,11 +471,21 @@ export function OrderCard({
               </div>
               <div className="flex justify-between items-center text-xs text-stone-600 pt-1 border-t border-stone-200">
                 <span>Payment Status</span>
-                {isPaymentUnpaid ? (
-                  <span className="font-black uppercase text-amber-700">Unpaid</span>
-                ) : (
+                {isPaymentPaid ? (
                   <span className="inline-flex items-center gap-1 font-black uppercase text-green-700">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Paid
+                  </span>
+                ) : isDelivered ? (
+                  <span className="font-bold text-amber-700 text-xs">
+                    Payment being confirmed
+                  </span>
+                ) : deliveryType === 'delivery' ? (
+                  <span className="font-bold text-amber-700 text-xs">
+                    Pay cash on delivery
+                  </span>
+                ) : (
+                  <span className="font-bold text-amber-700 text-xs">
+                    Pay at the counter
                   </span>
                 )}
               </div>

@@ -130,6 +130,8 @@ export class DeliveryController {
         signature: signature.trim(),
         note: typeof note === "string" ? note.trim() : null,
         submittedBy,
+        cashCollected: req.body.cashCollected === true || req.body.cashCollected === "true",
+        collectorUserId: req.auth?.userId || (req as any).user?.id,
       });
       return res.json({ success: true, order });
     } catch (error: any) {
